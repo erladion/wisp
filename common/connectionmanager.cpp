@@ -40,7 +40,7 @@ void ConnectionManager::shutdown() {
 
       if (m_instance->m_connected && m_instance->m_worker) {
         broker::BrokerPayload byeMsg;
-        byeMsg.set_handler_key(std::string(Keys::DISCONNECT));
+        byeMsg.set_handler_key(Keys::DISCONNECT);
         byeMsg.set_sender_id(m_instance->m_clientId);
         byeMsg.set_topic("");
         m_instance->m_worker->writeControlMessage(byeMsg);
@@ -142,7 +142,7 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
 
     if (connected) {
       broker::BrokerPayload connectMessage;
-      connectMessage.set_handler_key(std::string(Keys::CONNECT));
+      connectMessage.set_handler_key(Keys::CONNECT);
       connectMessage.set_sender_id(m_clientId);
       connectMessage.set_topic("");
       m_worker->writeControlMessage(connectMessage);
@@ -150,7 +150,7 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
       // Re-send subscriptions
       for (auto const& [topic, _] : m_msgHandlers) {
         broker::BrokerPayload subscribeMessage;
-        subscribeMessage.set_handler_key(std::string(Keys::SUBSCRIBE));
+        subscribeMessage.set_handler_key(Keys::SUBSCRIBE);
         subscribeMessage.set_sender_id(m_clientId);
         subscribeMessage.set_topic(topic);
         m_worker->writeControlMessage(subscribeMessage);
@@ -214,7 +214,7 @@ void ConnectionManager::resubscribeAll() {
 
   for (auto const& [topic, _] : m_msgHandlers) {
     broker::BrokerPayload sub;
-    sub.set_handler_key(std::string(Keys::SUBSCRIBE));
+    sub.set_handler_key(Keys::SUBSCRIBE);
     sub.set_sender_id(m_clientId);
     sub.set_topic(topic);
     sendRawEnvelope(sub);
@@ -280,7 +280,6 @@ void ConnectionManager::processingLoop() {
 
 void ConnectionManager::handleMessage(const broker::BrokerPayload& msg) {
   std::string topic = msg.topic();
-  std::string data = msg.has_payload() ? msg.payload().value() : msg.raw_data();
 
   std::vector<CallbackEntry> callbacks;
   {
@@ -291,6 +290,7 @@ void ConnectionManager::handleMessage(const broker::BrokerPayload& msg) {
     }
   }
 
+  std::string data = msg.has_payload() ? msg.payload().value() : msg.raw_data();
   for (auto& entry : callbacks) {
     try {
       if (entry.func) {
