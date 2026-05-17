@@ -189,6 +189,28 @@ void ZmqBroker::processMessage(zmq::socket_t& socket, broker::BrokerPayload& msg
       }
       return;
     }
+
+    if (key == Keys::UNSUBSCRIBE) {
+      std::lock_guard<std::mutex> lock(m_stateMutex);
+
+      // Remove topic from the client's known subscriptions
+      if (m_clients[senderId].subscriptions.erase(msg.topic()) > 0) {
+        // Remove the client from the broker's topic routing map
+        auto& subs = m_topicSubscribers[msg.topic()];
+        auto it = std::find(subs.begin(), subs.end(), senderId);
+        if (it != subs.end()) {
+          *it = subs.back();  // Fast O(1) removal swap
+          subs.pop_back();
+        }
+
+        if (subs.empty()) {
+          m_topicSubscribers.erase(msg.topic());
+        }
+
+        Logger::Log(Logger::INFO, "Client " + senderId + " Unsubscribed from " + msg.topic());
+      }
+      return;
+    }
   } else {
     // Ignore internal control messages from peers to prevent loops/confusion
     if (key == Keys::RESET || key == Keys::HEARTBEAT_ACK || key == Keys::HEARTBEAT) {

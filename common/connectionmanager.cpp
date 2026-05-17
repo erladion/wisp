@@ -68,6 +68,14 @@ void ConnectionManager::unregisterCallback(const std::string& key, void* instanc
 
     if (vec.empty()) {
       m_instance->m_msgHandlers.erase(key);
+
+      if (m_instance->m_connected) {
+        broker::BrokerPayload unsubMsg;
+        unsubMsg.set_handler_key(Keys::UNSUBSCRIBE);
+        unsubMsg.set_sender_id(m_instance->m_clientId);
+        unsubMsg.set_topic(key);
+        m_instance->sendRawEnvelope(unsubMsg);
+      }
     }
   }
 }

@@ -88,8 +88,8 @@ public:
   }
 
   template <typename T>
-  static typename std::enable_if<std::is_trivially_copyable<T>::value && !std::is_base_of<google::protobuf::Message, T>::value &&
-                                     !DataSerializer<T>::is_specialized,
+  static typename std::enable_if<std::is_trivially_copyable<T>::value && !std::is_pointer<T>::value &&
+                                     !std::is_base_of<google::protobuf::Message, T>::value && !DataSerializer<T>::is_specialized,
                                  bool>::type
   sendMessage(const std::string& key, const T& value) {
     return instance().sendDataRaw(key, reinterpret_cast<const char*>(&value), static_cast<int>(sizeof(T)));

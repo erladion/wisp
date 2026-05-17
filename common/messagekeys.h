@@ -10,6 +10,7 @@ constexpr std::string_view RESET = "__RESET__";
 constexpr std::string_view HEARTBEAT = "__HEARTBEAT__";
 constexpr std::string_view HEARTBEAT_ACK = "__HEARTBEAT_ACK__";
 constexpr std::string_view SUBSCRIBE = "__SUBSCRIBE__";
+constexpr std::string_view UNSUBSCRIBE = "__UNSUBSCRIBE__";
 
 constexpr std::string_view SYS_STATS = "__SYS_STATS__";
 
