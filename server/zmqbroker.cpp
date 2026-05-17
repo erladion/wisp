@@ -155,6 +155,10 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
       resetMsg.set_handler_key(Keys::RESET.data(), Keys::RESET.size());
       resetMsg.set_topic("");
       std::string resetData = resetMsg.SerializeAsString();
+
+      zmq::message_t sniffReset(resetData.begin(), resetData.end());
+      snifferSocket.send(sniffReset, zmq::send_flags::dontwait);
+
       zmq::message_t outData(resetData.begin(), resetData.end());
 
       try {
@@ -175,6 +179,10 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
         ack.set_handler_key(Keys::HEARTBEAT_ACK);
         ack.set_topic("");
         std::string ackData = ack.SerializeAsString();
+
+        zmq::message_t sniffAck(ackData.begin(), ackData.end());
+        snifferSocket.send(sniffAck, zmq::send_flags::dontwait);
+
         zmq::message_t outData(ackData.begin(), ackData.end());
 
         try {

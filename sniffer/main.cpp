@@ -1,22 +1,22 @@
-#include <zmq.hpp>
-#include <iostream>
-#include <iomanip>
-#include <string>
 #include <chrono>
+#include <iomanip>
+#include <iostream>
+#include <string>
+#include <zmq.hpp>
 
 #include "broker.pb.h"
 #include "messagekeys.h"
 
 // ANSI Color Codes for the Terminal UI
-#define RESET   "\033[0m"
-#define DIM     "\033[2m"
-#define RED     "\033[31m"
-#define GREEN   "\033[32m"
-#define YELLOW  "\033[33m"
-#define BLUE    "\033[34m"
+#define RESET "\033[0m"
+#define DIM "\033[2m"
+#define RED "\033[31m"
+#define GREEN "\033[32m"
+#define YELLOW "\033[33m"
+#define BLUE "\033[34m"
 #define MAGENTA "\033[35m"
-#define CYAN    "\033[36m"
-#define WHITE   "\033[37m"
+#define CYAN "\033[36m"
+#define WHITE "\033[37m"
 
 std::string getCurrentTime() {
   auto now = std::chrono::system_clock::now();
@@ -25,8 +25,7 @@ std::string getCurrentTime() {
   char buffer[80];
   strftime(buffer, sizeof(buffer), "%H:%M:%S", timeinfo);
 
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-              now.time_since_epoch()) % 1000;
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
   return std::string(buffer) + "." + std::to_string(ms.count());
 }
@@ -37,7 +36,7 @@ int main() {
 
   // Connect to the Broker's Mirror Port
   sniffer.connect("tcp://127.0.0.1:5556");
-  sniffer.set(zmq::sockopt::subscribe, ""); // Subscribe to ALL topics
+  sniffer.set(zmq::sockopt::subscribe, "");  // Subscribe to ALL topics
 
   std::cout << "\n" << CYAN << "==============================================================" << RESET << "\n";
   std::cout << MAGENTA << " 🦈 ZMQ WIRESHARK SNIFFER ONLINE - LISTENING ON PORT 5556" << RESET << "\n";
@@ -49,6 +48,10 @@ int main() {
       broker::BrokerPayload payload;
 
       if (payload.ParseFromArray(msg.data(), msg.size())) {
+        // if (payload.handler_key() == Keys::HEARTBEAT || payload.handler_key() == Keys::HEARTBEAT_ACK){
+        //   continue;
+        // }
+
         bool isControl = Keys::isControlMessage(payload.handler_key());
 
         // Color code: Grey for control messages (Heartbeats), Green for User Data
@@ -57,13 +60,12 @@ int main() {
 
         std::string topic = payload.topic().empty() ? "[No Topic]" : payload.topic();
 
-        std::cout << DIM << "[" << getCurrentTime() << "] " << RESET
-                  << theme << headerIcon << " TOPIC: " << topic << RESET << "\n";
+        std::cout << DIM << "[" << getCurrentTime() << "] " << RESET << theme << headerIcon << " TOPIC: " << topic << RESET << "\n";
 
         std::cout << theme << "╭────────────────────────────────────────────────────────\n" << RESET;
 
-        std::cout << theme << "│" << RESET << " Sender: " << std::left << std::setw(20) << payload.sender_id()
-                  << " | Key: " << payload.handler_key() << "\n";
+        std::cout << theme << "│" << RESET << " Sender: " << std::left << std::setw(20) << payload.sender_id() << " | Key: " << payload.handler_key()
+                  << "\n";
 
         std::cout << theme << "│" << RESET << " Msg ID: " << std::left << std::setw(20) << payload.message_uuid().substr(0, 16) + "..."
                   << " | Bytes: " << msg.size() << "\n";
@@ -75,7 +77,9 @@ int main() {
           // Try to print the first 40 chars of raw data
           std::string preview = payload.raw_data().substr(0, 40);
           // Clean out non-printable characters for the terminal
-          for(char& c : preview) if(c < 32 || c > 126) c = '.';
+          for (char& c : preview)
+            if (c < 32 || c > 126)
+              c = '.';
           std::cout << theme << "│" << RESET << " Data  : [" << preview << "]\n";
         }
 
