@@ -22,7 +22,6 @@
 #include "workerinterface.h"
 
 using MessageCallback = std::function<void(const std::string&)>;
-using StatusCallback = std::function<void(bool)>;
 
 struct CallbackEntry {
   void* instance;
@@ -242,8 +241,6 @@ public:
 
   static void registerCallback(const std::string& key, MessageCallback cb);
 
-  static void registerStatusCallback(StatusCallback callback);
-
   template <typename T>
   static bool tryUnpack(const std::string& raw, T& outMsg) {
     google::protobuf::Any any;
@@ -314,17 +311,14 @@ private:
   SafeQueue<broker::BrokerPayload> m_queue;
   std::thread m_processingThread;
   std::atomic<bool> m_running;
-
   std::atomic<bool> m_connected;
 
   std::mutex m_mapMutex;
   std::map<std::string, std::vector<CallbackEntry>> m_msgHandlers;
-  std::vector<StatusCallback> m_statusHandlers;
 
   std::chrono::steady_clock::time_point m_lastConnectionTime;
 
   static std::vector<std::tuple<std::string, MessageCallback, void*>> s_pendingMsgCallbacks;
-  static std::vector<StatusCallback> s_pendingStatusCallbacks;
 };
 
 #endif  // CONNECTIONMANAGER_H

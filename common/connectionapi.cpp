@@ -46,11 +46,3 @@ void registerCallback(const char* topic, Message_Callback callback, void* userDa
     callback(t.c_str(), data.c_str(), (int)data.size(), userData);
   });
 }
-
-void registerStatusCallback(Status_Callback callback, void* userData) {
-  if (!callback) {
-    return;
-  }
-  ConnectionManager::registerStatusCallback(
-      [callback, userData](bool connected) { callback(connected ? STATUS_CONNECTED : STATUS_DISCONNECTED, userData); });
-}

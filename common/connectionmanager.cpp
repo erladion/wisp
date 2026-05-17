@@ -17,7 +17,6 @@ std::shared_ptr<ConnectionManager> ConnectionManager::m_instance = nullptr;
 std::mutex ConnectionManager::m_initMutex;
 
 std::vector<std::tuple<std::string, MessageCallback, void*>> ConnectionManager::s_pendingMsgCallbacks;
-std::vector<StatusCallback> ConnectionManager::s_pendingStatusCallbacks;
 
 void ConnectionManager::init(const ConnectionConfig& config) {
   std::lock_guard<std::mutex> lock(m_initMutex);
@@ -29,14 +28,6 @@ void ConnectionManager::init(const ConnectionConfig& config) {
       m_instance->registerInternal(std::get<0>(p), std::get<1>(p), std::get<2>(p));
     }
     s_pendingMsgCallbacks.clear();
-
-    {
-      std::lock_guard<std::mutex> mapLock(m_instance->m_mapMutex);
-      for (auto& cb : s_pendingStatusCallbacks) {
-        m_instance->m_statusHandlers.push_back(cb);
-      }
-    }
-    s_pendingStatusCallbacks.clear();
   }
 }
 
@@ -128,10 +119,6 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
       m_lastConnectionTime = std::chrono::steady_clock::now();
     }
 
-    for (auto& callback : m_statusHandlers) {
-      callback(connected);
-    }
-
     if (connected) {
       broker::BrokerPayload hello;
       hello.set_handler_key(std::string(Keys::CONNECT));
@@ -203,16 +190,6 @@ void ConnectionManager::registerCallback(const std::string& key, MessageCallback
     instance().registerInternal(key, callback, nullptr);
   } else {
     s_pendingMsgCallbacks.push_back({key, callback, nullptr});
-  }
-}
-
-void ConnectionManager::registerStatusCallback(StatusCallback callback) {
-  std::lock_guard<std::mutex> lock(m_initMutex);
-  if (m_instance) {
-    std::lock_guard<std::mutex> mapLock(instance().m_mapMutex);
-    instance().m_statusHandlers.push_back(callback);
-  } else {
-    s_pendingStatusCallbacks.push_back(callback);
   }
 }
 
