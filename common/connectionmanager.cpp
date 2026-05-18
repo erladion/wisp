@@ -89,11 +89,7 @@ void ConnectionManager::unregisterCallback(const std::string& key, void* instanc
   }
 }
 
-bool ConnectionManager::sendRequest(const std::string& requestTopic,
-                                    const std::string& replyTopic,
-                                    const std::string& payload,
-                                    std::string& outResponse,
-                                    int timeoutMs) {
+bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::string& payload, std::string& outResponse, int timeoutMs) {
   if (!m_instance) {
     return false;
   }
@@ -102,6 +98,8 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic,
   std::future<std::string> future = promise->get_future();
 
   void* tempInstanceKey = promise.get();
+
+  const std::string replyTopic = requestTopic + generateUUID();
 
   registerInternal(
       replyTopic,

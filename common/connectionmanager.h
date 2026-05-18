@@ -255,22 +255,14 @@ public:
 
   static void unregisterCallback(const std::string& key, void* instance);
 
-  static bool sendRequest(const std::string& requestTopic,
-                          const std::string& replyTopic,
-                          const std::string& payload,
-                          std::string& outResponse,
-                          int timeoutMs = 5000);
+  static bool sendRequest(const std::string& requestTopic, const std::string& payload, std::string& outResponse, int timeoutMs = 5000);
 
   template <typename ReqT, typename ResT>
-  static bool sendRequest(const std::string& requestTopic,
-                          const std::string& replyTopic,
-                          const ReqT& payload,
-                          ResT& outResponse,
-                          int timeoutMs = 5000) {
+  static bool sendRequest(const std::string& requestTopic, const ReqT& payload, ResT& outResponse, int timeoutMs = 5000) {
     std::string payloadData = payload.SerializeAsString();
     std::string rawResponse;
 
-    if (sendRequest(requestTopic, replyTopic, payloadData, rawResponse, timeoutMs)) {
+    if (sendRequest(requestTopic, payloadData, rawResponse, timeoutMs)) {
       return tryUnpack(rawResponse, outResponse);
     }
 
