@@ -16,11 +16,11 @@ constexpr std::string_view UNSUBSCRIBE = "__UNSUBSCRIBE__";
 constexpr std::string_view SYS_STATS = "__SYS_STATS__";
 
 constexpr bool isSystemPacket(std::string_view key) {
-  return key == HEARTBEAT || key == HEARTBEAT_ACK || key == CONNECT || key == RESET;
+  return key == HEARTBEAT || key == HEARTBEAT_ACK || key == CONNECT || key == DISCONNECT || key == RESET;
 }
 
 constexpr bool isControlMessage(std::string_view key) {
-  return key == HEARTBEAT || key == HEARTBEAT_ACK || key == SUBSCRIBE || key == CONNECT || key == RESET;
+  return key == HEARTBEAT || key == HEARTBEAT_ACK || key == SUBSCRIBE || key == UNSUBSCRIBE || key == CONNECT || key == DISCONNECT || key == RESET;
 }
 
 }  // namespace Keys
