@@ -38,12 +38,35 @@ void MainWindow::onNewPacket(const InspectorPacket& packet) {
 
   int row = m_packetTable->rowCount();
   m_packetTable->insertRow(row);
-  m_packetTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(packet.timestamp)));
-  m_packetTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(packet.senderId)));
-  m_packetTable->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(packet.key)));
-  m_packetTable->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(packet.topic)));
 
-  // Optional: Auto-scroll
+  QTableWidgetItem* timeItem = new QTableWidgetItem(QString::fromStdString(packet.timestamp));
+  QTableWidgetItem* senderItem = new QTableWidgetItem(QString::fromStdString(packet.senderId));
+  QTableWidgetItem* keyItem = new QTableWidgetItem(QString::fromStdString(packet.key));
+  QTableWidgetItem* topicItem = new QTableWidgetItem(QString::fromStdString(packet.topic));
+
+  QColor rowColor;
+  if (Keys::isControlMessage(packet.key)) {
+    rowColor = QColor(40, 60, 255, 100);
+  } else if (packet.key == Keys::SYS_STATS) {
+    rowColor = QColor(128, 128, 0, 100);
+  } else {
+    // Normal data messages get the default color (or explicitly set one)
+    // rowColor = QColor(50, 50, 50); // Optional: explicitly set normal row color
+  }
+
+  if (rowColor.isValid()) {
+    QBrush brush(rowColor);
+    timeItem->setBackground(brush);
+    senderItem->setBackground(brush);
+    keyItem->setBackground(brush);
+    topicItem->setBackground(brush);
+  }
+
+  m_packetTable->setItem(row, 0, timeItem);
+  m_packetTable->setItem(row, 1, senderItem);
+  m_packetTable->setItem(row, 2, keyItem);
+  m_packetTable->setItem(row, 3, topicItem);
+
   if (isAtBottom) {
     m_packetTable->scrollToBottom();
   }
