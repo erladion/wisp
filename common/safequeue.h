@@ -60,8 +60,12 @@ public:
     if (m_queue.empty()) {
       return false; // Return immediately, don't wait!
     }
-    value = m_queue.front();
+
+    value = std::move(m_queue.front());
     m_queue.pop();
+
+    m_condFull.notify_one();
+
     return true;
   }
 
