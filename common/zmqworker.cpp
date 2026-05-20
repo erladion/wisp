@@ -25,13 +25,11 @@ void ZmqWorker::stop() {
 }
 
 bool ZmqWorker::writeMessage(const broker::BrokerPayload& msg) {
-  m_outboundQueue.push(msg);
-  return true;
+  return m_outboundQueue.push(msg, std::chrono::milliseconds(100));
 }
 
 bool ZmqWorker::writeControlMessage(const broker::BrokerPayload& msg) {
-  m_controlQueue.push(msg);
-  return true;
+  return m_controlQueue.push(msg, std::chrono::milliseconds(100));
 }
 
 void ZmqWorker::setMessageCallback(WorkerMessageCallback callback) {

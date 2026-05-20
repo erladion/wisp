@@ -10,17 +10,18 @@ class SafeQueue {
 public:
   explicit SafeQueue(size_t maxSize = 5000) : m_maxSize(maxSize) {}
 
-  void push(T value) {
+  bool push(T value) {
     std::unique_lock<std::mutex> lock(m_mutex);
 
     m_condFull.wait(lock, [this] { return m_queue.size() < m_maxSize || m_stop; });
 
     if (m_stop) {
-      return;
+      return false;
     }
 
     m_queue.push(std::move(value));
     m_condEmpty.notify_one();
+    return true;
   }
 
   bool push(T value, std::chrono::milliseconds timeout) {
