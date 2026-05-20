@@ -176,22 +176,37 @@ ConnectionManager::~ConnectionManager() {
 }
 
 bool ConnectionManager::sendMessage(const std::string& key, const std::string& message) {
-  if (!m_instance) {
+  std::shared_ptr<ConnectionManager> instance;
+  {
+    std::lock_guard<std::mutex> lock(m_initMutex);
+    instance = m_instance;
+  }
+  if (instance == nullptr) {
     return false;
   }
-  return instance().sendDataInternal(key, message);
+  return instance->sendDataInternal(key, message);
 }
 bool ConnectionManager::sendData(const std::string& key, const std::string_view& data) {
-  if (!m_instance) {
+  std::shared_ptr<ConnectionManager> instance;
+  {
+    std::lock_guard<std::mutex> lock(m_initMutex);
+    instance = m_instance;
+  }
+  if (instance == nullptr) {
     return false;
   }
-  return instance().sendDataInternal(key, data);
+  return instance->sendDataInternal(key, data);
 }
 bool ConnectionManager::sendDataRaw(const std::string& key, const char* data, int len) {
-  if (!m_instance) {
+  std::shared_ptr<ConnectionManager> instance;
+  {
+    std::lock_guard<std::mutex> lock(m_initMutex);
+    instance = m_instance;
+  }
+  if (instance == nullptr) {
     return false;
   }
-  return instance().sendDataInternal(key, std::string(data, len));
+  return instance->sendDataInternal(key, std::string(data, len));
 }
 
 void ConnectionManager::registerCallback(const std::string& key, MessageCallback callback) {
