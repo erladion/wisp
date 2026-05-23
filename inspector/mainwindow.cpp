@@ -10,6 +10,11 @@
 
 #include "messagekeys.h"
 
+#include "config.h"
+#include "uuidhelper.h"
+
+#include "logger.h"
+
 static QString formatByteSize(size_t bytes) {
   if (bytes < 1024) {
     return QString::number(bytes) + " B";
@@ -26,11 +31,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(m_worker, &InspectorWorker::packetReceived, this, &MainWindow::onNewPacket, Qt::QueuedConnection);
 
   m_worker->start();
+
+  ConnectionConfig config;
+  config.address = "tcp://localhost:5555";
+  config.clientId = "Inspector-Replay";
+
+  m_injector = new ZmqWorker(config, nullptr, nullptr);
+  m_injector->start();
 }
 
 MainWindow::~MainWindow() {
   m_worker->stopWorker();
   m_worker->wait();
+
+  m_injector->stop();
+  delete m_injector;
 }
 
 void MainWindow::onNewPacket(const InspectorPacket& packet) {
@@ -183,6 +198,9 @@ void MainWindow::setupUi() {
   m_packetTable->setSelectionMode(QAbstractItemView::SingleSelection);
   connect(m_packetTable, &QTableWidget::itemSelectionChanged, this, &MainWindow::onSelectionChanged);
 
+  m_packetTable->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(m_packetTable, &QTableWidget::customContextMenuRequested, this, &MainWindow::showContextMenu);
+
   m_protoTree = new QTreeWidget(this);
   m_protoTree->setHeaderLabels({"Field", "Value"});
 
@@ -270,4 +288,46 @@ void MainWindow::applyFilters() {
 
     m_packetTable->setRowHidden(i, !(textMatch && topicMatch));
   }
+}
+
+void MainWindow::showContextMenu(const QPoint& pos) {
+  QList<QTableWidgetItem*> selectedItems = m_packetTable->selectedItems();
+  if (selectedItems.isEmpty()) {
+    return;
+  }
+
+  QMenu menu(this);
+  QAction* replayAction = menu.addAction("Replay Message");
+
+  connect(replayAction, &QAction::triggered, this, &MainWindow::replaySelectedMessage);
+  menu.exec(m_packetTable->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::replaySelectedMessage() {
+  QList<QTableWidgetItem*> selectedItems = m_packetTable->selectedItems();
+  if (selectedItems.isEmpty()) {
+    return;
+  }
+
+  int row = selectedItems.first()->row();
+  if (row >= m_packetHistory.size()) {
+    return;
+  }
+
+  broker::BrokerPayload replayedMsg = m_packetHistory[row].parsedProto;
+
+  replayedMsg.set_message_uuid(generateUUID());
+
+  std::string originalSender = replayedMsg.sender_id();
+  if (originalSender.find("REPLAY_") == std::string::npos) {
+    replayedMsg.set_sender_id("REPLAY_" + originalSender);
+  }
+
+  if (Keys::isControlMessage(replayedMsg.handler_key())) {
+    m_injector->writeControlMessage(replayedMsg);
+  } else {
+    m_injector->writeMessage(replayedMsg);
+  }
+
+  Logger::Log(Logger::INFO, "Injected replay for topic: " + replayedMsg.topic());
 }

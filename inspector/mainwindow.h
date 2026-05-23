@@ -18,6 +18,7 @@
 
 #include <vector>
 #include "inspectorworker.h"
+#include "zmqworker.h"
 
 class MainWindow : public QMainWindow {
   Q_OBJECT
@@ -31,12 +32,17 @@ private slots:
   void onSelectionChanged();
   void onNewPacket(const InspectorPacket& packet);
 
+  void showContextMenu(const QPoint& pos);
+  void replaySelectedMessage();
+
 private:
   void setupUi();
   void setupSysStatsView();
 
 private:
   InspectorWorker* m_worker;
+  ZmqWorker* m_injector;
+
   std::vector<InspectorPacket> m_packetHistory;
 
   QTableWidget* m_packetTable;
