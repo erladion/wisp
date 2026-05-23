@@ -46,8 +46,10 @@ QVariant PacketTableModel::data(const QModelIndex& index, int role) const {
         return QString::fromStdString(packet.senderId);
       case 2:
         return QString::fromStdString(packet.key);
-      case 3:
-        return QString::fromStdString(packet.topic);
+      case 3: {
+        QString t = QString::fromStdString(packet.topic);
+        return t.isEmpty() ? "[Empty]" : t;
+      }
       case 4:
         return formatByteSize(packet.rawMemory.size());
       case 5: {
