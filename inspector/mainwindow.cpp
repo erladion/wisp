@@ -147,7 +147,7 @@ void MainWindow::setupUi() {
   m_protoTree->setHeaderLabels({"Field", "Value"});
 
   m_hexDump = new QTextEdit(this);
-  m_hexDump->setFontFamily("Courier");
+  m_hexDump->setFontFamily("Monospace");
   m_hexDump->setReadOnly(true);
 
   mainSplitter->addWidget(m_packetView);
@@ -181,7 +181,7 @@ void MainWindow::setupSysStatsView() {
   m_kbSecLabel = new QLabel("KB/sec: 0.00");
   m_totalMsgsLabel = new QLabel("Total Msgs: 0");
 
-  QFont boldFont("Courier", 10, QFont::Bold);
+  QFont boldFont("Monospace", 10, QFont::Bold);
   m_brokerIdLabel->setFont(boldFont);
 
   m_msgsSecLabel->setStyleSheet("color: #2ecc71; font-weight: bold;");  // Green
