@@ -60,10 +60,21 @@ QVariant PacketTableModel::data(const QModelIndex& index, int role) const {
   } else if (role == Qt::TextAlignmentRole && (index.column() == 4 || index.column() == 5)) {
     return int(Qt::AlignRight | Qt::AlignVCenter);
   } else if (role == Qt::BackgroundRole) {
-    if (Keys::isControlMessage(packet.key))
-      return QColor(40, 60, 255, 100);
-    if (packet.key == Keys::SYS_STATS)
+    if (packet.key == Keys::CONNECT) {
+      return QColor(0, 128, 0, 100);
+    } else if (packet.key == Keys::DISCONNECT) {
+      return QColor(128, 0, 0, 100);
+    } else if (packet.key == Keys::SUBSCRIBE) {
+      return QColor(0, 0, 128, 100);
+    } else if (packet.key == Keys::UNSUBSCRIBE) {
+      return QColor(0, 128, 128, 100);
+    } else if (packet.key == Keys::SYS_STATS) {
       return QColor(128, 128, 0, 100);
+    } else if (Keys::isSystemPacket(packet.key)) {
+      return QColor(50, 50, 50, 100);
+    } else {
+      // Standard color
+    }
   }
   return QVariant();
 }
