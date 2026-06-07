@@ -55,14 +55,17 @@ void ZmqWorker::run() {
   }
 
   broker::BrokerPayload payload;
+  bool didWork = false;
   while (m_running) {
     zmq::pollitem_t items[] = {{socket.handle(), 0, ZMQ_POLLIN, 0}};
 
-    zmq::poll(items, 1, pollTimeout);
+    zmq::poll(items, 1, didWork ? std::chrono::milliseconds(0) : pollTimeout);
+    didWork = false;
 
     if (items[0].revents & ZMQ_POLLIN) {
       zmq::message_t msg;
       if (socket.recv(msg, zmq::recv_flags::none)) {
+        didWork = true;
         m_lastRxTime = std::chrono::steady_clock::now();
 
         if (!m_isOnline) {
@@ -102,14 +105,14 @@ void ZmqWorker::run() {
     while (m_controlQueue.try_pop(payload)) {
       zmq::message_t msg = createZmqMsg(payload);
       socket.send(msg, zmq::send_flags::none);
+      didWork = true;
     }
 
-    int messagesSent = 0;
     payload.Clear();
-    while (messagesSent < 100 && m_outboundQueue.try_pop(payload)) {
+    while (m_outboundQueue.try_pop(payload)) {
       zmq::message_t msg = createZmqMsg(payload);
       socket.send(msg, zmq::send_flags::none);
-      messagesSent++;
+      didWork = true;
     }
 
     auto now = std::chrono::steady_clock::now();
