@@ -255,34 +255,20 @@ bool ConnectionManager::replyToSender(const std::string& data) {
   if (self == nullptr) {
     return false;
   }
-  return self->replyToSenderInternal(data);
+  broker::BrokerPayload reply;
+  detail::encodePayload(reply, data);
+  return self->sendReplyEnvelope(reply);
 }
 
-bool ConnectionManager::replyToSenderInternal(const std::string& data) {
+bool ConnectionManager::sendReplyEnvelope(broker::BrokerPayload& reply) {
   if (t_currentReplyTopic.empty()) {
     Logger::Log(Logger::WARNING, "replyToSender() called outside of a request context - nothing to reply to.");
     return false;
   }
 
-  broker::BrokerPayload reply;
   reply.set_handler_key(t_currentReplyTopic);
   reply.set_sender_id(m_clientId);
   reply.set_topic(t_currentReplyTopic);
-  reply.set_raw_data(data);
-  return sendRawEnvelope(reply);
-}
-
-bool ConnectionManager::replyToSenderInternal(const google::protobuf::Message& protobufMessage) {
-  if (t_currentReplyTopic.empty()) {
-    Logger::Log(Logger::WARNING, "replyToSender() called outside of a request context - nothing to reply to.");
-    return false;
-  }
-
-  broker::BrokerPayload reply;
-  reply.set_handler_key(t_currentReplyTopic);
-  reply.set_sender_id(m_clientId);
-  reply.set_topic(t_currentReplyTopic);
-  reply.mutable_payload()->PackFrom(protobufMessage);
   return sendRawEnvelope(reply);
 }
 

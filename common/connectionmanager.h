@@ -62,6 +62,80 @@ struct CallableTraits<ReturnType (*)(Arg)> {
 template <typename ClassType, typename ReturnType>
 struct CallableTraits<ReturnType (ClassType::*)() const> {};
 
+namespace detail {
+
+template <typename T>
+bool tryUnpack(const std::string& raw, T& outMsg) {
+  // Payloads packed by sendMessage()/replyToSender() arrive as a serialized
+  // Any. If the bytes are Any-shaped, commit to that interpretation: a type
+  // mismatch is a hard failure, not a reason to re-parse the envelope bytes
+  // as T (proto3 parsing is permissive enough that this would often
+  // "succeed" and hand the callback a garbage-filled message).
+  google::protobuf::Any any;
+  if (any.ParseFromString(raw) && any.type_url().rfind("type.googleapis.com/", 0) == 0) {
+    return any.Is<T>() && any.UnpackTo(&outMsg);
+  }
+
+  // Not an Any: treat as a bare serialized T (e.g. raw_data set directly).
+  outMsg.Clear();
+  return outMsg.ParseFromString(raw);
+}
+
+// The single source of truth for how a C++ value maps onto a BrokerPayload
+// and back; sendMessage/replyToSender/registerCallback all funnel through
+// here. Dispatch order: DataSerializer specializations, then protobuf, then
+// std::string, then trivially copyable structs.
+template <typename T>
+void encodePayload(broker::BrokerPayload& envelope, const T& value) {
+  if constexpr (DataSerializer<T>::is_specialized) {
+    envelope.set_raw_data(DataSerializer<T>::serialize(value));
+  } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
+    envelope.mutable_payload()->PackFrom(value);
+  } else if constexpr (std::is_same<T, std::string>::value) {
+    envelope.set_raw_data(value);
+  } else if constexpr (std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value) {
+    // Byte-copied structs assume both endpoints share the same ABI; layout
+    // and padding are not part of the wire contract.
+    envelope.set_raw_data(reinterpret_cast<const char*>(&value), sizeof(T));
+  } else {
+    static_assert(always_false_v<T>,
+                  "No wire encoding for this type. Expected a protobuf Message, a DataSerializer-specialized type, "
+                  "std::string, or a trivially copyable standard-layout struct.");
+  }
+}
+
+// `raw` is what handleMessage hands to callbacks: the serialized Any if the
+// envelope had a packed payload, the raw_data bytes otherwise. T must be
+// default-constructible.
+template <typename T>
+bool decodePayload(const std::string& raw, T& out) {
+  if constexpr (DataSerializer<T>::is_specialized) {
+    try {
+      out = DataSerializer<T>::deserialize(raw);
+      return true;
+    } catch (const std::exception&) {
+      return false;
+    }
+  } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
+    return tryUnpack(raw, out);
+  } else if constexpr (std::is_same<T, std::string>::value) {
+    out = raw;
+    return true;
+  } else if constexpr (std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value) {
+    if (raw.size() != sizeof(T)) {
+      return false;
+    }
+    std::memcpy(&out, raw.data(), sizeof(T));
+    return true;
+  } else {
+    static_assert(always_false_v<T>,
+                  "No wire decoding for this type. Expected a protobuf Message, a DataSerializer-specialized type, "
+                  "std::string, or a trivially copyable standard-layout struct.");
+  }
+}
+
+}  // namespace detail
+
 class ConnectionManager : public std::enable_shared_from_this<ConnectionManager> {
 public:
   static void init(const ConnectionConfig& config);
@@ -73,76 +147,39 @@ public:
   static bool sendDataRaw(const std::string& key, const char* data, int len);
 
   // Pointers and arrays are excluded so string literals and char* still pick
-  // the plain std::string overload above. Dispatch order: DataSerializer
-  // specializations win over the protobuf and raw-bytes fallbacks.
+  // the plain std::string overload above. Encoding rules live in
+  // detail::encodePayload.
   template <typename T, typename std::enable_if<!std::is_pointer<T>::value && !std::is_array<T>::value, int>::type = 0>
   static bool sendMessage(const std::string& key, const T& value) {
-    if constexpr (DataSerializer<T>::is_specialized) {
-      std::string bytes = DataSerializer<T>::serialize(value);
-      return instance().sendDataRaw(key, bytes.data(), static_cast<int>(bytes.size()));
-    } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
-      return instance().sendMessageInternal(key, value);
-    } else if constexpr (std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value) {
-      // Byte-copied structs assume both endpoints share the same ABI; layout
-      // and padding are not part of the wire contract.
-      return instance().sendDataRaw(key, reinterpret_cast<const char*>(&value), static_cast<int>(sizeof(T)));
-    } else {
-      static_assert(always_false_v<T>,
-                    "sendMessage: unsupported payload type. Expected a protobuf Message, a DataSerializer-specialized "
-                    "type, or a trivially copyable standard-layout struct.");
+    std::shared_ptr<ConnectionManager> self = getInstance();
+    if (!self) {
+      return false;
     }
+    broker::BrokerPayload envelope;
+    envelope.set_handler_key(key);
+    envelope.set_sender_id(self->m_clientId);
+    envelope.set_topic(key);
+    detail::encodePayload(envelope, value);
+    return self->sendRawEnvelope(envelope);
   }
 
   // Dispatches on the callback's argument type. The BaseT default argument
   // doubles as SFINAE: callables without a single-argument signature (e.g.
   // void() lambdas) fail substitution and fall through to the overloads below.
-  // Dispatch order: std::string, then DataSerializer specializations, then
-  // protobuf, then raw-bytes structs.
+  // Decoding rules live in detail::decodePayload.
   template <typename Callable, typename BaseT = typename std::decay<typename CallableTraits<Callable>::ArgType>::type>
   static void registerCallback(const std::string& key, Callable func, void* instance = nullptr) {
-    if constexpr (std::is_same<BaseT, std::string>::value) {
-      registerInternal(
-          key, [func](const std::string& raw) { func(raw); }, instance);
-    } else if constexpr (DataSerializer<BaseT>::is_specialized) {
-      registerInternal(
-          key,
-          [func, key](const std::string& raw) {
-            try {
-              BaseT value = DataSerializer<BaseT>::deserialize(raw);
-              func(value);
-            } catch (const std::exception& e) {
-              Logger::Log(Logger::ERROR, std::string("Deserialization failed on: ") + key);
-            }
-          },
-          instance);
-    } else if constexpr (std::is_base_of<google::protobuf::Message, BaseT>::value) {
-      registerInternal(
-          key,
-          [func, key](const std::string& raw) {
-            BaseT msg;
-            if (tryUnpack(raw, msg)) {
-              func(msg);
-            } else {
-              Logger::Log(Logger::ERROR, "Failed to unpack message for key: " + key);
-            }
-          },
-          instance);
-    } else if constexpr (std::is_trivially_copyable<BaseT>::value && std::is_standard_layout<BaseT>::value) {
-      registerInternal(
-          key,
-          [func](const std::string& raw) {
-            if (raw.size() == sizeof(BaseT)) {
-              BaseT value;
-              std::memcpy(&value, raw.data(), sizeof(BaseT));
-              func(value);
-            }
-          },
-          instance);
-    } else {
-      static_assert(always_false_v<Callable>,
-                    "registerCallback: unsupported callback argument type. Expected std::string, a protobuf Message, a "
-                    "DataSerializer-specialized type, or a trivially copyable standard-layout struct.");
-    }
+    registerInternal(
+        key,
+        [func, key](const std::string& raw) {
+          BaseT value;
+          if (detail::decodePayload(raw, value)) {
+            func(value);
+          } else {
+            Logger::Log(Logger::ERROR, "Failed to decode message for key: " + key);
+          }
+        },
+        instance);
   }
 
   template <typename ClassType, typename ArgType>
@@ -176,19 +213,7 @@ public:
 
   template <typename T>
   static bool tryUnpack(const std::string& raw, T& outMsg) {
-    // Payloads packed by sendMessage()/replyToSender() arrive as a serialized
-    // Any. If the bytes are Any-shaped, commit to that interpretation: a type
-    // mismatch is a hard failure, not a reason to re-parse the envelope bytes
-    // as T (proto3 parsing is permissive enough that this would often
-    // "succeed" and hand the callback a garbage-filled message).
-    google::protobuf::Any any;
-    if (any.ParseFromString(raw) && any.type_url().rfind("type.googleapis.com/", 0) == 0) {
-      return any.Is<T>() && any.UnpackTo(&outMsg);
-    }
-
-    // Not an Any: treat as a bare serialized T (e.g. raw_data set directly).
-    outMsg.Clear();
-    return outMsg.ParseFromString(raw);
+    return detail::tryUnpack(raw, outMsg);
   }
 
   static void unregisterCallback(const std::string& key, void* instance);
@@ -201,27 +226,24 @@ public:
     std::string rawResponse;
 
     if (sendRequest(requestTopic, payloadData, rawResponse, timeoutMs)) {
-      return tryUnpack(rawResponse, outResponse);
+      return detail::decodePayload(rawResponse, outResponse);
     }
     return false;
   }
 
   static bool replyToSender(const std::string& data);
 
-  // Same dispatch rules as sendMessage above.
+  // Same encoding rules as sendMessage above; the reply addressing is stamped
+  // on by sendReplyEnvelope, which owns the thread-local request context.
   template <typename T, typename std::enable_if<!std::is_pointer<T>::value && !std::is_array<T>::value, int>::type = 0>
   static bool replyToSender(const T& value) {
-    if constexpr (DataSerializer<T>::is_specialized) {
-      return instance().replyToSenderInternal(DataSerializer<T>::serialize(value));
-    } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
-      return instance().replyToSenderInternal(value);
-    } else if constexpr (std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value) {
-      return instance().replyToSenderInternal(std::string(reinterpret_cast<const char*>(&value), sizeof(T)));
-    } else {
-      static_assert(always_false_v<T>,
-                    "replyToSender: unsupported payload type. Expected a protobuf Message, a DataSerializer-specialized "
-                    "type, or a trivially copyable standard-layout struct.");
+    std::shared_ptr<ConnectionManager> self = getInstance();
+    if (!self) {
+      return false;
     }
+    broker::BrokerPayload reply;
+    detail::encodePayload(reply, value);
+    return self->sendReplyEnvelope(reply);
   }
 
 private:
@@ -239,18 +261,9 @@ private:
   bool sendDataInternal(const std::string& key, const std::string_view& data);
   bool sendRawEnvelope(const broker::BrokerPayload& envelope);
 
-  template <typename T>
-  bool sendMessageInternal(const std::string& key, const T& protobufMessage) {
-    broker::BrokerPayload envelope;
-    envelope.set_handler_key(key);
-    envelope.set_sender_id(m_clientId);
-    envelope.set_topic(key);
-    envelope.mutable_payload()->PackFrom(protobufMessage);
-    return sendRawEnvelope(envelope);
-  }
-
-  bool replyToSenderInternal(const std::string& data);
-  bool replyToSenderInternal(const google::protobuf::Message& protobufMessage);
+  // Stamps the current request's reply addressing onto `reply` and sends it;
+  // the payload must already be encoded.
+  bool sendReplyEnvelope(broker::BrokerPayload& reply);
 
   void processingLoop();
   void handleMessage(const broker::BrokerPayload& msg);
