@@ -216,29 +216,14 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
     }
 
     if (key == Keys::SUBSCRIBE) {
-      auto result = m_clients[senderId].subscriptions.insert(msg.topic());
-      if (result.second) {
-        m_topicSubscribers[msg.topic()].push_back(senderId);
+      if (m_subscriptions.subscribe(senderId, msg.topic())) {
         Logger::Log(Logger::INFO, "Client " + senderId + " Subscribed to " + msg.topic());
       }
       return;
     }
 
     if (key == Keys::UNSUBSCRIBE) {
-      // Remove topic from the client's known subscriptions
-      if (m_clients[senderId].subscriptions.erase(msg.topic()) > 0) {
-        // Remove the client from the broker's topic routing map
-        auto& subs = m_topicSubscribers[msg.topic()];
-        auto it = std::find(subs.begin(), subs.end(), senderId);
-        if (it != subs.end()) {
-          *it = subs.back();
-          subs.pop_back();
-        }
-
-        if (subs.empty()) {
-          m_topicSubscribers.erase(msg.topic());
-        }
-
+      if (m_subscriptions.unsubscribe(senderId, msg.topic())) {
         Logger::Log(Logger::INFO, "Client " + senderId + " Unsubscribed from " + msg.topic());
       }
       return;
@@ -263,21 +248,11 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
 
   // Local subscribers
   {
-    const std::vector<std::string>* exactSubs = nullptr;
-    auto exactIt = m_topicSubscribers.find(msg.topic());
-    if (exactIt != m_topicSubscribers.end()) {
-      exactSubs = &exactIt->second;
-    }
+    const std::vector<std::string>* exactSubs = m_subscriptions.subscribersOf(msg.topic());
 
     // An empty-topic subscription is a wildcard: it receives every topic.
     // Peer links rely on this (connectToPeer subscribes to "").
-    const std::vector<std::string>* wildcardSubs = nullptr;
-    if (!msg.topic().empty()) {
-      auto wildcardIt = m_topicSubscribers.find("");
-      if (wildcardIt != m_topicSubscribers.end()) {
-        wildcardSubs = &wildcardIt->second;
-      }
-    }
+    const std::vector<std::string>* wildcardSubs = msg.topic().empty() ? nullptr : m_subscriptions.subscribersOf("");
 
     if (exactSubs || wildcardSubs) {
       zmq::message_t outData = createZmqMsg(msg);
@@ -357,12 +332,14 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   stats.set_total_msgs(m_totalMessages);
   stats.set_uptime_sec(uptime);
 
-  for (const auto& [id, state] : m_clients) {
+  for (const auto& entry : m_clients) {
     broker::ClientInfo* clientInfo = stats.add_connected_clients();
-    clientInfo->set_id(id);
+    clientInfo->set_id(entry.first);
 
-    for (const auto& topic : state.subscriptions) {
-      clientInfo->add_subscriptions(topic);
+    if (const auto* topics = m_subscriptions.subscriptionsOf(entry.first)) {
+      for (const auto& topic : *topics) {
+        clientInfo->add_subscriptions(topic);
+      }
     }
   }
 
@@ -377,8 +354,8 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   zmq::message_t msg = createZmqMsg(envelope);
   inspectorSocket.send(msg, zmq::send_flags::dontwait);
 
-  if (m_topicSubscribers.count(sysStatsKey)) {
-    for (const auto& id : m_topicSubscribers[sysStatsKey]) {
+  if (const auto* subs = m_subscriptions.subscribersOf(sysStatsKey)) {
+    for (const auto& id : *subs) {
       sendToClient(socket, id, msg);
     }
   }
@@ -418,19 +395,6 @@ void ZmqBroker::connectToPeer(const std::string& peerAddress) {
 void ZmqBroker::removeClient(const std::string& clientId, const std::string& reason) {
   Logger::Log(Logger::INFO, "Removing Client: " + clientId + " (" + reason + ")");
 
-  auto it = m_clients.find(clientId);
-  if (it != m_clients.end()) {
-    for (const auto& topic : it->second.subscriptions) {
-      auto& subs = m_topicSubscribers[topic];
-      auto subIt = std::find(subs.begin(), subs.end(), clientId);
-      if (subIt != subs.end()) {
-        *subIt = subs.back();
-        subs.pop_back();
-      }
-      if (subs.empty()) {
-        m_topicSubscribers.erase(topic);
-      }
-    }
-    m_clients.erase(it);
-  }
+  m_subscriptions.removeClient(clientId);
+  m_clients.erase(clientId);
 }

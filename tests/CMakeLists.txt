@@ -20,6 +20,7 @@ add_executable(broker_tests
   request_reply_test.cpp
   safequeue_test.cpp
   shutdown_test.cpp
+  subscriptionregistry_test.cpp
   wildcard_subscription_test.cpp
 )
 

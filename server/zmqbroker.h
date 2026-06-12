@@ -13,12 +13,12 @@
 
 #include "zmqworker.h"
 #include "safequeue.h"
+#include "subscriptionregistry.h"
 
 #include "broker.pb.h"
 
 struct ClientState {
   std::string identity; // ZMQ Routing ID
-  std::set<std::string, std::less<>> subscriptions;
   std::chrono::steady_clock::time_point lastSeen;
 };
 
@@ -56,7 +56,7 @@ private:
   // Other threads talk to it only through m_peerInboundQueue.
   std::unordered_map<std::string, ClientState> m_clients;
 
-  std::unordered_map<std::string, std::vector<std::string>> m_topicSubscribers;
+  SubscriptionRegistry m_subscriptions;
 
   // Exception: peers can be added by the owning thread (connectToPeer) while
   // the broker thread floods messages to them, hence the dedicated mutex.
