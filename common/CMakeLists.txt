@@ -1,12 +1,38 @@
-set(PROTO_GENERATED_SOURCES
-    generated/broker.pb.cc
-    generated/update.pb.cc
+set(PROTO_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
+set(PROTO_FILES
+    ${PROTO_SRC_DIR}/broker.proto
+    ${PROTO_SRC_DIR}/update.proto
 )
 
-set(PROTO_GENERATED_HEADERS
-    generated/broker.pb.h
-    generated/update.pb.h
-)
+# --- C++ protobuf sources ---------------------------------------------------
+# Regenerate at build time when a protoc is available (find_package(Protobuf)
+# locates it via Protobuf_PROTOC_EXECUTABLE); otherwise fall back to the
+# committed sources in generated/. Generation targets the build tree so the
+# source tree stays pristine.
+if (Protobuf_PROTOC_EXECUTABLE)
+    set(PROTO_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
+
+    set(PROTO_GENERATED_SOURCES ${PROTO_GEN_DIR}/broker.pb.cc ${PROTO_GEN_DIR}/update.pb.cc)
+    set(PROTO_GENERATED_HEADERS ${PROTO_GEN_DIR}/broker.pb.h ${PROTO_GEN_DIR}/update.pb.h)
+
+    add_custom_command(
+        OUTPUT ${PROTO_GENERATED_SOURCES} ${PROTO_GENERATED_HEADERS}
+        COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+                --proto_path=${PROTO_SRC_DIR}
+                --cpp_out=${PROTO_GEN_DIR}
+                ${PROTO_FILES}
+        DEPENDS ${PROTO_FILES}
+        COMMENT "Generating C++ protobuf sources (protoc: ${Protobuf_PROTOC_EXECUTABLE})"
+        VERBATIM
+    )
+    message(STATUS "protoc found - C++ protobuf sources are generated at build time")
+else()
+    set(PROTO_GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+    set(PROTO_GENERATED_SOURCES ${PROTO_GEN_DIR}/broker.pb.cc ${PROTO_GEN_DIR}/update.pb.cc)
+    set(PROTO_GENERATED_HEADERS ${PROTO_GEN_DIR}/broker.pb.h ${PROTO_GEN_DIR}/update.pb.h)
+    message(STATUS "protoc NOT found - using committed protobuf sources in ${PROTO_GEN_DIR}")
+endif()
 
 find_library(UTF8_RANGE_LIB
     NAMES utf8_range utf8_validity
@@ -34,7 +60,7 @@ add_library(ZmqLib STATIC
     wireframe.h
 )
 
-target_include_directories(ZmqLib PUBLIC generated)
+target_include_directories(ZmqLib PUBLIC ${PROTO_GEN_DIR})
 
 target_link_libraries(ZmqLib PUBLIC
     zmq
@@ -51,3 +77,48 @@ target_link_libraries(ZmqLib PUBLIC
     absl::statusor
     ${UTF8_RANGE_LIB}
 )
+
+# --- C protobuf bindings (protobuf-c) ---------------------------------------
+# Optional pure-C bindings for C clients. Wire-compatible with the C++ types
+# above (same protobuf wire format). Generated at build time when protoc-c and
+# libprotobuf-c are present; otherwise the committed generated-c/ sources are
+# used. Skipped entirely if libprotobuf-c is unavailable.
+find_program(PROTOC_C_EXECUTABLE protoc-c)
+find_library(PROTOBUF_C_LIBRARY NAMES protobuf-c)
+find_path(PROTOBUF_C_INCLUDE_DIR protobuf-c/protobuf-c.h)
+
+if (PROTOBUF_C_LIBRARY AND PROTOBUF_C_INCLUDE_DIR)
+    if (PROTOC_C_EXECUTABLE)
+        set(PROTO_C_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated-c)
+        file(MAKE_DIRECTORY ${PROTO_C_GEN_DIR})
+
+        set(PROTO_C_SOURCES ${PROTO_C_GEN_DIR}/broker.pb-c.c ${PROTO_C_GEN_DIR}/update.pb-c.c)
+        set(PROTO_C_HEADERS ${PROTO_C_GEN_DIR}/broker.pb-c.h ${PROTO_C_GEN_DIR}/update.pb-c.h)
+
+        add_custom_command(
+            OUTPUT ${PROTO_C_SOURCES} ${PROTO_C_HEADERS}
+            COMMAND ${PROTOC_C_EXECUTABLE}
+                    --proto_path=${PROTO_SRC_DIR}
+                    --c_out=${PROTO_C_GEN_DIR}
+                    ${PROTO_FILES}
+            DEPENDS ${PROTO_FILES}
+            COMMENT "Generating C protobuf sources (protoc-c: ${PROTOC_C_EXECUTABLE})"
+            VERBATIM
+        )
+        message(STATUS "protoc-c found - C protobuf bindings are generated at build time")
+    else()
+        set(PROTO_C_GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/generated-c)
+        set(PROTO_C_SOURCES ${PROTO_C_GEN_DIR}/broker.pb-c.c ${PROTO_C_GEN_DIR}/update.pb-c.c)
+        set(PROTO_C_HEADERS ${PROTO_C_GEN_DIR}/broker.pb-c.h ${PROTO_C_GEN_DIR}/update.pb-c.h)
+        message(STATUS "protoc-c NOT found - using committed C bindings in ${PROTO_C_GEN_DIR}")
+    endif()
+
+    add_library(ZmqLibC STATIC
+        ${PROTO_C_SOURCES}
+        ${PROTO_C_HEADERS}
+    )
+    target_include_directories(ZmqLibC PUBLIC ${PROTO_C_GEN_DIR} ${PROTOBUF_C_INCLUDE_DIR})
+    target_link_libraries(ZmqLibC PUBLIC ${PROTOBUF_C_LIBRARY})
+else()
+    message(WARNING "libprotobuf-c not found - C bindings (ZmqLibC) will not be built")
+endif()

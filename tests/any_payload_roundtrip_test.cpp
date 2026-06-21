@@ -7,7 +7,7 @@
 #include <google/protobuf/util/message_differencer.h>
 
 #include "broker.pb.h"
-#include "generated/update.pb.h"
+#include "update.pb.h"
 
 #include "safequeue.h"
 #include "wireframe.h"

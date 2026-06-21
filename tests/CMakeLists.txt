@@ -12,7 +12,7 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
-add_executable(broker_tests
+set(BROKER_TEST_SOURCES
   support/test_helpers.h
   any_payload_roundtrip_test.cpp
   message_size_limit_test.cpp
@@ -24,6 +24,13 @@ add_executable(broker_tests
   wildcard_subscription_test.cpp
 )
 
+# Only exercise the C bindings when they were actually built (libprotobuf-c present).
+if (TARGET ZmqLibC)
+  list(APPEND BROKER_TEST_SOURCES c_bindings_test.cpp)
+endif()
+
+add_executable(broker_tests ${BROKER_TEST_SOURCES})
+
 target_include_directories(broker_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(broker_tests PRIVATE
@@ -32,6 +39,10 @@ target_link_libraries(broker_tests PRIVATE
   ZmqLib
   zmq
 )
+
+if (TARGET ZmqLibC)
+  target_link_libraries(broker_tests PRIVATE ZmqLibC)
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(broker_tests)

@@ -7,52 +7,142 @@
 #endif
 
 #include "broker.pb-c.h"
-void   broker__broker_payload__init
-                     (Broker__BrokerPayload         *message)
+void   broker__message_header__init
+                     (Broker__MessageHeader         *message)
 {
-  static const Broker__BrokerPayload init_value = BROKER__BROKER_PAYLOAD__INIT;
+  static const Broker__MessageHeader init_value = BROKER__MESSAGE_HEADER__INIT;
   *message = init_value;
 }
-size_t broker__broker_payload__get_packed_size
-                     (const Broker__BrokerPayload *message)
+size_t broker__message_header__get_packed_size
+                     (const Broker__MessageHeader *message)
 {
-  assert(message->base.descriptor == &broker__broker_payload__descriptor);
+  assert(message->base.descriptor == &broker__message_header__descriptor);
   return protobuf_c_message_get_packed_size ((const ProtobufCMessage*)(message));
 }
-size_t broker__broker_payload__pack
-                     (const Broker__BrokerPayload *message,
+size_t broker__message_header__pack
+                     (const Broker__MessageHeader *message,
                       uint8_t       *out)
 {
-  assert(message->base.descriptor == &broker__broker_payload__descriptor);
+  assert(message->base.descriptor == &broker__message_header__descriptor);
   return protobuf_c_message_pack ((const ProtobufCMessage*)message, out);
 }
-size_t broker__broker_payload__pack_to_buffer
-                     (const Broker__BrokerPayload *message,
+size_t broker__message_header__pack_to_buffer
+                     (const Broker__MessageHeader *message,
                       ProtobufCBuffer *buffer)
 {
-  assert(message->base.descriptor == &broker__broker_payload__descriptor);
+  assert(message->base.descriptor == &broker__message_header__descriptor);
   return protobuf_c_message_pack_to_buffer ((const ProtobufCMessage*)message, buffer);
 }
-Broker__BrokerPayload *
-       broker__broker_payload__unpack
+Broker__MessageHeader *
+       broker__message_header__unpack
                      (ProtobufCAllocator  *allocator,
                       size_t               len,
                       const uint8_t       *data)
 {
-  return (Broker__BrokerPayload *)
-     protobuf_c_message_unpack (&broker__broker_payload__descriptor,
+  return (Broker__MessageHeader *)
+     protobuf_c_message_unpack (&broker__message_header__descriptor,
                                 allocator, len, data);
 }
-void   broker__broker_payload__free_unpacked
-                     (Broker__BrokerPayload *message,
+void   broker__message_header__free_unpacked
+                     (Broker__MessageHeader *message,
                       ProtobufCAllocator *allocator)
 {
   if(!message)
     return;
-  assert(message->base.descriptor == &broker__broker_payload__descriptor);
+  assert(message->base.descriptor == &broker__message_header__descriptor);
   protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
 }
-static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[10] =
+void   broker__client_info__init
+                     (Broker__ClientInfo         *message)
+{
+  static const Broker__ClientInfo init_value = BROKER__CLIENT_INFO__INIT;
+  *message = init_value;
+}
+size_t broker__client_info__get_packed_size
+                     (const Broker__ClientInfo *message)
+{
+  assert(message->base.descriptor == &broker__client_info__descriptor);
+  return protobuf_c_message_get_packed_size ((const ProtobufCMessage*)(message));
+}
+size_t broker__client_info__pack
+                     (const Broker__ClientInfo *message,
+                      uint8_t       *out)
+{
+  assert(message->base.descriptor == &broker__client_info__descriptor);
+  return protobuf_c_message_pack ((const ProtobufCMessage*)message, out);
+}
+size_t broker__client_info__pack_to_buffer
+                     (const Broker__ClientInfo *message,
+                      ProtobufCBuffer *buffer)
+{
+  assert(message->base.descriptor == &broker__client_info__descriptor);
+  return protobuf_c_message_pack_to_buffer ((const ProtobufCMessage*)message, buffer);
+}
+Broker__ClientInfo *
+       broker__client_info__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data)
+{
+  return (Broker__ClientInfo *)
+     protobuf_c_message_unpack (&broker__client_info__descriptor,
+                                allocator, len, data);
+}
+void   broker__client_info__free_unpacked
+                     (Broker__ClientInfo *message,
+                      ProtobufCAllocator *allocator)
+{
+  if(!message)
+    return;
+  assert(message->base.descriptor == &broker__client_info__descriptor);
+  protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
+}
+void   broker__system_stats__init
+                     (Broker__SystemStats         *message)
+{
+  static const Broker__SystemStats init_value = BROKER__SYSTEM_STATS__INIT;
+  *message = init_value;
+}
+size_t broker__system_stats__get_packed_size
+                     (const Broker__SystemStats *message)
+{
+  assert(message->base.descriptor == &broker__system_stats__descriptor);
+  return protobuf_c_message_get_packed_size ((const ProtobufCMessage*)(message));
+}
+size_t broker__system_stats__pack
+                     (const Broker__SystemStats *message,
+                      uint8_t       *out)
+{
+  assert(message->base.descriptor == &broker__system_stats__descriptor);
+  return protobuf_c_message_pack ((const ProtobufCMessage*)message, out);
+}
+size_t broker__system_stats__pack_to_buffer
+                     (const Broker__SystemStats *message,
+                      ProtobufCBuffer *buffer)
+{
+  assert(message->base.descriptor == &broker__system_stats__descriptor);
+  return protobuf_c_message_pack_to_buffer ((const ProtobufCMessage*)message, buffer);
+}
+Broker__SystemStats *
+       broker__system_stats__unpack
+                     (ProtobufCAllocator  *allocator,
+                      size_t               len,
+                      const uint8_t       *data)
+{
+  return (Broker__SystemStats *)
+     protobuf_c_message_unpack (&broker__system_stats__descriptor,
+                                allocator, len, data);
+}
+void   broker__system_stats__free_unpacked
+                     (Broker__SystemStats *message,
+                      ProtobufCAllocator *allocator)
+{
+  if(!message)
+    return;
+  assert(message->base.descriptor == &broker__system_stats__descriptor);
+  protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
+}
+static const ProtobufCFieldDescriptor broker__message_header__field_descriptors[9] =
 {
   {
     "handler_key",
@@ -60,7 +150,7 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, handler_key),
+    offsetof(Broker__MessageHeader, handler_key),
     NULL,
     &protobuf_c_empty_string,
     0,             /* flags */
@@ -72,7 +162,7 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, sender_id),
+    offsetof(Broker__MessageHeader, sender_id),
     NULL,
     &protobuf_c_empty_string,
     0,             /* flags */
@@ -84,21 +174,9 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, topic),
+    offsetof(Broker__MessageHeader, topic),
     NULL,
     &protobuf_c_empty_string,
-    0,             /* flags */
-    0,NULL,NULL    /* reserved1,reserved2, etc */
-  },
-  {
-    "payload",
-    4,
-    PROTOBUF_C_LABEL_NONE,
-    PROTOBUF_C_TYPE_MESSAGE,
-    0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, payload),
-    &google__protobuf__any__descriptor,
-    NULL,
     0,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
@@ -108,7 +186,7 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, origin_broker_id),
+    offsetof(Broker__MessageHeader, origin_broker_id),
     NULL,
     &protobuf_c_empty_string,
     0,             /* flags */
@@ -120,7 +198,7 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, message_uuid),
+    offsetof(Broker__MessageHeader, message_uuid),
     NULL,
     &protobuf_c_empty_string,
     0,             /* flags */
@@ -132,7 +210,7 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, transfer_id),
+    offsetof(Broker__MessageHeader, transfer_id),
     NULL,
     &protobuf_c_empty_string,
     0,             /* flags */
@@ -144,7 +222,7 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_INT32,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, sequence_number),
+    offsetof(Broker__MessageHeader, sequence_number),
     NULL,
     NULL,
     0,             /* flags */
@@ -156,87 +234,235 @@ static const ProtobufCFieldDescriptor broker__broker_payload__field_descriptors[
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_INT32,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, sequence_count),
+    offsetof(Broker__MessageHeader, sequence_count),
     NULL,
     NULL,
     0,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
   {
-    "raw_data",
-    10,
+    "reply_topic",
+    11,
     PROTOBUF_C_LABEL_NONE,
-    PROTOBUF_C_TYPE_BYTES,
+    PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
-    offsetof(Broker__BrokerPayload, raw_data),
+    offsetof(Broker__MessageHeader, reply_topic),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+};
+static const unsigned broker__message_header__field_indices_by_name[] = {
+  0,   /* field[0] = handler_key */
+  4,   /* field[4] = message_uuid */
+  3,   /* field[3] = origin_broker_id */
+  8,   /* field[8] = reply_topic */
+  1,   /* field[1] = sender_id */
+  7,   /* field[7] = sequence_count */
+  6,   /* field[6] = sequence_number */
+  2,   /* field[2] = topic */
+  5,   /* field[5] = transfer_id */
+};
+static const ProtobufCIntRange broker__message_header__number_ranges[3 + 1] =
+{
+  { 1, 0 },
+  { 5, 3 },
+  { 11, 8 },
+  { 0, 9 }
+};
+const ProtobufCMessageDescriptor broker__message_header__descriptor =
+{
+  PROTOBUF_C__MESSAGE_DESCRIPTOR_MAGIC,
+  "broker.MessageHeader",
+  "MessageHeader",
+  "Broker__MessageHeader",
+  "broker",
+  sizeof(Broker__MessageHeader),
+  9,
+  broker__message_header__field_descriptors,
+  broker__message_header__field_indices_by_name,
+  3,  broker__message_header__number_ranges,
+  (ProtobufCMessageInit) broker__message_header__init,
+  NULL,NULL,NULL    /* reserved[123] */
+};
+static const ProtobufCFieldDescriptor broker__client_info__field_descriptors[2] =
+{
+  {
+    "id",
+    1,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(Broker__ClientInfo, id),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "subscriptions",
+    2,
+    PROTOBUF_C_LABEL_REPEATED,
+    PROTOBUF_C_TYPE_STRING,
+    offsetof(Broker__ClientInfo, n_subscriptions),
+    offsetof(Broker__ClientInfo, subscriptions),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+};
+static const unsigned broker__client_info__field_indices_by_name[] = {
+  0,   /* field[0] = id */
+  1,   /* field[1] = subscriptions */
+};
+static const ProtobufCIntRange broker__client_info__number_ranges[1 + 1] =
+{
+  { 1, 0 },
+  { 0, 2 }
+};
+const ProtobufCMessageDescriptor broker__client_info__descriptor =
+{
+  PROTOBUF_C__MESSAGE_DESCRIPTOR_MAGIC,
+  "broker.ClientInfo",
+  "ClientInfo",
+  "Broker__ClientInfo",
+  "broker",
+  sizeof(Broker__ClientInfo),
+  2,
+  broker__client_info__field_descriptors,
+  broker__client_info__field_indices_by_name,
+  1,  broker__client_info__number_ranges,
+  (ProtobufCMessageInit) broker__client_info__init,
+  NULL,NULL,NULL    /* reserved[123] */
+};
+static const ProtobufCFieldDescriptor broker__system_stats__field_descriptors[8] =
+{
+  {
+    "broker_id",
+    1,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, broker_id),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "clients_count",
+    2,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_INT32,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, clients_count),
     NULL,
     NULL,
     0,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
+  {
+    "peers_count",
+    3,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_INT32,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, peers_count),
+    NULL,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "msgs_per_sec",
+    4,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_INT32,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, msgs_per_sec),
+    NULL,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "kb_per_sec",
+    5,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_DOUBLE,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, kb_per_sec),
+    NULL,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "total_msgs",
+    6,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_INT64,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, total_msgs),
+    NULL,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "uptime_sec",
+    7,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_INT64,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, uptime_sec),
+    NULL,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
+  {
+    "connected_clients",
+    8,
+    PROTOBUF_C_LABEL_REPEATED,
+    PROTOBUF_C_TYPE_MESSAGE,
+    offsetof(Broker__SystemStats, n_connected_clients),
+    offsetof(Broker__SystemStats, connected_clients),
+    &broker__client_info__descriptor,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
 };
-static const unsigned broker__broker_payload__field_indices_by_name[] = {
-  0,   /* field[0] = handler_key */
-  5,   /* field[5] = message_uuid */
-  4,   /* field[4] = origin_broker_id */
-  3,   /* field[3] = payload */
-  9,   /* field[9] = raw_data */
-  1,   /* field[1] = sender_id */
-  8,   /* field[8] = sequence_count */
-  7,   /* field[7] = sequence_number */
-  2,   /* field[2] = topic */
-  6,   /* field[6] = transfer_id */
+static const unsigned broker__system_stats__field_indices_by_name[] = {
+  0,   /* field[0] = broker_id */
+  1,   /* field[1] = clients_count */
+  7,   /* field[7] = connected_clients */
+  4,   /* field[4] = kb_per_sec */
+  3,   /* field[3] = msgs_per_sec */
+  2,   /* field[2] = peers_count */
+  5,   /* field[5] = total_msgs */
+  6,   /* field[6] = uptime_sec */
 };
-static const ProtobufCIntRange broker__broker_payload__number_ranges[1 + 1] =
+static const ProtobufCIntRange broker__system_stats__number_ranges[1 + 1] =
 {
   { 1, 0 },
-  { 0, 10 }
+  { 0, 8 }
 };
-const ProtobufCMessageDescriptor broker__broker_payload__descriptor =
+const ProtobufCMessageDescriptor broker__system_stats__descriptor =
 {
   PROTOBUF_C__MESSAGE_DESCRIPTOR_MAGIC,
-  "broker.BrokerPayload",
-  "BrokerPayload",
-  "Broker__BrokerPayload",
+  "broker.SystemStats",
+  "SystemStats",
+  "Broker__SystemStats",
   "broker",
-  sizeof(Broker__BrokerPayload),
-  10,
-  broker__broker_payload__field_descriptors,
-  broker__broker_payload__field_indices_by_name,
-  1,  broker__broker_payload__number_ranges,
-  (ProtobufCMessageInit) broker__broker_payload__init,
+  sizeof(Broker__SystemStats),
+  8,
+  broker__system_stats__field_descriptors,
+  broker__system_stats__field_indices_by_name,
+  1,  broker__system_stats__number_ranges,
+  (ProtobufCMessageInit) broker__system_stats__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCMethodDescriptor broker__broker_service__method_descriptors[1] =
-{
-  { "MessageStream", &broker__broker_payload__descriptor, &broker__broker_payload__descriptor },
-};
-const unsigned broker__broker_service__method_indices_by_name[] = {
-  0         /* MessageStream */
-};
-const ProtobufCServiceDescriptor broker__broker_service__descriptor =
-{
-  PROTOBUF_C__SERVICE_DESCRIPTOR_MAGIC,
-  "broker.BrokerService",
-  "BrokerService",
-  "Broker__BrokerService",
-  "broker",
-  1,
-  broker__broker_service__method_descriptors,
-  broker__broker_service__method_indices_by_name
-};
-void broker__broker_service__message_stream(ProtobufCService *service,
-                                            const Broker__BrokerPayload *input,
-                                            Broker__BrokerPayload_Closure closure,
-                                            void *closure_data)
-{
-  assert(service->descriptor == &broker__broker_service__descriptor);
-  service->invoke(service, 0, (const ProtobufCMessage *) input, (ProtobufCClosure) closure, closure_data);
-}
-void broker__broker_service__init (Broker__BrokerService_Service *service,
-                                   Broker__BrokerService_ServiceDestroy destroy)
-{
-  protobuf_c_service_generated_init (&service->base,
-                                     &broker__broker_service__descriptor,
-                                     (ProtobufCServiceDestroy) destroy);
-}

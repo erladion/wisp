@@ -7,7 +7,7 @@
 #include <iostream>
 
 #include "connectionmanager.h"
-#include "generated/update.pb.h"
+#include "update.pb.h"
 #include "logger.h"
 
 struct TestStruct {
