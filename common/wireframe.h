@@ -27,12 +27,12 @@ inline void drainMultipart(zmq::socket_t& sock) {
   }
 }
 
-// Send header (+ payload frame if non-empty) on a socket that does NOT prepend a
-// routing-id frame (DEALER, PUB). Non-blocking. Returns false if the header
-// frame was refused (pipe full); once it is accepted ZMQ guarantees the payload
-// continuation frame, so the pair can never be torn apart mid-message.
-inline bool send(zmq::socket_t& sock, const broker::MessageHeader& header, const std::string& payload) {
-  const std::string headerBytes = header.SerializeAsString();
+// Send an already-serialized header (+ payload frame if non-empty) on a socket
+// that does NOT prepend a routing-id frame (DEALER, PUB). Non-blocking. Returns
+// false if the header frame was refused (pipe full); once it is accepted ZMQ
+// guarantees the payload continuation frame, so the pair can never be torn apart
+// mid-message. Use this directly to reuse one serialization across several sends.
+inline bool sendFrames(zmq::socket_t& sock, const std::string& headerBytes, const std::string& payload) {
   zmq::message_t headerFrame(headerBytes.data(), headerBytes.size());
 
   if (payload.empty()) {
@@ -44,6 +44,10 @@ inline bool send(zmq::socket_t& sock, const broker::MessageHeader& header, const
   }
   zmq::message_t payloadFrame(payload.data(), payload.size());
   return bool(sock.send(payloadFrame, zmq::send_flags::dontwait));
+}
+
+inline bool send(zmq::socket_t& sock, const broker::MessageHeader& header, const std::string& payload) {
+  return sendFrames(sock, header.SerializeAsString(), payload);
 }
 
 inline bool send(zmq::socket_t& sock, const Envelope& env) {

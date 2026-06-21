@@ -173,9 +173,19 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
                                const std::string& payload,
                                const std::string& senderId,
                                bool isFromPeer) {
+  // Stamp identity up front (fresh messages only; forwarded ones keep their
+  // origin uuid, which loop detection relies on) so the header is final before
+  // we serialize it exactly once - reused by the inspector tap here and by
+  // every recipient in the delivery loop below.
+  if (header.message_uuid().empty()) {
+    header.set_message_uuid(generateUUID());
+    header.set_origin_broker_id(m_brokerId);
+  }
+  const std::string headerBytes = header.SerializeAsString();
+
   // The inspector sees every message, control included. Forward the header and
   // payload frames verbatim - the broker never parses the payload itself.
-  wire::send(inspectorSocket, header, payload);
+  wire::sendFrames(inspectorSocket, headerBytes, payload);
 
   std::string key = header.handler_key();
 
@@ -235,20 +245,10 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
     }
   }
 
-  // If the header has no ID (fresh from client), give it one.
-  if (header.message_uuid().empty()) {
-    header.set_message_uuid(generateUUID());
-    header.set_origin_broker_id(m_brokerId);
-  }
-
-  // Check if we've handled this UUID before (Loop protection)
+  // Loop protection: drop a UUID we've already routed.
   if (isDuplicate(header.message_uuid())) {
     return;  // Drop it, we've seen it.
   }
-
-  // Serialized once here (after UUID stamping) and reused for every recipient;
-  // the payload frame is forwarded verbatim, never re-encoded.
-  const std::string headerBytes = header.SerializeAsString();
 
   // Local subscribers
   {
@@ -362,7 +362,7 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
 
   const std::string sysStatsKey(Keys::SYS_STATS);
 
-  wire::send(inspectorSocket, header, payload);
+  wire::sendFrames(inspectorSocket, headerBytes, payload);
 
   if (const auto* subs = m_subscriptions.subscribersOf(sysStatsKey)) {
     for (const auto& id : *subs) {
