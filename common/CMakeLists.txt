@@ -122,3 +122,19 @@ if (PROTOBUF_C_LIBRARY AND PROTOBUF_C_INCLUDE_DIR)
 else()
     message(WARNING "libprotobuf-c not found - C bindings (ZmqLibC) will not be built")
 endif()
+
+# --- Qt adapter (optional, header-only) -------------------------------------
+# Header-only QObject-aware wrapper over ConnectionManager (Qt-type
+# serialization + automatic delivery on the callback context's thread). Exposed
+# as an INTERFACE target carrying its include path and Qt/ZmqLib requirements;
+# only defined when Qt is available so the rest of common stays Qt-free.
+find_package(QT NAMES Qt6 Qt5 COMPONENTS Core QUIET)
+if (QT_FOUND)
+    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core REQUIRED)
+    add_library(QtConnectionAdapter INTERFACE)
+    target_include_directories(QtConnectionAdapter INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(QtConnectionAdapter INTERFACE ZmqLib Qt${QT_VERSION_MAJOR}::Core)
+    message(STATUS "Qt found - QtConnectionAdapter target available")
+else()
+    message(STATUS "Qt not found - QtConnectionAdapter target skipped")
+endif()

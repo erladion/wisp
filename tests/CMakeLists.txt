@@ -47,6 +47,26 @@ endif()
 include(GoogleTest)
 gtest_discover_tests(broker_tests)
 
+# Qt adapter tests: a separate executable because it needs its own
+# QCoreApplication main() and Qt linkage. Built only when the adapter target
+# exists (i.e. Qt was found). AUTOMOC is off - the test defines no Q_OBJECTs.
+if (TARGET QtConnectionAdapter)
+  add_executable(qt_adapter_test
+    qt_adapter_test.cpp
+    support/test_helpers.h
+  )
+  set_target_properties(qt_adapter_test PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+  target_include_directories(qt_adapter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(qt_adapter_test PRIVATE
+    GTest::gtest
+    QtConnectionAdapter
+    BrokerLib
+    ZmqLib
+    zmq
+  )
+  gtest_discover_tests(qt_adapter_test)
+endif()
+
 # Standalone load-generator binary - deliberately NOT registered with
 # gtest_discover_tests (it prints a report rather than asserting pass/fail and
 # is meant to be run on demand, not as part of every `ctest` invocation).
