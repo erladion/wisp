@@ -16,7 +16,7 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
-#include <vector>
+#include <deque>
 
 #include "inspectorworker.h"
 #include "zmqworker.h"
@@ -51,7 +51,7 @@ private:
   InspectorWorker* m_pWorker;
   ZmqWorker* m_pInjector;
 
-  std::vector<InspectorPacket> m_packetHistory;
+  std::deque<InspectorPacket> m_packetHistory;
 
   QTableView* m_pPacketView;
   PacketTableModel* m_pTableModel;

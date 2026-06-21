@@ -11,7 +11,7 @@ static QString formatByteSize(size_t bytes) {
   return QString::number(bytes / 1024.0, 'f', 2) + " KB";
 }
 
-PacketTableModel::PacketTableModel(const std::vector<InspectorPacket>& history, QObject* parent) : QAbstractTableModel(parent), m_history(history) {}
+PacketTableModel::PacketTableModel(const std::deque<InspectorPacket>& history, QObject* parent) : QAbstractTableModel(parent), m_history(history) {}
 
 int PacketTableModel::rowCount(const QModelIndex&) const {
   return m_history.size();

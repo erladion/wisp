@@ -4,28 +4,30 @@
 #include <QAbstractTableModel>
 #include <QSortFilterProxyModel>
 
+#include <deque>
+
 #include "datamodel.h"
 
 class PacketTableModel : public QAbstractTableModel {
   Q_OBJECT
 public:
-  PacketTableModel(const std::vector<InspectorPacket>& history, QObject* parent = nullptr);
+  PacketTableModel(const std::deque<InspectorPacket>& history, QObject* parent = nullptr);
   int rowCount(const QModelIndex& parent = QModelIndex()) const override;
   int columnCount(const QModelIndex& parent = QModelIndex()) const override;
   QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
   QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
-  void packetAdded();  // Call this when vector size increases
+  void packetAdded();  // Call this when the history grows
 
   // Bracket the removal of the oldest `count` packets: call
-  // packetsAboutToBeTrimmed(), erase from the front of the history vector,
+  // packetsAboutToBeTrimmed(), erase from the front of the history deque,
   // then packetsTrimmed(). Qt requires the begin/end pair to surround the
   // actual mutation.
   void packetsAboutToBeTrimmed(int count);
   void packetsTrimmed();
 
 private:
-  const std::vector<InspectorPacket>& m_history;
+  const std::deque<InspectorPacket>& m_history;
 };
 
 // 2. THE HIGH-SPEED FILTER
