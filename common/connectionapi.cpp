@@ -11,7 +11,7 @@ int initConnection(const Connection_Config* config) {
   ConnectionConfig cfg;
   cfg.address = config->address;
   cfg.clientId = config->client_id ? config->client_id : "DefaultClientName";
-  cfg.protocol = config->protocol == PROTOCOL_GRPC ? ProtocolType::GRPC : ProtocolType::ZMQ;
+  cfg.protocol = ProtocolType::ZMQ;
   cfg.keepAliveTime = config->keepalive_time_ms;
   cfg.keepAliveTimeout = config->keepalive_timeout_ms;
   cfg.compressionAlgorithm = config->compression_algorithm;

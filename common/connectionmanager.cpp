@@ -10,7 +10,6 @@
 #include "messagekeys.h"
 #include "uuidhelper.h"
 #include "zmqworker.h"
-// #include "grpcworker.h"
 
 using namespace std::string_literals;
 
@@ -142,9 +141,6 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
 
   if (config.protocol == ProtocolType::ZMQ) {
     m_pWorker = std::make_unique<ZmqWorker>(config, &m_queue, statusHandler);
-  } else if (config.protocol == ProtocolType::GRPC) {
-    // m_pWorker = std::make_unique<GrpcWorker>(config, &m_queue, statusHandler);
-    Logger::Log(Logger::ERROR, "gRPC Worker not implemented yet!");
   }
 
   if (m_pWorker) {

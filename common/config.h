@@ -11,7 +11,7 @@
 // the port can make the receiver allocate arbitrarily large buffers.
 constexpr int64_t MAX_MESSAGE_SIZE_BYTES = 16 * 1024 * 1024;  // 16 MiB
 
-enum class ProtocolType { ZMQ, GRPC };
+enum class ProtocolType { ZMQ };
 
 struct ConnectionConfig {
   std::string address;

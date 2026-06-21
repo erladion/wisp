@@ -15,7 +15,7 @@ extern "C" {
 #define CONN_API
 #endif
 
-typedef enum { PROTOCOL_ZMQ = 0, PROTOCOL_GRPC = 1 } Connection_Protocol;
+typedef enum { PROTOCOL_ZMQ = 0 } Connection_Protocol;
 
 typedef enum { SUCCESS = 0, ERROR_GENERIC = -1, ERROR_NO_CONNECTION = -2, ERROR_INVALID_ARGS = -3, ERROR_SEND_FAILED = -4 } Connection_Error_Code;
 
