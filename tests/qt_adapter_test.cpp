@@ -12,7 +12,7 @@
 #include <chrono>
 #include <thread>
 
-#include "adapters/qtconnectionadapter.h"
+#include "qtconnectionadapter.h"
 #include "wireframe.h"
 #include "zmqbroker.h"
 #include "zmqworker.h"

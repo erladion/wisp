@@ -32,6 +32,7 @@ endif()
 include_directories(common)
 
 add_subdirectory(common)
+add_subdirectory(bindings/qt)
 add_subdirectory(client1)
 add_subdirectory(client2)
 add_subdirectory(server)
