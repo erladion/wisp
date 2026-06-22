@@ -181,7 +181,7 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
     header.set_message_uuid(generateUUID());
     header.set_origin_broker_id(m_brokerId);
   }
-  const std::string headerBytes = header.SerializeAsString();
+  const std::string headerBytes = wire::encodeHeader(header);
 
   // The inspector sees every message, control included. Forward the header and
   // payload frames verbatim - the broker never parses the payload itself.
@@ -208,7 +208,7 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
       resetMsg.set_handler_key(Keys::RESET);
       resetMsg.set_topic("");
 
-      sendToClient(socket, senderId, resetMsg.SerializeAsString(), std::string());
+      sendToClient(socket, senderId, wire::encodeHeader(resetMsg), std::string());
 
       return;  // Don't broadcast RESET requests
     }
@@ -220,7 +220,7 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
         ack.set_handler_key(Keys::HEARTBEAT_ACK);
         ack.set_topic("");
 
-        sendToClient(socket, senderId, ack.SerializeAsString(), std::string());
+        sendToClient(socket, senderId, wire::encodeHeader(ack), std::string());
       }
       return;
     }
@@ -358,7 +358,7 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   google::protobuf::Any any;
   any.PackFrom(stats);
   const std::string payload = any.SerializeAsString();
-  const std::string headerBytes = header.SerializeAsString();
+  const std::string headerBytes = wire::encodeHeader(header);
 
   const std::string sysStatsKey(Keys::SYS_STATS);
 

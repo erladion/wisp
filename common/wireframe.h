@@ -1,6 +1,8 @@
 #ifndef WIREFRAME_H
 #define WIREFRAME_H
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include <zmq.hpp>
@@ -8,9 +10,8 @@
 #include "broker.pb.h"
 
 // A message as it travels in-process: a routing header plus an opaque payload.
-// On the wire these are two separate ZMQ frames; the payload frame is omitted
-// entirely when `payload` is empty (control messages, empty publishes). The
-// broker only ever touches `header` - `payload` is cargo it forwards verbatim.
+// On the wire these are two ZMQ frames; the payload frame is omitted when
+// `payload` is empty. The broker only ever touches `header`.
 struct Envelope {
   broker::MessageHeader header;
   std::string payload;
@@ -18,7 +19,55 @@ struct Envelope {
 
 namespace wire {
 
-// Discard any remaining frames of the current multipart message. Used to keep a
+// Wire-format id, carried as the first byte of the header frame so a receiver
+// knows how to decode the rest. Lets the header format be swapped - or two
+// formats coexist during a migration - without touching broker/worker/clients.
+enum class Format : std::uint8_t {
+  Protobuf = 1,
+};
+
+// The codec seam: header (de)serialization isolated behind one interface, so the
+// wire format is a single pluggable unit. Today only Protobuf is registered.
+class HeaderCodec {
+public:
+  virtual ~HeaderCodec() = default;
+  virtual Format format() const = 0;
+  virtual std::string encode(const broker::MessageHeader& header) const = 0;
+  virtual bool decode(const char* data, std::size_t size, broker::MessageHeader& out) const = 0;
+};
+
+class ProtobufHeaderCodec final : public HeaderCodec {
+public:
+  Format format() const override { return Format::Protobuf; }
+  std::string encode(const broker::MessageHeader& header) const override { return header.SerializeAsString(); }
+  bool decode(const char* data, std::size_t size, broker::MessageHeader& out) const override { return out.ParseFromArray(data, static_cast<int>(size)); }
+};
+
+// Format used for outgoing headers. To add a format: register it in codecFor()
+// and point this at it (or select per-message).
+inline Format defaultFormat() {
+  return Format::Protobuf;
+}
+
+// Resolve the codec for an incoming header's format byte; nullptr if unknown.
+inline const HeaderCodec* codecFor(Format format) {
+  static const ProtobufHeaderCodec protobuf;
+  switch (format) {
+    case Format::Protobuf:
+      return &protobuf;
+  }
+  return nullptr;
+}
+
+// Encode a header frame: a one-byte format tag followed by the codec's bytes.
+inline std::string encodeHeader(const broker::MessageHeader& header) {
+  const HeaderCodec* codec = codecFor(defaultFormat());
+  std::string out(1, static_cast<char>(static_cast<std::uint8_t>(codec->format())));
+  out += codec->encode(header);
+  return out;
+}
+
+// Discard any remaining frames of the current multipart message, to keep a
 // socket aligned after a malformed or over-long message group.
 inline void drainMultipart(zmq::socket_t& sock) {
   while (sock.get(zmq::sockopt::rcvmore)) {
@@ -27,19 +76,18 @@ inline void drainMultipart(zmq::socket_t& sock) {
   }
 }
 
-// Send an already-serialized header (+ payload frame if non-empty) on a socket
+// Send an already-encoded header frame (+ payload frame if non-empty) on a socket
 // that does NOT prepend a routing-id frame (DEALER, PUB). Non-blocking. Returns
 // false if the header frame was refused (pipe full); once it is accepted ZMQ
-// guarantees the payload continuation frame, so the pair can never be torn apart
-// mid-message. Use this directly to reuse one serialization across several sends.
-inline bool sendFrames(zmq::socket_t& sock, const std::string& headerBytes, const std::string& payload) {
-  zmq::message_t headerFrame(headerBytes.data(), headerBytes.size());
+// guarantees the payload continuation frame, so the pair can't be torn apart.
+inline bool sendFrames(zmq::socket_t& sock, const std::string& headerFrame, const std::string& payload) {
+  zmq::message_t header(headerFrame.data(), headerFrame.size());
 
   if (payload.empty()) {
-    return bool(sock.send(headerFrame, zmq::send_flags::dontwait));
+    return bool(sock.send(header, zmq::send_flags::dontwait));
   }
 
-  if (!sock.send(headerFrame, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
+  if (!sock.send(header, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
     return false;
   }
   zmq::message_t payloadFrame(payload.data(), payload.size());
@@ -47,24 +95,29 @@ inline bool sendFrames(zmq::socket_t& sock, const std::string& headerBytes, cons
 }
 
 inline bool send(zmq::socket_t& sock, const broker::MessageHeader& header, const std::string& payload) {
-  return sendFrames(sock, header.SerializeAsString(), payload);
+  return sendFrames(sock, encodeHeader(header), payload);
 }
 
 inline bool send(zmq::socket_t& sock, const Envelope& env) {
   return send(sock, env.header, env.payload);
 }
 
-// Receive header (+ optional payload frame) from a socket whose routing-id frame
-// has already been consumed (or never existed, as on DEALER/SUB). Returns false
-// on EAGAIN or a malformed header; in the malformed case the rest of the
-// multipart group is drained so the socket stays frame-aligned.
+// Receive a header frame (format byte + encoded header) and any payload frame
+// from a socket whose routing-id frame has already been consumed (or never
+// existed, as on DEALER/SUB). Returns false on EAGAIN, a missing/unknown format
+// byte, or a decode failure; the multipart group is drained in the malformed
+// cases so the socket stays frame-aligned.
 inline bool recv(zmq::socket_t& sock, Envelope& env, zmq::recv_flags flags) {
   zmq::message_t headerFrame;
   if (!sock.recv(headerFrame, flags)) {
     return false;
   }
-  if (!env.header.ParseFromArray(headerFrame.data(), headerFrame.size())) {
-    drainMultipart(sock);
+
+  const char* data = static_cast<const char*>(headerFrame.data());
+  const std::size_t size = headerFrame.size();
+  const HeaderCodec* codec = (size >= 1) ? codecFor(static_cast<Format>(static_cast<std::uint8_t>(data[0]))) : nullptr;
+  if (!codec || !codec->decode(data + 1, size - 1, env.header)) {
+    drainMultipart(sock);  // missing/unknown format byte or a bad header
     return false;
   }
 
