@@ -18,6 +18,7 @@
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   qRegisterMetaType<InspectorPacket>("InspectorPacket");
 
+  setWindowTitle("Wisp Inspector");
   setupUi();
 
   m_pWorker = new InspectorWorker(this);

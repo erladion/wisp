@@ -59,7 +59,7 @@ TEST(QtAdapterSerializerTest, QByteArrayRoundTripPreservesEmbeddedNul) {
 
 TEST(QtAdapterSerializerTest, QJsonObjectRoundTrip) {
   QJsonObject original;
-  original["name"] = "loom";
+  original["name"] = "wisp";
   original["count"] = 42;
   original["enabled"] = true;
 

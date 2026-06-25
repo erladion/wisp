@@ -1,0 +1,7 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Wisp W mark - dark backgrounds. Transparent; paper-white W with a madder accent. -->
+  <g fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke="#FAF8F3" d="M14,18 L25,46 L32,28 L39,46"/>
+    <path stroke="#C0392B" d="M39,46 L50,18"/>
+  </g>
+</svg>

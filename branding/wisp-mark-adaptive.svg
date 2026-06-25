@@ -1,0 +1,8 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Wisp W mark - adaptive. Body inherits currentColor when inlined (ink on light,
+       white on dark); madder accent fixed. Falls back to black as a standalone file. -->
+  <g fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke="currentColor" d="M14,18 L25,46 L32,28 L39,46"/>
+    <path stroke="#C0392B" d="M39,46 L50,18"/>
+  </g>
+</svg>
