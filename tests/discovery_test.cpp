@@ -1,0 +1,105 @@
+#include <gtest/gtest.h>
+
+#include <chrono>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "discovery.h"
+
+using namespace std::chrono_literals;
+
+namespace {
+
+struct Recorder {
+  std::vector<std::pair<std::string, std::string>> dials;  // (uuid, address)
+  std::vector<std::string> drops;                          // uuid
+};
+
+// Build a discovery instance with recording callbacks. The socket loop is never
+// started; tests drive onDatagram()/expireStale() directly with an injected clock.
+std::unique_ptr<BrokerDiscovery> makeDiscovery(const std::string& cluster, const std::string& selfUuid, Recorder& rec) {
+  return std::make_unique<BrokerDiscovery>(
+      cluster, selfUuid, /*routerPort=*/5555, BrokerDiscovery::kDefaultPort,
+      [&rec](const std::string& uuid, const std::string& addr) { rec.dials.emplace_back(uuid, addr); },
+      [&rec](const std::string& uuid) { rec.drops.push_back(uuid); });
+}
+
+void feed(BrokerDiscovery& disc, const std::string& ip, const std::string& cluster, const std::string& uuid, std::uint16_t port,
+          std::chrono::steady_clock::time_point now) {
+  const std::string beacon = BrokerDiscovery::encodeBeacon(cluster, uuid, port);
+  disc.onDatagram(ip, beacon.data(), beacon.size(), now);
+}
+
+}  // namespace
+
+TEST(DiscoveryTest, BeaconRoundTrips) {
+  const std::string wire = BrokerDiscovery::encodeBeacon("prod", "uuid-123", 5555);
+  BrokerDiscovery::Beacon b;
+  ASSERT_TRUE(BrokerDiscovery::decodeBeacon(wire.data(), wire.size(), b));
+  EXPECT_EQ(b.cluster, "prod");
+  EXPECT_EQ(b.uuid, "uuid-123");
+  EXPECT_EQ(b.routerPort, 5555);
+}
+
+TEST(DiscoveryTest, DecodeRejectsMalformed) {
+  BrokerDiscovery::Beacon b;
+  const char* cases[] = {"nope", "XXXX|1|c|u|5555", "WISP|9|c|u|5555", "WISP|1|c|u", "WISP|1|c|u|notaport", "WISP|1|c|u|99999"};
+  for (const char* c : cases) {
+    EXPECT_FALSE(BrokerDiscovery::decodeBeacon(c, std::char_traits<char>::length(c), b)) << "should reject: " << c;
+  }
+}
+
+// The broker with the smaller uuid is the designated initiator for a pair, and
+// the peer address is built from the datagram's source IP plus the beacon port.
+TEST(DiscoveryTest, LowerUuidDialsWithSourceIpAddress) {
+  Recorder rec;
+  auto disc = makeDiscovery("default", "aaa", rec);
+  feed(*disc, "10.0.0.5", "default", "zzz", 6000, std::chrono::steady_clock::now());
+
+  ASSERT_EQ(rec.dials.size(), 1u);
+  EXPECT_EQ(rec.dials[0].first, "zzz");
+  EXPECT_EQ(rec.dials[0].second, "tcp://10.0.0.5:6000");
+}
+
+TEST(DiscoveryTest, HigherUuidWaitsForInboundLink) {
+  Recorder rec;
+  auto disc = makeDiscovery("default", "zzz", rec);  // self > peer
+  feed(*disc, "10.0.0.5", "default", "aaa", 6000, std::chrono::steady_clock::now());
+  EXPECT_TRUE(rec.dials.empty());
+}
+
+TEST(DiscoveryTest, IgnoresOtherClustersAndOwnBeacon) {
+  Recorder rec;
+  auto disc = makeDiscovery("default", "aaa", rec);
+  const auto now = std::chrono::steady_clock::now();
+  feed(*disc, "10.0.0.5", "other", "zzz", 6000, now);    // different cluster
+  feed(*disc, "10.0.0.5", "default", "aaa", 6000, now);  // our own uuid
+  EXPECT_TRUE(rec.dials.empty());
+}
+
+TEST(DiscoveryTest, DialsEachPeerOnce) {
+  Recorder rec;
+  auto disc = makeDiscovery("default", "aaa", rec);
+  const auto now = std::chrono::steady_clock::now();
+  feed(*disc, "10.0.0.5", "default", "zzz", 6000, now);
+  feed(*disc, "10.0.0.5", "default", "zzz", 6000, now + 1s);
+  feed(*disc, "10.0.0.5", "default", "zzz", 6000, now + 2s);
+  EXPECT_EQ(rec.dials.size(), 1u);
+}
+
+TEST(DiscoveryTest, DropsPeerThatGoesSilent) {
+  Recorder rec;
+  auto disc = makeDiscovery("default", "aaa", rec);
+  const auto now = std::chrono::steady_clock::now();
+  feed(*disc, "10.0.0.5", "default", "zzz", 6000, now);
+  ASSERT_EQ(rec.dials.size(), 1u);
+
+  disc->expireStale(now + 2s);  // still fresh
+  EXPECT_TRUE(rec.drops.empty());
+
+  disc->expireStale(now + 10s);  // past the timeout
+  ASSERT_EQ(rec.drops.size(), 1u);
+  EXPECT_EQ(rec.drops[0], "zzz");
+}

@@ -41,6 +41,27 @@ void sendToClient(zmq::socket_t& socket, const std::string& clientId, const std:
   }
 }
 
+// Best-effort extraction of the TCP port a broker binds, to advertise in beacons.
+std::uint16_t parseTcpPort(const std::vector<std::string>& addresses) {
+  for (const auto& addr : addresses) {
+    if (addr.rfind("tcp://", 0) != 0) {
+      continue;
+    }
+    const auto colon = addr.rfind(':');
+    if (colon == std::string::npos) {
+      continue;
+    }
+    try {
+      const int port = std::stoi(addr.substr(colon + 1));
+      if (port > 0 && port <= 65535) {
+        return static_cast<std::uint16_t>(port);
+      }
+    } catch (const std::exception&) {
+    }
+  }
+  return 0;
+}
+
 }  // namespace
 
 ZmqBroker::ZmqBroker() : m_running(false), m_context(1), m_brokerId(generateUUID()) {}
@@ -54,10 +75,28 @@ void ZmqBroker::start(const std::vector<std::string>& bindAddresses) {
   m_startTime = std::chrono::steady_clock::now();
   m_lastStatsTime = std::chrono::steady_clock::now();
   m_brokerThread = std::thread(&ZmqBroker::run, this, bindAddresses);
+
+  if (m_discoveryEnabled) {
+    const std::uint16_t routerPort = parseTcpPort(bindAddresses);
+    if (routerPort == 0) {
+      Logger::Log(Logger::WARNING, "Discovery enabled but no tcp:// bind address found; auto-mesh disabled");
+    } else {
+      m_discovery = std::make_unique<BrokerDiscovery>(
+          m_clusterName, m_brokerId, routerPort, m_discoveryPort,
+          [this](const std::string& uuid, const std::string& address) { addPeer(uuid, address); },
+          [this](const std::string& uuid) { removePeer(uuid); });
+      m_discovery->start();
+    }
+  }
 }
 
 void ZmqBroker::stop() {
   m_running = false;
+
+  // Stop discovery first so it can't dial or drop peers while we tear down.
+  if (m_discovery) {
+    m_discovery->stop();
+  }
 
   // Wake any peer worker blocked pushing into the inbound queue; without
   // this, the peer joins below can wait forever on a thread wedged in the
@@ -68,12 +107,12 @@ void ZmqBroker::stop() {
     m_brokerThread.join();
   }
 
-  std::vector<std::unique_ptr<ZmqWorker>> peers;
+  std::unordered_map<std::string, std::unique_ptr<ZmqWorker>> peers;
   {
     std::lock_guard<std::mutex> lock(m_peersMutex);
     peers.swap(m_peers);
   }
-  for (auto& peer : peers) {
+  for (auto& [key, peer] : peers) {
     peer->stop();
   }
 }
@@ -294,7 +333,7 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   // Flood peers
   {
     std::lock_guard<std::mutex> lock(m_peersMutex);
-    for (auto& peer : m_peers) {
+    for (auto& [key, peer] : m_peers) {
       Envelope fwd;
       fwd.header = header;
       fwd.payload = payload;
@@ -372,6 +411,17 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
 }
 
 void ZmqBroker::connectToPeer(const std::string& peerAddress) {
+  // Manual peering keys the link by its address.
+  addPeer(peerAddress, peerAddress);
+}
+
+void ZmqBroker::enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort) {
+  m_discoveryEnabled = true;
+  m_clusterName = clusterName;
+  m_discoveryPort = discoveryPort;
+}
+
+void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) {
   ConnectionConfig config;
   config.address = peerAddress;
   config.clientId = "BrokerLink-" + m_brokerId.substr(0, 8);
@@ -393,13 +443,32 @@ void ZmqBroker::connectToPeer(const std::string& peerAddress) {
     }
     m_peerInboundQueue.push(env);
   });
-  worker->start();
 
-  Logger::Log(Logger::INFO, "Connected to Peer: " + peerAddress);
   {
     std::lock_guard<std::mutex> lock(m_peersMutex);
-    m_peers.push_back(std::move(worker));
+    if (m_peers.count(key)) {
+      return;  // already linked; the unstarted worker is discarded here
+    }
+    worker->start();
+    m_peers.emplace(key, std::move(worker));
   }
+  Logger::Log(Logger::INFO, "Connected to Peer: " + peerAddress);
+}
+
+void ZmqBroker::removePeer(const std::string& key) {
+  std::unique_ptr<ZmqWorker> worker;
+  {
+    std::lock_guard<std::mutex> lock(m_peersMutex);
+    auto it = m_peers.find(key);
+    if (it == m_peers.end()) {
+      return;
+    }
+    worker = std::move(it->second);
+    m_peers.erase(it);
+  }
+  // Join the worker thread outside the lock so the flood loop isn't stalled.
+  worker->stop();
+  Logger::Log(Logger::INFO, "Dropped peer: " + key);
 }
 
 void ZmqBroker::removeClient(const std::string& clientId, const std::string& reason) {

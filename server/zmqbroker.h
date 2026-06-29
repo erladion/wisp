@@ -14,6 +14,7 @@
 #include "zmqworker.h"
 #include "safequeue.h"
 #include "subscriptionregistry.h"
+#include "discovery.h"
 #include "wireframe.h"
 
 #include "broker.pb.h"
@@ -36,8 +37,16 @@ public:
 
   void connectToPeer(const std::string& peerAddress);
 
+  // Enable automatic LAN peer discovery (UDP broadcast beacons). Brokers sharing
+  // a cluster name auto-mesh. Call before start().
+  void enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort = BrokerDiscovery::kDefaultPort);
+
 private:
   void run(const std::vector<std::string>& addresses);
+  // Add/remove a peer link under `key` (a remote uuid for discovered peers, the
+  // address for manual ones). Adding is idempotent per key.
+  void addPeer(const std::string& key, const std::string& peerAddress);
+  void removePeer(const std::string& key);
   void processMessage(zmq::socket_t &socket, zmq::socket_t &inspectorSocket, broker::MessageHeader &header, const std::string &payload, const std::string &senderId, bool isFromPeer);
   bool isDuplicate(const std::string& uuid);
 
@@ -59,12 +68,20 @@ private:
 
   SubscriptionRegistry m_subscriptions;
 
-  // Exception: peers can be added by the owning thread (connectToPeer) while
-  // the broker thread floods messages to them, hence the dedicated mutex.
+  // Exception: peers can be added/removed by the owning thread (connectToPeer)
+  // or the discovery thread while the broker thread floods messages to them,
+  // hence the dedicated mutex. Keyed by peer uuid (discovered) or address
+  // (manual) so a link can be torn down individually.
   std::mutex m_peersMutex;
-  std::vector<std::unique_ptr<ZmqWorker>> m_peers;
+  std::unordered_map<std::string, std::unique_ptr<ZmqWorker>> m_peers;
 
   SafeQueue<Envelope> m_peerInboundQueue;
+
+  // Optional LAN auto-discovery (set up by enableDiscovery, launched in start).
+  std::unique_ptr<BrokerDiscovery> m_discovery;
+  bool m_discoveryEnabled = false;
+  std::string m_clusterName;
+  std::uint16_t m_discoveryPort = BrokerDiscovery::kDefaultPort;
 
   std::unordered_set<std::string> m_seenMessageIds;
   std::deque<std::string> m_messageIdOrder;

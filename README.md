@@ -7,19 +7,19 @@
 
 # Wisp
 
-**A small C++ message broker over ZeroMQ** — topic pub/sub, request/reply, and broker meshing, with a Qt packet inspector.
+**A small C++ message broker over ZeroMQ** — topic pub/sub, request/reply, and zero-config LAN meshing, with a Qt packet inspector.
 
 </div>
 
 ## How it works
 
-Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. Each message is two frames: a small **header** the broker parses to route, and an opaque **payload** the broker forwards untouched — so payloads can be any format (protobuf, JSON, raw bytes). Brokers can peer into a mesh, and the inspector can tap and display all traffic live.
+Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. Each message is two frames: a small **header** the broker parses to route, and an opaque **payload** the broker forwards untouched — so payloads can be any format (protobuf, JSON, raw bytes). Brokers **auto-discover each other on the local network** (UDP broadcast) and form a mesh with no configuration; set `WISP_CLUSTER` to keep separate meshes apart on the same LAN, or `WISP_NO_DISCOVERY` to turn it off. The inspector can tap and display all live traffic.
 
 ## Components
 
 | Path | What |
 |---|---|
-| `server/` | The broker — topic routing, pub/sub, request/reply, peer meshing |
+| `server/` | The broker — topic routing, pub/sub, request/reply, auto-meshing |
 | `common/` | Client library: `ConnectionManager` (C++) plus a C ABI (`connectionapi.h`) |
 | `bindings/qt/` | Optional Qt binding (`QtConnectionAdapter`) |
 | `inspector/` | Qt GUI that taps and displays live broker traffic |
