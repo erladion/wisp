@@ -5,11 +5,17 @@ set(PROTO_FILES
 )
 
 # --- C++ protobuf sources ---------------------------------------------------
-# Regenerate at build time when a protoc is available (find_package(Protobuf)
-# locates it via Protobuf_PROTOC_EXECUTABLE); otherwise fall back to the
-# committed sources in generated/. Generation targets the build tree so the
-# source tree stays pristine.
-if (Protobuf_PROTOC_EXECUTABLE)
+# Regenerate at build time when a protoc is available (the protobuf::protoc
+# target in config mode, or Protobuf_PROTOC_EXECUTABLE in module mode);
+# otherwise fall back to the committed sources in generated/. Generation targets
+# the build tree so the source tree stays pristine.
+if (TARGET protobuf::protoc)
+    set(PROTOC_COMMAND protobuf::protoc)
+elseif (Protobuf_PROTOC_EXECUTABLE)
+    set(PROTOC_COMMAND ${Protobuf_PROTOC_EXECUTABLE})
+endif()
+
+if (PROTOC_COMMAND)
     set(PROTO_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
     file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
@@ -18,12 +24,12 @@ if (Protobuf_PROTOC_EXECUTABLE)
 
     add_custom_command(
         OUTPUT ${PROTO_GENERATED_SOURCES} ${PROTO_GENERATED_HEADERS}
-        COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+        COMMAND ${PROTOC_COMMAND}
                 --proto_path=${PROTO_SRC_DIR}
                 --cpp_out=${PROTO_GEN_DIR}
                 ${PROTO_FILES}
         DEPENDS ${PROTO_FILES}
-        COMMENT "Generating C++ protobuf sources (protoc: ${Protobuf_PROTOC_EXECUTABLE})"
+        COMMENT "Generating C++ protobuf sources"
         VERBATIM
     )
     message(STATUS "protoc found - C++ protobuf sources are generated at build time")
@@ -32,15 +38,6 @@ else()
     set(PROTO_GENERATED_SOURCES ${PROTO_GEN_DIR}/broker.pb.cc ${PROTO_GEN_DIR}/update.pb.cc)
     set(PROTO_GENERATED_HEADERS ${PROTO_GEN_DIR}/broker.pb.h ${PROTO_GEN_DIR}/update.pb.h)
     message(STATUS "protoc NOT found - using committed protobuf sources in ${PROTO_GEN_DIR}")
-endif()
-
-find_library(UTF8_RANGE_LIB
-    NAMES utf8_range utf8_validity
-    PATHS "$ENV{HOME}/.local/lib" "/usr/local/lib" "/usr/lib"
-)
-
-if (NOT UTF8_RANGE_LIB)
-    message(WARNING "Could not find libutf8_range.a! Linker errors may occur.")
 endif()
 
 add_library(ZmqLib STATIC
@@ -65,17 +62,6 @@ target_include_directories(ZmqLib PUBLIC ${PROTO_GEN_DIR})
 target_link_libraries(ZmqLib PUBLIC
     zmq
     protobuf::libprotobuf
-    absl::base
-    absl::strings
-    absl::cord
-    absl::synchronization
-    absl::time
-    absl::flags
-    absl::log
-    absl::check
-    absl::status
-    absl::statusor
-    ${UTF8_RANGE_LIB}
 )
 
 # --- C protobuf bindings (protobuf-c) ---------------------------------------

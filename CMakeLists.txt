@@ -11,22 +11,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/.local")
 
-find_package(Protobuf REQUIRED)
-find_package(absl CONFIG REQUIRED)
+find_package(Protobuf CONFIG REQUIRED)
 find_package(ZeroMQ QUIET)
 
 if (NOT ZeroMQ_FOUND)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(ZeroMQ REQUIRED libzmq)
-endif()
-
-find_library(UTF8_RANGE_LIB
-    NAMES utf8_range utf8_validity
-    PATHS "$ENV{HOME}/.local/lib" "/usr/local/lib" "/usr/lib"
-)
-
-if (NOT UTF8_RANGE_LIB)
-    message(WARNING "Could not find libutf8_range.a! Linker errors may occur.")
 endif()
 
 include_directories(common)
