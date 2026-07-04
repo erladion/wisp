@@ -64,6 +64,17 @@ target_link_libraries(ZmqLib PUBLIC
     protobuf::libprotobuf
 )
 
+# PIC so ZmqLib's objects can be folded into the shared C ABI below.
+set_target_properties(ZmqLib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# --- Shared C ABI (libwisp.so) -----------------------------------------------
+# The connectionapi.h ABI as a standalone shared library, for FFI consumers
+# (Python ctypes, Rust, C#, ...). Compiles connectionapi.cpp itself so the
+# ABI symbols are exported, and resolves the rest from ZmqLib.
+add_library(wisp SHARED connectionapi.cpp)
+target_link_libraries(wisp PRIVATE ZmqLib)
+target_compile_definitions(wisp PRIVATE BUILDING_DLL)
+
 # --- C protobuf bindings (protobuf-c) ---------------------------------------
 # Optional pure-C bindings for C clients. Wire-compatible with the C++ types
 # above (same protobuf wire format). Generated at build time when protoc-c and
