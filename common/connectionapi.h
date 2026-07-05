@@ -48,6 +48,12 @@ typedef void (*Message_Callback)(const char* topic, const char* data, int len, v
 CONN_API int initConnection(const Connection_Config* config);
 CONN_API void shutdownConnection();
 
+// Message describing the most recent failure in a Wisp call on the calling
+// thread, or "" if that call succeeded. Never returns NULL. The pointer stays
+// valid until the next Wisp call on the same thread; copy it to keep it.
+// Queries (isConnected, lastErrorMessage itself) never change it.
+CONN_API const char* lastErrorMessage();
+
 // 1 while the broker connection is up, 0 otherwise. initConnection returns
 // before the connection finishes coming online.
 CONN_API int isConnected();

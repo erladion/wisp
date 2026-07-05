@@ -2,14 +2,37 @@
 #include "connectionmanager.h"
 
 #include <cstring>
+#include <string>
 
 // Every entry point validates its arguments and catches all exceptions:
 // this is an extern "C" ABI and callers (C, Python ctypes, Ada, ...) cannot
-// unwind C++ exceptions.
+// unwind C++ exceptions. Failures leave a description in t_lastError for
+// lastErrorMessage(); messages skip the function name since the caller knows
+// which call just failed.
+
+namespace {
+
+thread_local std::string t_lastError;
+
+int fail(int code, std::string message) {
+  t_lastError = std::move(message);
+  return code;
+}
+
+int ok() {
+  t_lastError.clear();
+  return SUCCESS;
+}
+
+}  // namespace
+
+const char* lastErrorMessage() {
+  return t_lastError.c_str();
+}
 
 int initConnection(const Connection_Config* config) {
   if (!config || !config->address) {
-    return ERROR_INVALID_ARGS;
+    return fail(ERROR_INVALID_ARGS, "config and config->address must be non-null");
   }
 
   try {
@@ -22,16 +45,22 @@ int initConnection(const Connection_Config* config) {
     cfg.compressionAlgorithm = config->compression_algorithm;
 
     ConnectionManager::init(cfg);
-    return SUCCESS;
+    return ok();
+  } catch (const std::exception& e) {
+    return fail(ERROR_GENERIC, e.what());
   } catch (...) {
-    return ERROR_GENERIC;
+    return fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
 void shutdownConnection() {
   try {
     ConnectionManager::shutdown();
+    ok();
+  } catch (const std::exception& e) {
+    fail(ERROR_GENERIC, e.what());
   } catch (...) {
+    fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
@@ -41,87 +70,111 @@ int isConnected() {
 
 int waitForConnection(int timeoutMs) {
   if (timeoutMs < 0) {
-    return ERROR_INVALID_ARGS;
+    return fail(ERROR_INVALID_ARGS, "timeoutMs must be >= 0");
   }
 
   try {
     if (ConnectionManager::waitForConnection(timeoutMs)) {
-      return SUCCESS;
+      return ok();
     }
-    return ConnectionManager::isInitialized() ? ERROR_TIMEOUT : ERROR_NO_CONNECTION;
+    if (!ConnectionManager::isInitialized()) {
+      return fail(ERROR_NO_CONNECTION, "initConnection has not been called");
+    }
+    return fail(ERROR_TIMEOUT, "not connected after " + std::to_string(timeoutMs) + " ms");
+  } catch (const std::exception& e) {
+    return fail(ERROR_GENERIC, e.what());
   } catch (...) {
-    return ERROR_GENERIC;
+    return fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
 int sendMessage(const char* topic, const char* text) {
   if (!topic || !text) {
-    return ERROR_INVALID_ARGS;
+    return fail(ERROR_INVALID_ARGS, "topic and text must be non-null");
   }
 
   try {
-    return ConnectionManager::sendMessage(topic, text) ? SUCCESS : ERROR_NO_CONNECTION;
+    if (!ConnectionManager::sendMessage(topic, text)) {
+      return fail(ERROR_NO_CONNECTION, "no active connection");
+    }
+    return ok();
+  } catch (const std::exception& e) {
+    return fail(ERROR_GENERIC, e.what());
   } catch (...) {
-    return ERROR_GENERIC;
+    return fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
 int sendData(const char* topic, const char* data, int len) {
   if (!topic || !data || len < 0) {
-    return ERROR_INVALID_ARGS;
+    return fail(ERROR_INVALID_ARGS, "topic and data must be non-null and len >= 0");
   }
 
   try {
-    return ConnectionManager::sendDataRaw(topic, data, len) ? SUCCESS : ERROR_NO_CONNECTION;
+    if (!ConnectionManager::sendDataRaw(topic, data, len)) {
+      return fail(ERROR_NO_CONNECTION, "no active connection");
+    }
+    return ok();
+  } catch (const std::exception& e) {
+    return fail(ERROR_GENERIC, e.what());
   } catch (...) {
-    return ERROR_GENERIC;
+    return fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
 int replyToSender(const char* data, int len) {
   if (!data || len < 0) {
-    return ERROR_INVALID_ARGS;
+    return fail(ERROR_INVALID_ARGS, "data must be non-null and len >= 0");
   }
 
   try {
-    return ConnectionManager::replyToSender(std::string(data, len)) ? SUCCESS : ERROR_NO_CONNECTION;
+    if (!ConnectionManager::replyToSender(std::string(data, len))) {
+      return fail(ERROR_NO_CONNECTION, "no active connection (or not inside a request handler)");
+    }
+    return ok();
+  } catch (const std::exception& e) {
+    return fail(ERROR_GENERIC, e.what());
   } catch (...) {
-    return ERROR_GENERIC;
+    return fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
 int sendRequest(const char* topic, const char* payload, int payloadLen, char* outBuffer, int outBufferCap, int* outLen, int timeoutMs) {
   if (!topic || !payload || !outBuffer || !outLen || payloadLen < 0 || outBufferCap < 0) {
-    return ERROR_INVALID_ARGS;
+    return fail(ERROR_INVALID_ARGS, "topic, payload, outBuffer and outLen must be non-null; lengths must be >= 0");
   }
 
   try {
     // Fail fast instead of letting a doomed request run out its timeout.
     if (!ConnectionManager::isConnected()) {
-      return ERROR_NO_CONNECTION;
+      return fail(ERROR_NO_CONNECTION, "not connected to a broker");
     }
 
     std::string response;
     if (!ConnectionManager::sendRequest(topic, std::string(payload, payloadLen), response, timeoutMs)) {
-      return ERROR_TIMEOUT;
+      return fail(ERROR_TIMEOUT, "no reply on '" + std::string(topic) + "' within " + std::to_string(timeoutMs) + " ms");
     }
 
     if (static_cast<int>(response.size()) > outBufferCap) {
       // The reply is consumed either way; report the capacity it needed.
       *outLen = static_cast<int>(response.size());
-      return ERROR_BUFFER_TOO_SMALL;
+      return fail(ERROR_BUFFER_TOO_SMALL, "response needs " + std::to_string(response.size()) + " bytes but the buffer capacity is " +
+                                              std::to_string(outBufferCap));
     }
 
     std::memcpy(outBuffer, response.data(), response.size());
     *outLen = static_cast<int>(response.size());
-    return SUCCESS;
+    return ok();
+  } catch (const std::exception& e) {
+    return fail(ERROR_GENERIC, e.what());
   } catch (...) {
-    return ERROR_GENERIC;
+    return fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
 void registerCallback(const char* topic, Message_Callback callback, void* userData) {
   if (!topic || !callback) {
+    fail(ERROR_INVALID_ARGS, "topic and callback must be non-null");
     return;
   }
 
@@ -133,17 +186,26 @@ void registerCallback(const char* topic, Message_Callback callback, void* userDa
           callback(t.c_str(), data.c_str(), (int)data.size(), userData);
         },
         userData);
+    ok();
+  } catch (const std::exception& e) {
+    fail(ERROR_GENERIC, e.what());
   } catch (...) {
+    fail(ERROR_GENERIC, "unknown exception");
   }
 }
 
 void unregisterCallback(const char* topic, void* userData) {
   if (!topic) {
+    fail(ERROR_INVALID_ARGS, "topic must be non-null");
     return;
   }
 
   try {
     ConnectionManager::unregisterCallback(topic, userData);
+    ok();
+  } catch (const std::exception& e) {
+    fail(ERROR_GENERIC, e.what());
   } catch (...) {
+    fail(ERROR_GENERIC, "unknown exception");
   }
 }

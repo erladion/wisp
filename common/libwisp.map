@@ -4,6 +4,7 @@
 {
   global:
     initConnection;
+    lastErrorMessage;
     shutdownConnection;
     isConnected;
     waitForConnection;
