@@ -44,7 +44,13 @@ void ConnectionManager::shutdown() {
   {
     std::lock_guard<std::mutex> lock(m_initMutex);
     if (m_instance) {
-      m_instance->m_running = false;
+      {
+        // Under m_statusMutex + notify so waitForConnection() waiters wake
+        // promptly instead of sleeping out their timeout.
+        std::lock_guard<std::mutex> statusLock(m_instance->m_statusMutex);
+        m_instance->m_running = false;
+      }
+      m_instance->m_statusCv.notify_all();
 
       if (m_instance->m_connected && m_instance->m_pWorker) {
         Envelope byeMsg;
@@ -65,12 +71,43 @@ std::shared_ptr<ConnectionManager> ConnectionManager::getInstance() {
   return m_instance;
 }
 
-void ConnectionManager::unregisterCallback(const std::string& key, void* instance) {
+bool ConnectionManager::isConnected() {
+  std::shared_ptr<ConnectionManager> self = getInstance();
+  return self && self->m_connected;
+}
+
+bool ConnectionManager::isInitialized() {
+  return getInstance() != nullptr;
+}
+
+bool ConnectionManager::waitForConnection(int timeoutMs) {
+  // The snapshot keeps the instance alive for the whole wait, so a
+  // concurrent shutdown() can't destroy the CV under us; it wakes the wait
+  // via m_running instead.
   std::shared_ptr<ConnectionManager> self = getInstance();
   if (!self) {
-    return;
+    return false;
   }
-  self->performUnregistration(key, instance);
+
+  std::unique_lock<std::mutex> lock(self->m_statusMutex);
+  self->m_statusCv.wait_for(lock, std::chrono::milliseconds(timeoutMs),
+                            [&self] { return self->m_connected || !self->m_running; });
+  return self->m_connected;
+}
+
+void ConnectionManager::unregisterCallback(const std::string& key, void* instance) {
+  // Mirrors registerInternal(): hold m_initMutex so a registration queued
+  // before init() can be purged from the pending list too.
+  std::lock_guard<std::mutex> lock(m_initMutex);
+
+  if (m_instance) {
+    m_instance->performUnregistration(key, instance);
+  } else {
+    auto& pending = s_pendingMsgCallbacks;
+    pending.erase(std::remove_if(pending.begin(), pending.end(),
+                                 [&](const auto& entry) { return std::get<0>(entry) == key && std::get<2>(entry) == instance; }),
+                  pending.end());
+  }
 }
 
 bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::string& payload, std::string& outResponse, int timeoutMs) {
@@ -127,7 +164,12 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
 
     Logger::Log(Logger::INFO, std::string("Status: ") + (connected ? "ONLINE" : "OFFLINE"));
 
-    m_connected = connected;
+    {
+      // Store under m_statusMutex so waitForConnection() can't miss the wakeup.
+      std::lock_guard<std::mutex> statusLock(m_statusMutex);
+      m_connected = connected;
+    }
+    m_statusCv.notify_all();
 
     if (connected) {
       sendRawEnvelope(createControlEnvelope(Keys::CONNECT, ""));

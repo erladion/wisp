@@ -17,7 +17,15 @@ extern "C" {
 
 typedef enum { PROTOCOL_ZMQ = 0 } Connection_Protocol;
 
-typedef enum { SUCCESS = 0, ERROR_GENERIC = -1, ERROR_NO_CONNECTION = -2, ERROR_INVALID_ARGS = -3, ERROR_SEND_FAILED = -4 } Connection_Error_Code;
+typedef enum {
+  SUCCESS = 0,
+  ERROR_GENERIC = -1,
+  ERROR_NO_CONNECTION = -2,
+  ERROR_INVALID_ARGS = -3,
+  ERROR_SEND_FAILED = -4,
+  ERROR_BUFFER_TOO_SMALL = -5,
+  ERROR_TIMEOUT = -6
+} Connection_Error_Code;
 
 typedef enum { COMPRESS_NONE = 0, COMPRESS_DEFLATE = 1, COMPRESS_GZIP = 2 } Compression_Algorithm;
 
@@ -40,17 +48,35 @@ typedef void (*Message_Callback)(const char* topic, const char* data, int len, v
 CONN_API int initConnection(const Connection_Config* config);
 CONN_API void shutdownConnection();
 
+// 1 while the broker connection is up, 0 otherwise. initConnection returns
+// before the connection finishes coming online.
+CONN_API int isConnected();
+
+// Blocks until the broker connection is up, for at most timeoutMs. Returns
+// SUCCESS once connected and ERROR_TIMEOUT if not -- a timeout is not
+// terminal, the connection keeps being retried in the background. Returns
+// ERROR_NO_CONNECTION if initConnection was never called.
+CONN_API int waitForConnection(int timeoutMs);
+
 CONN_API int sendData(const char* topic, const char* data, int len);
 CONN_API int sendMessage(const char* topic, const char* text);
 
 CONN_API int replyToSender(const char* data, int len);
 
 // Blocks the calling thread for up to timeoutMs waiting on the reply. On success, fills outBuffer
-// (capacity outBufferCap) and outLen with the response. Returns ERROR_INVALID_ARGS if outBufferCap
-// is too small for the response, ERROR_GENERIC on timeout/failure.
+// (capacity outBufferCap) and outLen with the response. Returns ERROR_NO_CONNECTION when offline,
+// ERROR_TIMEOUT when no reply arrived in time, and ERROR_BUFFER_TOO_SMALL when the response did
+// not fit in outBufferCap (the reply is discarded; *outLen is set to the required capacity).
 CONN_API int sendRequest(const char* topic, const char* payload, int payloadLen, char* outBuffer, int outBufferCap, int* outLen, int timeoutMs);
 
+// userData is passed back to the callback and also identifies the registration
+// for unregisterCallback.
 CONN_API void registerCallback(const char* topic, Message_Callback callback, void* userData);
+
+// Removes the registrations on topic whose userData matches the value given to
+// registerCallback. A callback already being dispatched when this returns may
+// still complete, so resources it uses must not be freed immediately.
+CONN_API void unregisterCallback(const char* topic, void* userData);
 
 #ifdef __cplusplus
 }

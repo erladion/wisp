@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -146,6 +147,18 @@ class ConnectionManager {
 public:
   static void init(const ConnectionConfig& config);
   static void shutdown();
+
+  // True while the broker connection is up. init() returns before the
+  // connection finishes coming online.
+  static bool isConnected();
+
+  // init() has been called and shutdown() has not.
+  static bool isInitialized();
+
+  // Blocks until the broker connection is up, for at most timeoutMs.
+  // Returns true once connected. A timeout is not terminal: the worker
+  // keeps retrying in the background.
+  static bool waitForConnection(int timeoutMs);
 
   static bool sendMessage(const std::string& key, const std::string& message);
   static bool sendData(const std::string& key, const std::string_view& data);
@@ -290,6 +303,11 @@ private:
   std::thread m_processingThread;
   std::atomic<bool> m_running;
   std::atomic<bool> m_connected;
+
+  // Signaled on every status change and on shutdown; waitForConnection
+  // waits on it. Innermost lock: never held while taking another mutex.
+  std::mutex m_statusMutex;
+  std::condition_variable m_statusCv;
 
   std::mutex m_mapMutex;
   std::map<std::string, std::vector<CallbackEntry>> m_msgHandlers;
