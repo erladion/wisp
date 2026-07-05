@@ -75,6 +75,13 @@ add_library(wisp SHARED connectionapi.cpp)
 target_link_libraries(wisp PRIVATE ZmqLib)
 target_compile_definitions(wisp PRIVATE BUILDING_DLL)
 
+# Export only the C ABI symbols; see libwisp.map. (On Windows the CONN_API
+# dllexport annotations achieve the same.)
+if (NOT WIN32)
+    target_link_options(wisp PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/libwisp.map)
+    set_target_properties(wisp PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/libwisp.map)
+endif()
+
 # --- C protobuf bindings (protobuf-c) ---------------------------------------
 # Optional pure-C bindings for C clients. Wire-compatible with the C++ types
 # above (same protobuf wire format). Generated at build time when protoc-c and

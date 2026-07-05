@@ -1,0 +1,18 @@
+/* Export only the C ABI from libwisp.so. Everything else (ConnectionManager,
+   protobuf, abseil, ...) stays local so host processes that link their own
+   copies never collide with ours. */
+{
+  global:
+    initConnection;
+    shutdownConnection;
+    isConnected;
+    waitForConnection;
+    sendData;
+    sendMessage;
+    replyToSender;
+    sendRequest;
+    registerCallback;
+    unregisterCallback;
+  local:
+    *;
+};
