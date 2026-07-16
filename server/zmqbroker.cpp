@@ -16,6 +16,11 @@
 
 namespace {
 
+// Peer workers ping this inproc endpoint after queueing into the inbound queue,
+// so a peer message interrupts the broker poll instead of waiting out its
+// timeout. Per-context namespace, so multiple brokers in one process don't clash.
+constexpr const char* PEER_WAKE_ENDPOINT = "inproc://peer_wake";
+
 // Three-frame ROUTER send (identity + header + optional payload), non-blocking:
 // a slow client with a full pipe must stall its own messages, not the broker
 // loop (a blocked send here would also make stop() hang). The identity frame
@@ -133,6 +138,12 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
     Logger::Log(Logger::ERROR, "Failed to bind to " + inspectorConnection + ": " + e.what());
   }
 
+  // Wake pings from peer workers (see PEER_WAKE_ENDPOINT). The queue itself
+  // stays the data path; this socket only interrupts the poll.
+  zmq::socket_t peerWakeSocket(m_context, ZMQ_PULL);
+  peerWakeSocket.set(zmq::sockopt::linger, 0);
+  peerWakeSocket.bind(PEER_WAKE_ENDPOINT);
+
   for (const auto& addr : addresses) {
     try {
       socket.bind(addr);
@@ -145,13 +156,21 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   auto lastCleanup = std::chrono::steady_clock::now();
 
   while (m_running) {
-    // Poll for local clients
-    zmq::pollitem_t items[] = {{socket.handle(), 0, ZMQ_POLLIN, 0}};
-    zmq::poll(items, 1, std::chrono::milliseconds(20));
+    // Poll for local clients and peer wake pings
+    zmq::pollitem_t items[] = {
+        {socket.handle(), 0, ZMQ_POLLIN, 0},
+        {peerWakeSocket.handle(), 0, ZMQ_POLLIN, 0},
+    };
+    zmq::poll(items, 2, std::chrono::milliseconds(20));
 
     if (items[0].revents & ZMQ_POLLIN) {
-      zmq::message_t identity;
-      if (socket.recv(identity, zmq::recv_flags::none)) {
+      // Drain the socket rather than taking one message per poll wakeup; the
+      // cap bounds time spent here so cleanup and stats still run under load.
+      for (int drained = 0; drained < MaxMessagesPerWake; drained++) {
+        zmq::message_t identity;
+        if (!socket.recv(identity, zmq::recv_flags::dontwait)) {
+          break;
+        }
         if (!socket.get(zmq::sockopt::rcvmore)) {
           Logger::Log(Logger::WARNING, "Received single-part message on ROUTER socket. Dropping.");
           continue;
@@ -159,16 +178,24 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
         // Identity consumed; wire::recv reads the header frame and any payload
         // continuation frame, leaving the payload opaque (never parsed here).
         Envelope env;
-        if (wire::recv(socket, env, zmq::recv_flags::none)) {
+        std::size_t wireBytes = 0;
+        if (wire::recv(socket, env, zmq::recv_flags::none, &wireBytes)) {
           // Stats
           m_totalMessages++;
           m_msgsInterval++;
-          const uint64_t wireBytes = env.header.ByteSizeLong() + env.payload.size();
           m_totalBytes += wireBytes;
           m_bytesInterval += wireBytes;
 
           processMessage(socket, inspectorSocket, env.header, env.payload, identity.to_string(), false);
         }
+      }
+    }
+
+    // Clear pending wake pings; the unconditional queue drain below picks up
+    // the data they announced (and anything pushed before the ping arrived).
+    if (items[1].revents & ZMQ_POLLIN) {
+      zmq::message_t ping;
+      while (peerWakeSocket.recv(ping, zmq::recv_flags::dontwait)) {
       }
     }
 
@@ -428,7 +455,14 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
 
   auto worker = std::make_unique<ZmqWorker>(config, nullptr, nullptr);
   ZmqWorker* link = worker.get();
-  worker->setMessageCallback([this, link, linkId = config.clientId](const Envelope& env) {
+
+  // Owned by the callback and used only on the worker thread (worker->start()
+  // provides the hand-off barrier zmq requires for socket migration).
+  auto wakeSocket = std::make_shared<zmq::socket_t>(m_context, ZMQ_PUSH);
+  wakeSocket->set(zmq::sockopt::linger, 0);
+  wakeSocket->connect(PEER_WAKE_ENDPOINT);
+
+  worker->setMessageCallback([this, link, linkId = config.clientId, wakeSocket](const Envelope& env) {
     // The remote broker answers our first message (and any reappearance after
     // it has timed us out) with a RESET request instead of processing it. The
     // wildcard subscription must be (re-)sent in response, or the remote will
@@ -442,6 +476,11 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
       return;
     }
     m_peerInboundQueue.push(env);
+    // Ping the broker poll awake. A refused send means the pipe already holds
+    // pings (wakeup pending) or the broker isn't polling yet; either way the
+    // poll-timeout queue drain still delivers, so dropping the ping is fine.
+    zmq::message_t ping;
+    (void)wakeSocket->send(ping, zmq::send_flags::dontwait);
   });
 
   {

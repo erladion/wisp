@@ -27,6 +27,9 @@ struct ClientState {
 class ZmqBroker {
   const std::chrono::seconds ClientTimeout{10};
   const size_t MaxHistorySize{10000};
+  // Max envelopes drained from the client socket per poll wakeup, so a
+  // sustained burst can't starve zombie cleanup and stats.
+  const int MaxMessagesPerWake{1000};
 
 public:
   ZmqBroker();

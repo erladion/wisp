@@ -106,8 +106,9 @@ inline bool send(zmq::socket_t& sock, const Envelope& env) {
 // from a socket whose routing-id frame has already been consumed (or never
 // existed, as on DEALER/SUB). Returns false on EAGAIN, a missing/unknown format
 // byte, or a decode failure; the multipart group is drained in the malformed
-// cases so the socket stays frame-aligned.
-inline bool recv(zmq::socket_t& sock, Envelope& env, zmq::recv_flags flags) {
+// cases so the socket stays frame-aligned. On success `wireBytes`, if given,
+// receives the frame sizes as they arrived on the wire.
+inline bool recv(zmq::socket_t& sock, Envelope& env, zmq::recv_flags flags, std::size_t* wireBytes = nullptr) {
   zmq::message_t headerFrame;
   if (!sock.recv(headerFrame, flags)) {
     return false;
@@ -128,6 +129,9 @@ inline bool recv(zmq::socket_t& sock, Envelope& env, zmq::recv_flags flags) {
       env.payload.assign(static_cast<const char*>(payloadFrame.data()), payloadFrame.size());
     }
     drainMultipart(sock);  // anything past the payload frame is garbage
+  }
+  if (wireBytes) {
+    *wireBytes = size + env.payload.size();
   }
   return true;
 }
