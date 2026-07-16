@@ -8,6 +8,12 @@
 // it stays out of the normal `ctest` run. Invoke it directly, e.g.:
 //
 //   ./tests/throughput_bench --publishers 4 --subscribers 4 --duration-secs 10
+//
+// --payload-bytes accepts a comma-separated list to sweep payload sizes in one
+// invocation (each size gets its own fresh broker/clients and full measurement
+// cycle) and ends with a comparison table:
+//
+//   ./tests/throughput_bench --payload-bytes 256,1024,4096
 
 #include <algorithm>
 #include <atomic>
@@ -59,7 +65,7 @@ const std::string kMeasureTag = "measure";
 struct BenchConfig {
   int publisherCount = 2;
   int subscriberCount = 2;
-  int payloadBytes = 256;
+  std::vector<int> payloadSizes = {256};
   std::chrono::seconds warmup{1};
   std::chrono::seconds duration{5};
 };
@@ -68,9 +74,31 @@ void printUsage() {
   std::cout << "Usage: throughput_bench [options]\n"
             << "  --publishers N      number of publisher clients   (default 2)\n"
             << "  --subscribers N     number of subscriber clients  (default 2)\n"
-            << "  --payload-bytes N   message payload size in bytes (default 256, min " << kMinPayloadBytes << ")\n"
+            << "  --payload-bytes N   payload size(s) in bytes (default 256, min " << kMinPayloadBytes << ");\n"
+            << "                      a comma-separated list (e.g. 256,1024,4096) sweeps the\n"
+            << "                      sizes in one invocation and prints a comparison table\n"
             << "  --warmup-secs N     unmeasured warmup duration    (default 1)\n"
-            << "  --duration-secs N   measured run duration         (default 5)\n";
+            << "  --duration-secs N   measured run duration         (default 5, per size)\n";
+}
+
+std::vector<int> parsePayloadSizes(const std::string& spec) {
+  std::vector<int> sizes;
+  std::size_t start = 0;
+  while (start <= spec.size()) {
+    const std::size_t pos = spec.find(',', start);
+    const std::string field = spec.substr(start, pos == std::string::npos ? std::string::npos : pos - start);
+    if (!field.empty()) {
+      sizes.push_back(std::stoi(field));
+    }
+    if (pos == std::string::npos) {
+      break;
+    }
+    start = pos + 1;
+  }
+  if (sizes.empty()) {
+    throw std::runtime_error("--payload-bytes needs at least one size");
+  }
+  return sizes;
 }
 
 BenchConfig parseArgs(int argc, char** argv) {
@@ -89,7 +117,10 @@ BenchConfig parseArgs(int argc, char** argv) {
     } else if (flag == "--subscribers") {
       config.subscriberCount = intArg(i);
     } else if (flag == "--payload-bytes") {
-      config.payloadBytes = intArg(i);
+      if (i + 1 >= argc) {
+        throw std::runtime_error("missing value for --payload-bytes");
+      }
+      config.payloadSizes = parsePayloadSizes(argv[++i]);
     } else if (flag == "--warmup-secs") {
       config.warmup = std::chrono::seconds(intArg(i));
     } else if (flag == "--duration-secs") {
@@ -105,8 +136,10 @@ BenchConfig parseArgs(int argc, char** argv) {
   if (config.publisherCount < 1 || config.subscriberCount < 1) {
     throw std::runtime_error("--publishers and --subscribers must be >= 1");
   }
-  if (config.payloadBytes < kMinPayloadBytes) {
-    throw std::runtime_error("--payload-bytes must be >= " + std::to_string(kMinPayloadBytes) + " (a send timestamp is embedded in the payload)");
+  for (const int size : config.payloadSizes) {
+    if (size < kMinPayloadBytes) {
+      throw std::runtime_error("--payload-bytes must be >= " + std::to_string(kMinPayloadBytes) + " (a send timestamp is embedded in the payload)");
+    }
   }
   return config;
 }
@@ -254,75 +287,102 @@ double percentileMs(const std::vector<int64_t>& sortedNanos, double p) {
   return static_cast<double>(sortedNanos[idx]) / 1e6;
 }
 
-void printReport(const BenchConfig& config, std::chrono::steady_clock::time_point measureStart, std::chrono::steady_clock::time_point measureEnd,
-                 const std::vector<PublisherResult>& publisherResults, const std::vector<SubscriberResult>& subscriberResults) {
-  uint64_t totalSent = 0, totalEnqueueFailures = 0;
+// Everything the per-run report and the sweep comparison table need, reduced
+// from the raw publisher/subscriber results of one measured run.
+struct RunSummary {
+  int payloadBytes = 0;
+  double seconds = 0.0;
+  uint64_t totalSent = 0;
+  uint64_t totalEnqueueFailures = 0;
+  uint64_t inWindowReceived = 0;
+  uint64_t inWindowBytes = 0;
+  uint64_t eventuallyReceived = 0;
+  uint64_t expectedReceived = 0;
+  std::vector<int64_t> latencyNanos;  // sorted ascending
+
+  double publishRate() const { return seconds > 0 ? static_cast<double>(totalSent) / seconds : 0.0; }
+  double deliveryRate() const { return seconds > 0 ? static_cast<double>(inWindowReceived) / seconds : 0.0; }
+  double deliveryMbPerSec() const { return seconds > 0 ? (static_cast<double>(inWindowBytes) / seconds) / (1024.0 * 1024.0) : 0.0; }
+  double deliveredRatio() const {
+    return expectedReceived == 0 ? 0.0 : 100.0 * static_cast<double>(eventuallyReceived) / static_cast<double>(expectedReceived);
+  }
+  double maxLatencyMs() const { return latencyNanos.empty() ? 0.0 : static_cast<double>(latencyNanos.back()) / 1e6; }
+};
+
+RunSummary summarize(const BenchConfig& config, int payloadBytes, std::chrono::steady_clock::time_point measureStart,
+                     std::chrono::steady_clock::time_point measureEnd, const std::vector<PublisherResult>& publisherResults,
+                     const std::vector<SubscriberResult>& subscriberResults) {
+  RunSummary summary;
+  summary.payloadBytes = payloadBytes;
+  summary.seconds = std::chrono::duration<double>(measureEnd - measureStart).count();
+
   for (const auto& r : publisherResults) {
-    totalSent += r.messagesSent;
-    totalEnqueueFailures += r.enqueueFailures;
+    summary.totalSent += r.messagesSent;
+    summary.totalEnqueueFailures += r.enqueueFailures;
   }
 
   // "In-window" = arrived while publishers were still actively sending, i.e.
   // directly comparable to the publish-side rate over the same wall-clock
   // span. "Eventually" additionally counts arrivals during the post-window
-  // drain grace period, which is what the delivered-ratio below needs - a
-  // message sent at T-1ms legitimately arrives a few ms after T.
+  // drain grace period, which is what the delivered-ratio needs - a message
+  // sent at T-1ms legitimately arrives a few ms after T.
   const int64_t windowStartNanos = measureStart.time_since_epoch().count();
   const int64_t windowEndNanos = measureEnd.time_since_epoch().count();
 
-  uint64_t inWindowReceived = 0, inWindowBytes = 0;
-  uint64_t eventuallyReceived = 0;
-  std::vector<int64_t> latencyNanos;
   for (const auto& r : subscriberResults) {
     for (const auto& sample : r.samples) {
-      ++eventuallyReceived;
-      latencyNanos.push_back(sample.latencyNanos);
+      ++summary.eventuallyReceived;
+      summary.latencyNanos.push_back(sample.latencyNanos);
       if (sample.receiveTimeNanos >= windowStartNanos && sample.receiveTimeNanos <= windowEndNanos) {
-        ++inWindowReceived;
-        inWindowBytes += sample.bytes;
+        ++summary.inWindowReceived;
+        summary.inWindowBytes += sample.bytes;
       }
     }
   }
-  std::sort(latencyNanos.begin(), latencyNanos.end());
+  std::sort(summary.latencyNanos.begin(), summary.latencyNanos.end());
 
-  const double seconds = std::chrono::duration<double>(measureEnd - measureStart).count();
-  const uint64_t expectedReceived = totalSent * static_cast<uint64_t>(config.subscriberCount);
-  const double deliveredRatio = expectedReceived == 0 ? 0.0 : 100.0 * static_cast<double>(eventuallyReceived) / static_cast<double>(expectedReceived);
+  summary.expectedReceived = summary.totalSent * static_cast<uint64_t>(config.subscriberCount);
+  return summary;
+}
 
+void printReport(const BenchConfig& config, const RunSummary& s) {
   std::cout << std::fixed << std::setprecision(2);
   std::cout << "\n===== Throughput benchmark report =====\n";
-  std::cout << config.publisherCount << " publisher(s), " << config.subscriberCount << " subscriber(s), ~" << config.payloadBytes << " B payload, " << seconds
+  std::cout << config.publisherCount << " publisher(s), " << config.subscriberCount << " subscriber(s), ~" << s.payloadBytes << " B payload, " << s.seconds
             << " s measured (after " << config.warmup.count() << " s warmup, plus a " << kDrainGrace.count() << " s drain grace before tallying delivery)\n\n";
 
   std::cout << "Publish side:\n";
-  std::cout << "  enqueued:           " << totalSent << " messages (" << totalEnqueueFailures << " backpressure drops)\n";
-  std::cout << "  throughput:         " << (seconds > 0 ? static_cast<double>(totalSent) / seconds : 0.0) << " msgs/sec\n\n";
+  std::cout << "  enqueued:           " << s.totalSent << " messages (" << s.totalEnqueueFailures << " backpressure drops)\n";
+  std::cout << "  throughput:         " << s.publishRate() << " msgs/sec\n\n";
 
   std::cout << "Delivery side (fan-out to " << config.subscriberCount << " subscriber(s)):\n";
-  std::cout << "  in-window:          " << inWindowReceived << " messages, "
-            << (seconds > 0 ? static_cast<double>(inWindowReceived) / seconds : 0.0) << " msgs/sec, "
-            << (seconds > 0 ? (static_cast<double>(inWindowBytes) / seconds) / (1024.0 * 1024.0) : 0.0) << " MB/sec\n";
+  std::cout << "  in-window:          " << s.inWindowReceived << " messages, " << s.deliveryRate() << " msgs/sec, " << s.deliveryMbPerSec() << " MB/sec\n";
   std::cout << "                      (arrived while publishers were still sending - directly comparable to the publish-side rate above;\n"
             << "                       lower than it means the mesh is falling behind and queueing a backlog)\n";
-  std::cout << "  delivered overall:  " << eventuallyReceived << " / " << expectedReceived << " expected (" << deliveredRatio
+  std::cout << "  delivered overall:  " << s.eventuallyReceived << " / " << s.expectedReceived << " expected (" << s.deliveredRatio()
             << "%, including the post-window drain)\n";
-  std::cout << "  latency (ms):       p50=" << percentileMs(latencyNanos, 0.50) << "  p95=" << percentileMs(latencyNanos, 0.95)
-            << "  p99=" << percentileMs(latencyNanos, 0.99) << "  max=" << (latencyNanos.empty() ? 0.0 : static_cast<double>(latencyNanos.back()) / 1e6) << "\n";
+  std::cout << "  latency (ms):       p50=" << percentileMs(s.latencyNanos, 0.50) << "  p95=" << percentileMs(s.latencyNanos, 0.95)
+            << "  p99=" << percentileMs(s.latencyNanos, 0.99) << "  max=" << s.maxLatencyMs() << "\n";
   std::cout << "========================================\n";
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
-  BenchConfig config;
-  try {
-    config = parseArgs(argc, argv);
-  } catch (const std::exception& e) {
-    std::cerr << "error: " << e.what() << "\n\n";
-    printUsage();
-    return 1;
+void printSweepTable(const BenchConfig& config, const std::vector<RunSummary>& runs) {
+  std::cout << std::fixed << std::setprecision(2);
+  std::cout << "\n===== Payload sweep (" << config.publisherCount << " publisher(s), " << config.subscriberCount << " subscriber(s)) =====\n";
+  std::cout << std::setw(9) << "payload" << std::setw(12) << "publish/s" << std::setw(13) << "delivered/s" << std::setw(10) << "MB/s" << std::setw(12)
+            << "delivered%" << std::setw(10) << "p50 ms" << std::setw(10) << "p95 ms" << std::setw(10) << "max ms" << "\n";
+  for (const auto& s : runs) {
+    std::cout << std::setw(7) << s.payloadBytes << " B" << std::setw(12) << static_cast<uint64_t>(s.publishRate()) << std::setw(13)
+              << static_cast<uint64_t>(s.deliveryRate()) << std::setw(10) << s.deliveryMbPerSec() << std::setw(12) << s.deliveredRatio() << std::setw(10)
+              << percentileMs(s.latencyNanos, 0.50) << std::setw(10) << percentileMs(s.latencyNanos, 0.95) << std::setw(10) << s.maxLatencyMs() << "\n";
   }
+  std::cout << "=====\n";
+}
 
+// One full measurement cycle at a fixed payload size: fresh broker and
+// clients, subscription sync, warmup, timed window, drain, teardown. Throws
+// when the mesh never becomes ready.
+RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
   ZmqBroker broker;
   broker.start({testBrokerAddress()});
   std::this_thread::sleep_for(100ms);
@@ -365,8 +425,7 @@ int main(int argc, char** argv) {
 
   std::cout << "Waiting for the broker to start routing '" << kTopic << "' to " << config.subscriberCount << " subscriber(s)...\n";
   if (!waitForSubscriptionsActive(*publishers.front(), publisherIds.front(), subscribers, inboundQueues, subscriberIds)) {
-    std::cerr << "Timed out waiting for subscriptions to become active - is the broker reachable on " << testBrokerAddress() << "?\n";
-    return 1;
+    throw std::runtime_error("timed out waiting for subscriptions to become active - is the broker reachable on " + testBrokerAddress() + "?");
   }
 
   std::atomic<bool> running{true};
@@ -375,7 +434,7 @@ int main(int argc, char** argv) {
   std::vector<std::future<PublisherResult>> publisherFutures;
   for (int i = 0; i < config.publisherCount; ++i) {
     publisherFutures.push_back(
-        std::async(std::launch::async, runPublisher, std::ref(*publishers[i]), publisherIds[i], config.payloadBytes, std::cref(running), std::cref(recording)));
+        std::async(std::launch::async, runPublisher, std::ref(*publishers[i]), publisherIds[i], payloadBytes, std::cref(running), std::cref(recording)));
   }
 
   std::vector<std::future<SubscriberResult>> subscriberFutures;
@@ -386,7 +445,7 @@ int main(int argc, char** argv) {
   std::cout << "Warming up for " << config.warmup.count() << "s...\n";
   std::this_thread::sleep_for(config.warmup);
 
-  std::cout << "Measuring for " << config.duration.count() << "s...\n";
+  std::cout << "Measuring for " << config.duration.count() << "s at " << payloadBytes << " B payload...\n";
   recording = true;
   const auto measureStart = std::chrono::steady_clock::now();
   std::this_thread::sleep_for(config.duration);
@@ -411,8 +470,6 @@ int main(int argc, char** argv) {
     subscriberResults.push_back(f.get());
   }
 
-  printReport(config, measureStart, measureEnd, publisherResults, subscriberResults);
-
   for (auto& w : publishers) {
     w->stop();
   }
@@ -420,5 +477,35 @@ int main(int argc, char** argv) {
     w->stop();
   }
   broker.stop();
+
+  return summarize(config, payloadBytes, measureStart, measureEnd, publisherResults, subscriberResults);
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  BenchConfig config;
+  try {
+    config = parseArgs(argc, argv);
+  } catch (const std::exception& e) {
+    std::cerr << "error: " << e.what() << "\n\n";
+    printUsage();
+    return 1;
+  }
+
+  std::vector<RunSummary> summaries;
+  for (const int payloadBytes : config.payloadSizes) {
+    try {
+      summaries.push_back(runOnce(config, payloadBytes));
+    } catch (const std::exception& e) {
+      std::cerr << "error: " << e.what() << "\n";
+      return 1;
+    }
+    printReport(config, summaries.back());
+  }
+
+  if (summaries.size() > 1) {
+    printSweepTable(config, summaries);
+  }
   return 0;
 }
