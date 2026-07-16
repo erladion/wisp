@@ -7,6 +7,7 @@
 #include "wireframe.h"
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 
@@ -44,6 +45,51 @@ void sendToClient(zmq::socket_t& socket, const std::string& clientId, const std:
   } catch (const zmq::error_t&) {
     // Unroutable client (router_mandatory) - the zombie cleanup handles it.
   }
+}
+
+// Fan-out variant: the payload frame shares `payload`'s bytes via zmq
+// reference counting, so delivering one message to N subscribers copies the
+// (potentially large) payload zero times instead of N.
+void sendToClient(zmq::socket_t& socket, const std::string& clientId, const std::string& headerBytes, zmq::message_t& payload) {
+  zmq::message_t outId(clientId.data(), clientId.size());
+  zmq::message_t headerFrame(headerBytes.data(), headerBytes.size());
+  const bool hasPayload = payload.size() > 0;
+
+  try {
+    if (!socket.send(outId, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
+      return;
+    }
+    socket.send(headerFrame, (hasPayload ? zmq::send_flags::sndmore : zmq::send_flags::none) | zmq::send_flags::dontwait);
+    if (hasPayload) {
+      zmq::message_t payloadFrame;
+      payloadFrame.copy(payload);
+      socket.send(payloadFrame, zmq::send_flags::dontwait);
+    }
+  } catch (const zmq::error_t&) {
+    // Unroutable client (router_mandatory) - the zombie cleanup handles it.
+  }
+}
+
+// Binary uuids map directly onto the 128-bit dedup id; any other shape (e.g. a
+// 36-char text uuid from an older peer) is hashed down with two independent
+// FNV-1a streams.
+MessageId messageIdFrom(const std::string& uuid) {
+  MessageId id;
+  if (uuid.size() == 16) {
+    std::memcpy(&id.hi, uuid.data(), 8);
+    std::memcpy(&id.lo, uuid.data() + 8, 8);
+    return id;
+  }
+
+  std::uint64_t h1 = 14695981039346656037ULL;
+  std::uint64_t h2 = 0x2545f4914f6cdd1dULL;
+  for (const unsigned char c : uuid) {
+    h1 = (h1 ^ c) * 1099511628211ULL;
+    h2 = (h2 ^ c) * 0x9e3779b97f4a7c15ULL;
+  }
+  id.hi = h1;
+  id.lo = h2;
+  return id;
 }
 
 // Best-effort extraction of the TCP port a broker binds, to advertise in beacons.
@@ -175,19 +221,32 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
           Logger::Log(Logger::WARNING, "Received single-part message on ROUTER socket. Dropping.");
           continue;
         }
-        // Identity consumed; wire::recv reads the header frame and any payload
-        // continuation frame, leaving the payload opaque (never parsed here).
-        Envelope env;
-        std::size_t wireBytes = 0;
-        if (wire::recv(socket, env, zmq::recv_flags::none, &wireBytes)) {
-          // Stats
-          m_totalMessages++;
-          m_msgsInterval++;
-          m_totalBytes += wireBytes;
-          m_bytesInterval += wireBytes;
-
-          processMessage(socket, inspectorSocket, env.header, env.payload, identity.to_string(), false);
+        // Identity consumed; next is the header frame, then an optional
+        // payload frame kept as a zmq message so recipients can share its
+        // bytes without copying (the broker never parses the payload).
+        zmq::message_t headerFrame;
+        if (!socket.recv(headerFrame, zmq::recv_flags::none)) {
+          continue;
         }
+        broker::MessageHeader header;
+        if (!wire::decodeHeaderFrame(headerFrame.data(), headerFrame.size(), header)) {
+          wire::drainMultipart(socket);  // unknown format byte or a bad header
+          continue;
+        }
+        zmq::message_t payload;
+        if (socket.get(zmq::sockopt::rcvmore)) {
+          (void)socket.recv(payload, zmq::recv_flags::none);
+          wire::drainMultipart(socket);  // anything past the payload frame is garbage
+        }
+
+        // Stats
+        m_totalMessages++;
+        m_msgsInterval++;
+        const uint64_t wireBytes = headerFrame.size() + payload.size();
+        m_totalBytes += wireBytes;
+        m_bytesInterval += wireBytes;
+
+        processMessage(socket, inspectorSocket, header, payload, identity.to_string(), false);
       }
     }
 
@@ -199,10 +258,12 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
       }
     }
 
-    // Poll for peer messages
+    // Poll for peer messages. The queue hands over payloads as strings; wrap
+    // each in a zmq message once so the shared fan-out path applies.
     Envelope peerEnv;
     while (m_peerInboundQueue.try_pop(peerEnv)) {
-      processMessage(socket, inspectorSocket, peerEnv.header, peerEnv.payload, "PEER", true);
+      zmq::message_t peerPayload(peerEnv.payload.data(), peerEnv.payload.size());
+      processMessage(socket, inspectorSocket, peerEnv.header, peerPayload, "PEER", true);
     }
 
     auto now = std::chrono::steady_clock::now();
@@ -236,7 +297,7 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
 void ZmqBroker::processMessage(zmq::socket_t& socket,
                                zmq::socket_t& inspectorSocket,
                                broker::MessageHeader& header,
-                               const std::string& payload,
+                               zmq::message_t& payload,
                                const std::string& senderId,
                                bool isFromPeer) {
   // Stamp identity up front (fresh messages only; forwarded ones keep their
@@ -244,7 +305,7 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   // we serialize it exactly once - reused by the inspector tap here and by
   // every recipient in the delivery loop below.
   if (header.message_uuid().empty()) {
-    header.set_message_uuid(generateUUID());
+    header.set_message_uuid(generateBinaryUUID());
     header.set_origin_broker_id(m_brokerId);
   }
   const std::string headerBytes = wire::encodeHeader(header);
@@ -360,26 +421,32 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   // Flood peers
   {
     std::lock_guard<std::mutex> lock(m_peersMutex);
-    for (auto& [key, peer] : m_peers) {
+    if (!m_peers.empty()) {
+      // The queue hand-off needs an owning Envelope, so peers cost one payload
+      // materialization plus a copy per link.
       Envelope fwd;
       fwd.header = header;
-      fwd.payload = payload;
-      peer->writeMessage(fwd);
+      fwd.payload.assign(payload.data<char>(), payload.size());
+      for (auto& [key, peer] : m_peers) {
+        peer->writeMessage(fwd);
+      }
     }
   }
 }
 
 bool ZmqBroker::isDuplicate(const std::string& uuid) {
-  if (m_seenMessageIds.count(uuid)) {
+  const MessageId id = messageIdFrom(uuid);
+  if (!m_seenMessageIds.insert(id).second) {
     return true;
   }
 
-  m_seenMessageIds.insert(uuid);
-  m_messageIdOrder.push_back(uuid);
-
-  if (m_messageIdOrder.size() > MaxHistorySize) {
-    m_seenMessageIds.erase(m_messageIdOrder.front());
-    m_messageIdOrder.pop_front();
+  if (m_messageIdRing.size() < MaxHistorySize) {
+    m_messageIdRing.push_back(id);
+  } else {
+    // Ring full: the slot holds the oldest id - forget it, reuse its slot.
+    m_seenMessageIds.erase(m_messageIdRing[m_messageIdRingNext]);
+    m_messageIdRing[m_messageIdRingNext] = id;
+    m_messageIdRingNext = (m_messageIdRingNext + 1) % MaxHistorySize;
   }
   return false;
 }
@@ -476,7 +543,7 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
       sub.header.set_handler_key(Keys::SUBSCRIBE);
       sub.header.set_sender_id(linkId);
       sub.header.set_topic("");  // Empty topic = wildcard, see processMessage
-      link->writeControlMessage(sub);
+      link->writeControlMessage(std::move(sub));
       return;
     }
     m_peerInboundQueue.push(env);

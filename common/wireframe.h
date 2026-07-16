@@ -67,6 +67,14 @@ inline std::string encodeHeader(const broker::MessageHeader& header) {
   return out;
 }
 
+// Decode a header frame (format byte + codec bytes) into `out`. False on a
+// missing/unknown format byte or a decode failure.
+inline bool decodeHeaderFrame(const void* frameData, std::size_t frameSize, broker::MessageHeader& out) {
+  const char* data = static_cast<const char*>(frameData);
+  const HeaderCodec* codec = (frameSize >= 1) ? codecFor(static_cast<Format>(static_cast<std::uint8_t>(data[0]))) : nullptr;
+  return codec && codec->decode(data + 1, frameSize - 1, out);
+}
+
 // Discard any remaining frames of the current multipart message, to keep a
 // socket aligned after a malformed or over-long message group.
 inline void drainMultipart(zmq::socket_t& sock) {
@@ -94,6 +102,25 @@ inline bool sendFrames(zmq::socket_t& sock, const std::string& headerFrame, cons
   return bool(sock.send(payloadFrame, zmq::send_flags::dontwait));
 }
 
+// Same as above, but the payload frame shares `payload`'s bytes via zmq
+// reference counting instead of copying them. `payload` is not consumed; it
+// stays valid for further sends. Non-const because zmq_msg_copy updates the
+// source's shared-refcount bookkeeping.
+inline bool sendFrames(zmq::socket_t& sock, const std::string& headerFrame, zmq::message_t& payload) {
+  zmq::message_t header(headerFrame.data(), headerFrame.size());
+
+  if (payload.size() == 0) {
+    return bool(sock.send(header, zmq::send_flags::dontwait));
+  }
+
+  if (!sock.send(header, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
+    return false;
+  }
+  zmq::message_t payloadFrame;
+  payloadFrame.copy(payload);
+  return bool(sock.send(payloadFrame, zmq::send_flags::dontwait));
+}
+
 inline bool send(zmq::socket_t& sock, const broker::MessageHeader& header, const std::string& payload) {
   return sendFrames(sock, encodeHeader(header), payload);
 }
@@ -114,10 +141,7 @@ inline bool recv(zmq::socket_t& sock, Envelope& env, zmq::recv_flags flags, std:
     return false;
   }
 
-  const char* data = static_cast<const char*>(headerFrame.data());
-  const std::size_t size = headerFrame.size();
-  const HeaderCodec* codec = (size >= 1) ? codecFor(static_cast<Format>(static_cast<std::uint8_t>(data[0]))) : nullptr;
-  if (!codec || !codec->decode(data + 1, size - 1, env.header)) {
+  if (!decodeHeaderFrame(headerFrame.data(), headerFrame.size(), env.header)) {
     drainMultipart(sock);  // missing/unknown format byte or a bad header
     return false;
   }
@@ -131,7 +155,7 @@ inline bool recv(zmq::socket_t& sock, Envelope& env, zmq::recv_flags flags, std:
     drainMultipart(sock);  // anything past the payload frame is garbage
   }
   if (wireBytes) {
-    *wireBytes = size + env.payload.size();
+    *wireBytes = headerFrame.size() + env.payload.size();
   }
   return true;
 }

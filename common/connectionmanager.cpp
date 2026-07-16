@@ -57,7 +57,7 @@ void ConnectionManager::shutdown() {
         byeMsg.header.set_handler_key(Keys::DISCONNECT);
         byeMsg.header.set_sender_id(m_instance->m_clientId);
         byeMsg.header.set_topic("");
-        m_instance->m_pWorker->writeControlMessage(byeMsg);
+        m_instance->m_pWorker->writeControlMessage(std::move(byeMsg));
       }
 
       tmp = m_instance;
@@ -150,7 +150,7 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
   request.header.set_topic(requestTopic);
   request.header.set_reply_topic(replyTopic);
   request.payload = payload;
-  self->sendRawEnvelope(request);
+  self->sendRawEnvelope(std::move(request));
 
   bool success = false;
   if (future.wait_for(std::chrono::milliseconds(timeoutMs)) == std::future_status::ready) {
@@ -259,16 +259,16 @@ void ConnectionManager::registerInternal(const std::string& key, MessageCallback
   }
 }
 
-bool ConnectionManager::sendRawEnvelope(const Envelope& envelope) {
+bool ConnectionManager::sendRawEnvelope(Envelope envelope) {
   if (!m_pWorker) {
     return false;
   }
 
   if (Keys::isControlMessage(envelope.header.handler_key())) {
-    return m_pWorker->writeControlMessage(envelope);
+    return m_pWorker->writeControlMessage(std::move(envelope));
   }
 
-  return m_pWorker->writeMessage(envelope);
+  return m_pWorker->writeMessage(std::move(envelope));
 }
 
 bool ConnectionManager::sendDataInternal(const std::string& key, const std::string_view& data) {
@@ -277,7 +277,7 @@ bool ConnectionManager::sendDataInternal(const std::string& key, const std::stri
   msg.header.set_sender_id(m_clientId);
   msg.header.set_topic(key);
   msg.payload.assign(data.data(), data.size());
-  return sendRawEnvelope(msg);
+  return sendRawEnvelope(std::move(msg));
 }
 
 bool ConnectionManager::replyToSender(const std::string& data) {
@@ -287,10 +287,10 @@ bool ConnectionManager::replyToSender(const std::string& data) {
   }
   Envelope reply;
   reply.payload = detail::encodePayload(data);
-  return self->sendReplyEnvelope(reply);
+  return self->sendReplyEnvelope(std::move(reply));
 }
 
-bool ConnectionManager::sendReplyEnvelope(Envelope& reply) {
+bool ConnectionManager::sendReplyEnvelope(Envelope reply) {
   if (t_currentReplyTopic.empty()) {
     Logger::Log(Logger::WARNING, "replyToSender() called outside of a request context - nothing to reply to.");
     return false;
@@ -299,7 +299,7 @@ bool ConnectionManager::sendReplyEnvelope(Envelope& reply) {
   reply.header.set_handler_key(t_currentReplyTopic);
   reply.header.set_sender_id(m_clientId);
   reply.header.set_topic(t_currentReplyTopic);
-  return sendRawEnvelope(reply);
+  return sendRawEnvelope(std::move(reply));
 }
 
 void ConnectionManager::processingLoop() {
@@ -378,7 +378,7 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
       unsubMsg.header.set_handler_key(Keys::UNSUBSCRIBE);
       unsubMsg.header.set_sender_id(m_clientId);
       unsubMsg.header.set_topic(key);
-      sendRawEnvelope(unsubMsg);
+      sendRawEnvelope(std::move(unsubMsg));
     }
   }
 }

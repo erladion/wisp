@@ -178,7 +178,7 @@ public:
     envelope.header.set_sender_id(self->m_clientId);
     envelope.header.set_topic(key);
     envelope.payload = detail::encodePayload(value);
-    return self->sendRawEnvelope(envelope);
+    return self->sendRawEnvelope(std::move(envelope));
   }
 
   // Dispatches on the callback's argument type. The BaseT default argument
@@ -262,7 +262,7 @@ public:
     }
     Envelope reply;
     reply.payload = detail::encodePayload(value);
-    return self->sendReplyEnvelope(reply);
+    return self->sendReplyEnvelope(std::move(reply));
   }
 
 private:
@@ -278,11 +278,12 @@ private:
   static std::shared_ptr<ConnectionManager> getInstance();
 
   bool sendDataInternal(const std::string& key, const std::string_view& data);
-  bool sendRawEnvelope(const Envelope& envelope);
+  // Sink: call with std::move to send without copying the payload.
+  bool sendRawEnvelope(Envelope envelope);
 
   // Stamps the current request's reply addressing onto `reply` and sends it;
-  // the payload must already be encoded.
-  bool sendReplyEnvelope(Envelope& reply);
+  // the payload must already be encoded. Sink: call with std::move.
+  bool sendReplyEnvelope(Envelope reply);
 
   void processingLoop();
   void handleMessage(const Envelope& env);

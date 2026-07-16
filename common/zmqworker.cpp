@@ -41,16 +41,16 @@ void ZmqWorker::stop() {
   }
 }
 
-bool ZmqWorker::writeMessage(const Envelope& msg) {
-  if (!m_outboundQueue.push(msg, std::chrono::milliseconds(100))) {
+bool ZmqWorker::writeMessage(Envelope msg) {
+  if (!m_outboundQueue.push(std::move(msg), std::chrono::milliseconds(100))) {
     return false;
   }
   wake();
   return true;
 }
 
-bool ZmqWorker::writeControlMessage(const Envelope& msg) {
-  if (!m_controlQueue.push(msg, std::chrono::milliseconds(100))) {
+bool ZmqWorker::writeControlMessage(Envelope msg) {
+  if (!m_controlQueue.push(std::move(msg), std::chrono::milliseconds(100))) {
     return false;
   }
   wake();

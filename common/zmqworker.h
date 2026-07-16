@@ -20,8 +20,8 @@ public:
 
   void start() override;
   void stop() override;
-  bool writeMessage(const Envelope& msg) override;
-  bool writeControlMessage(const Envelope& msg) override;
+  bool writeMessage(Envelope msg) override;
+  bool writeControlMessage(Envelope msg) override;
   void setMessageCallback(WorkerMessageCallback callback) override;
 
 private:

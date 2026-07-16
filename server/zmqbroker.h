@@ -7,9 +7,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <atomic>
-#include <deque>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 #include "zmqworker.h"
 #include "safequeue.h"
@@ -22,6 +22,21 @@
 struct ClientState {
   std::string identity; // ZMQ Routing ID
   std::chrono::steady_clock::time_point lastSeen;
+};
+
+// A message uuid reduced to 128 bits for dedup: binary uuids are used as-is,
+// anything else (e.g. a 36-char text uuid from an older peer) is hashed down.
+// Fixed-size and allocation-free where the previous string-keyed history paid
+// a heap allocation per message.
+struct MessageId {
+  uint64_t hi;
+  uint64_t lo;
+
+  bool operator==(const MessageId& other) const { return hi == other.hi && lo == other.lo; }
+};
+
+struct MessageIdHash {
+  size_t operator()(const MessageId& id) const { return id.hi ^ (id.lo * 0x9e3779b97f4a7c15ULL); }
 };
 
 class ZmqBroker {
@@ -50,7 +65,10 @@ private:
   // address for manual ones). Adding is idempotent per key.
   void addPeer(const std::string& key, const std::string& peerAddress);
   void removePeer(const std::string& key);
-  void processMessage(zmq::socket_t &socket, zmq::socket_t &inspectorSocket, broker::MessageHeader &header, const std::string &payload, const std::string &senderId, bool isFromPeer);
+  // `payload` is the received payload frame (empty message when there was
+  // none); recipients share its bytes via zmq reference counting rather than
+  // copying it per send.
+  void processMessage(zmq::socket_t &socket, zmq::socket_t &inspectorSocket, broker::MessageHeader &header, zmq::message_t &payload, const std::string &senderId, bool isFromPeer);
   bool isDuplicate(const std::string& uuid);
 
   void broadcastStats(zmq::socket_t &socket, zmq::socket_t &inspectorSocket);
@@ -86,8 +104,11 @@ private:
   std::string m_clusterName;
   std::uint16_t m_discoveryPort = BrokerDiscovery::kDefaultPort;
 
-  std::unordered_set<std::string> m_seenMessageIds;
-  std::deque<std::string> m_messageIdOrder;
+  // Dedup history: the set answers "seen?", the ring remembers insertion order
+  // so the oldest entry can be evicted once MaxHistorySize is reached.
+  std::unordered_set<MessageId, MessageIdHash> m_seenMessageIds;
+  std::vector<MessageId> m_messageIdRing;
+  size_t m_messageIdRingNext = 0;
 
   // Stats
   std::chrono::steady_clock::time_point m_startTime;

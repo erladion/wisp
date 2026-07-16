@@ -16,8 +16,10 @@ public:
   virtual void start() = 0;
   virtual void stop() = 0;
 
-  virtual bool writeMessage(const Envelope& msg) = 0;
-  virtual bool writeControlMessage(const Envelope& msg) = 0;
+  // Sink parameters: pass with std::move to hand the envelope over without
+  // copying its payload; passing an lvalue costs one copy.
+  virtual bool writeMessage(Envelope msg) = 0;
+  virtual bool writeControlMessage(Envelope msg) = 0;
 
   virtual void setMessageCallback(WorkerMessageCallback cb) = 0;
 };
