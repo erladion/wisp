@@ -45,6 +45,10 @@ typedef struct {
 
 typedef void (*Message_Callback)(const char* topic, const char* data, int len, void* userData);
 
+typedef enum { WISP_LOG_DEBUG = 0, WISP_LOG_INFO = 1, WISP_LOG_WARNING = 2, WISP_LOG_ERROR = 3 } Wisp_Log_Level;
+
+typedef void (*Log_Callback)(int level, const char* message, void* userData);
+
 CONN_API int initConnection(const Connection_Config* config);
 CONN_API void shutdownConnection();
 
@@ -83,6 +87,18 @@ CONN_API void registerCallback(const char* topic, Message_Callback callback, voi
 // registerCallback. A callback already being dispatched when this returns may
 // still complete, so resources it uses must not be freed immediately.
 CONN_API void unregisterCallback(const char* topic, void* userData);
+
+// Discard library log output below `level` (a Wisp_Log_Level value). The
+// WISP_LOG_LEVEL environment variable ("debug", "info", "warn", "error") sets
+// the starting level; unset logs everything. May be called before
+// initConnection and adjusted at any time.
+CONN_API void setLogLevel(int level);
+
+// Route library log output into `callback` instead of stdout/stderr; pass NULL
+// to restore the default output. The callback runs on internal library
+// threads, so it must be thread-safe and should not block. `message` is only
+// valid for the duration of the call; the level filter applies before it runs.
+CONN_API void setLogHandler(Log_Callback callback, void* userData);
 
 #ifdef __cplusplus
 }

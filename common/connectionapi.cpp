@@ -1,5 +1,6 @@
 #include "connectionapi.h"
 #include "connectionmanager.h"
+#include "logger.h"
 
 #include <cstring>
 #include <string>
@@ -192,6 +193,29 @@ void registerCallback(const char* topic, Message_Callback callback, void* userDa
   } catch (...) {
     fail(ERROR_GENERIC, "unknown exception");
   }
+}
+
+static_assert(WISP_LOG_DEBUG == Logger::DEBUG && WISP_LOG_INFO == Logger::INFO && WISP_LOG_WARNING == Logger::WARNING && WISP_LOG_ERROR == Logger::ERROR,
+              "Wisp_Log_Level must mirror Logger::Level - setLogLevel and the handler pass values through numerically");
+
+void setLogLevel(int level) {
+  if (level < WISP_LOG_DEBUG || level > WISP_LOG_ERROR) {
+    fail(ERROR_INVALID_ARGS, "level must be between WISP_LOG_DEBUG (0) and WISP_LOG_ERROR (3)");
+    return;
+  }
+  Logger::setMinLevel(static_cast<Logger::Level>(level));
+  ok();
+}
+
+void setLogHandler(Log_Callback callback, void* userData) {
+  if (!callback) {
+    Logger::setHandler(Logger::Handler());
+  } else {
+    Logger::setHandler([callback, userData](Logger::Level level, const std::string& msg) {
+      callback(static_cast<int>(level), msg.c_str(), userData);
+    });
+  }
+  ok();
 }
 
 void unregisterCallback(const char* topic, void* userData) {
