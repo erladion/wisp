@@ -13,12 +13,17 @@
 // other. These tests pin exactly that, in both directions.
 
 TEST(CBindingsTest, CPackedHeaderParsesInCpp) {
+  // message_uuid is a bytes field: protobuf-c represents it as len + data
+  // instead of a NUL-terminated string.
+  std::string cUuid = "c-uuid-1234";
+
   Broker__MessageHeader cHeader = BROKER__MESSAGE_HEADER__INIT;
   cHeader.handler_key = const_cast<char*>("c-handler");
   cHeader.sender_id = const_cast<char*>("c-sender");
   cHeader.topic = const_cast<char*>("c-topic");
   cHeader.origin_broker_id = const_cast<char*>("c-broker");
-  cHeader.message_uuid = const_cast<char*>("c-uuid-1234");
+  cHeader.message_uuid.data = reinterpret_cast<uint8_t*>(cUuid.data());
+  cHeader.message_uuid.len = cUuid.size();
   cHeader.transfer_id = const_cast<char*>("c-transfer");
   cHeader.reply_topic = const_cast<char*>("c-reply");
   cHeader.sequence_number = 7;
@@ -59,7 +64,7 @@ TEST(CBindingsTest, CppSerializedHeaderUnpacksInC) {
   EXPECT_STREQ(cHeader->handler_key, "cpp-handler");
   EXPECT_STREQ(cHeader->sender_id, "cpp-sender");
   EXPECT_STREQ(cHeader->topic, "cpp-topic");
-  EXPECT_STREQ(cHeader->message_uuid, "cpp-uuid-5678");
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(cHeader->message_uuid.data), cHeader->message_uuid.len), "cpp-uuid-5678");
   EXPECT_EQ(cHeader->sequence_number, 3);
 
   broker__message_header__free_unpacked(cHeader, nullptr);

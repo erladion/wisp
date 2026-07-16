@@ -40,7 +40,12 @@ struct  _Broker__MessageHeader
   char *sender_id;
   char *topic;
   char *origin_broker_id;
-  char *message_uuid;
+  /*
+   * 16 raw UUID bytes (see generateBinaryUUID). `bytes` and `string` share a
+   * wire type, so peers still speaking 36-char text uuids stay parseable -
+   * the dedup treats both as opaque.
+   */
+  ProtobufCBinaryData message_uuid;
   char *transfer_id;
   int32_t sequence_number;
   int32_t sequence_count;
@@ -48,7 +53,7 @@ struct  _Broker__MessageHeader
 };
 #define BROKER__MESSAGE_HEADER__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&broker__message_header__descriptor) \
-    , (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, 0, 0, (char *)protobuf_c_empty_string }
+    , (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, {0,NULL}, (char *)protobuf_c_empty_string, 0, 0, (char *)protobuf_c_empty_string }
 
 
 struct  _Broker__ClientInfo

@@ -207,7 +207,7 @@ const char descriptor_table_protodef_broker_2eproto[] ABSL_ATTRIBUTE_SECTION_VAR
     "\n\014broker.proto\022\006broker\"\335\001\n\rMessageHeader"
     "\022\023\n\013handler_key\030\001 \001(\t\022\021\n\tsender_id\030\002 \001(\t"
     "\022\r\n\005topic\030\003 \001(\t\022\030\n\020origin_broker_id\030\005 \001("
-    "\t\022\024\n\014message_uuid\030\006 \001(\t\022\023\n\013transfer_id\030\007"
+    "\t\022\024\n\014message_uuid\030\006 \001(\014\022\023\n\013transfer_id\030\007"
     " \001(\t\022\027\n\017sequence_number\030\010 \001(\005\022\026\n\016sequenc"
     "e_count\030\t \001(\005\022\023\n\013reply_topic\030\013 \001(\tJ\004\010\004\020\005"
     "J\004\010\n\020\013\"/\n\nClientInfo\022\n\n\002id\030\001 \001(\t\022\025\n\rsubs"
@@ -374,7 +374,7 @@ MessageHeader::GetClassData() const {
   return MessageHeader_class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<4, 9, 0, 112, 2>
+const ::_pbi::TcParseTable<4, 9, 0, 100, 2>
 MessageHeader::_table_ = {
   {
     PROTOBUF_FIELD_OFFSET(MessageHeader, _impl_._has_bits_),
@@ -407,8 +407,8 @@ MessageHeader::_table_ = {
     // string origin_broker_id = 5;
     {::_pbi::TcParser::FastUS1,
      {42, 3, 0, PROTOBUF_FIELD_OFFSET(MessageHeader, _impl_.origin_broker_id_)}},
-    // string message_uuid = 6;
-    {::_pbi::TcParser::FastUS1,
+    // bytes message_uuid = 6;
+    {::_pbi::TcParser::FastBS1,
      {50, 4, 0, PROTOBUF_FIELD_OFFSET(MessageHeader, _impl_.message_uuid_)}},
     // string transfer_id = 7;
     {::_pbi::TcParser::FastUS1,
@@ -442,9 +442,9 @@ MessageHeader::_table_ = {
     // string origin_broker_id = 5;
     {PROTOBUF_FIELD_OFFSET(MessageHeader, _impl_.origin_broker_id_), _Internal::kHasBitsOffset + 3, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
-    // string message_uuid = 6;
+    // bytes message_uuid = 6;
     {PROTOBUF_FIELD_OFFSET(MessageHeader, _impl_.message_uuid_), _Internal::kHasBitsOffset + 4, 0,
-    (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+    (0 | ::_fl::kFcOptional | ::_fl::kBytes | ::_fl::kRepAString)},
     // string transfer_id = 7;
     {PROTOBUF_FIELD_OFFSET(MessageHeader, _impl_.transfer_id_), _Internal::kHasBitsOffset + 5, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
@@ -460,13 +460,12 @@ MessageHeader::_table_ = {
   }},
   // no aux_entries
   {{
-    "\24\13\11\5\20\14\13\0\0\13\0\0\0\0\0\0"
+    "\24\13\11\5\20\0\13\0\0\13\0\0\0\0\0\0"
     "broker.MessageHeader"
     "handler_key"
     "sender_id"
     "topic"
     "origin_broker_id"
-    "message_uuid"
     "transfer_id"
     "reply_topic"
   }},
@@ -563,13 +562,11 @@ PROTOBUF_NOINLINE void MessageHeader::Clear() {
     }
   }
 
-  // string message_uuid = 6;
+  // bytes message_uuid = 6;
   if ((this_._impl_._has_bits_[0] & 0x00000010u) != 0) {
     if (!this_._internal_message_uuid().empty()) {
       const ::std::string& _s = this_._internal_message_uuid();
-      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
-          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "broker.MessageHeader.message_uuid");
-      target = stream->WriteStringMaybeAliased(6, _s, target);
+      target = stream->WriteBytesMaybeAliased(6, _s, target);
     }
   }
 
@@ -665,10 +662,10 @@ PROTOBUF_NOINLINE void MessageHeader::Clear() {
                                         this_._internal_origin_broker_id());
       }
     }
-    // string message_uuid = 6;
+    // bytes message_uuid = 6;
     if ((cached_has_bits & 0x00000010u) != 0) {
       if (!this_._internal_message_uuid().empty()) {
-        total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::BytesSize(
                                         this_._internal_message_uuid());
       }
     }

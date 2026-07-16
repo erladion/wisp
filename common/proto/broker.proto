@@ -16,7 +16,10 @@ message MessageHeader {
   string sender_id = 2;
   string topic = 3;
   string origin_broker_id = 5;
-  string message_uuid = 6;
+  // 16 raw UUID bytes (see generateBinaryUUID). `bytes` and `string` share a
+  // wire type, so peers still speaking 36-char text uuids stay parseable -
+  // the dedup treats both as opaque.
+  bytes message_uuid = 6;
 
   string transfer_id = 7;
   int32 sequence_number = 8;

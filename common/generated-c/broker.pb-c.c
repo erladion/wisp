@@ -196,11 +196,11 @@ static const ProtobufCFieldDescriptor broker__message_header__field_descriptors[
     "message_uuid",
     6,
     PROTOBUF_C_LABEL_NONE,
-    PROTOBUF_C_TYPE_STRING,
+    PROTOBUF_C_TYPE_BYTES,
     0,   /* quantifier_offset */
     offsetof(Broker__MessageHeader, message_uuid),
     NULL,
-    &protobuf_c_empty_string,
+    NULL,
     0,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },

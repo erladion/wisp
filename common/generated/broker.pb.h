@@ -291,7 +291,7 @@ class MessageHeader final : public ::google::protobuf::Message
   ::std::string* PROTOBUF_NONNULL _internal_mutable_origin_broker_id();
 
   public:
-  // string message_uuid = 6;
+  // bytes message_uuid = 6;
   void clear_message_uuid() ;
   const ::std::string& message_uuid() const;
   template <typename Arg_ = const ::std::string&, typename... Args_>
@@ -361,7 +361,7 @@ class MessageHeader final : public ::google::protobuf::Message
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
   static const ::google::protobuf::internal::TcParseTable<4, 9,
-                                   0, 112,
+                                   0, 100,
                                    2>
       _table_;
 
@@ -1182,7 +1182,7 @@ inline void MessageHeader::set_allocated_origin_broker_id(::std::string* PROTOBU
   // @@protoc_insertion_point(field_set_allocated:broker.MessageHeader.origin_broker_id)
 }
 
-// string message_uuid = 6;
+// bytes message_uuid = 6;
 inline void MessageHeader::clear_message_uuid() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.message_uuid_.ClearToEmpty();
@@ -1197,7 +1197,7 @@ template <typename Arg_, typename... Args_>
 PROTOBUF_ALWAYS_INLINE void MessageHeader::set_message_uuid(Arg_&& arg, Args_... args) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_._has_bits_[0] |= 0x00000010u;
-  _impl_.message_uuid_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  _impl_.message_uuid_.SetBytes(static_cast<Arg_&&>(arg), args..., GetArena());
   // @@protoc_insertion_point(field_set:broker.MessageHeader.message_uuid)
 }
 inline ::std::string* PROTOBUF_NONNULL MessageHeader::mutable_message_uuid()

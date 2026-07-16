@@ -259,7 +259,7 @@ void MainWindow::replaySelectedMessage() {
   replayed.header = m_packetHistory[row].header;
   replayed.payload = m_packetHistory[row].payload;
 
-  replayed.header.set_message_uuid(generateUUID());
+  replayed.header.set_message_uuid(generateBinaryUUID());
 
   std::string originalSender = replayed.header.sender_id();
   if (originalSender.find("REPLAY_") == std::string::npos) {
