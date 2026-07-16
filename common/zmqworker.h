@@ -27,6 +27,7 @@ public:
 private:
   void run();
   void sendHeartbeat(zmq::socket_t& socket);
+  void wake();
 
 private:
   ConnectionConfig m_config;
@@ -38,6 +39,11 @@ private:
   std::thread m_workerThread;
 
   zmq::context_t m_context;
+
+  // Pings the run() loop awake after a queue push so sends don't wait out the
+  // poll timeout. Shared by all producer threads, hence the mutex.
+  std::mutex m_wakeMutex;
+  zmq::socket_t m_wakePush;
 
   SafeQueue<Envelope> m_controlQueue;
   SafeQueue<Envelope> m_outboundQueue;

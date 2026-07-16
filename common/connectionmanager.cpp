@@ -116,6 +116,13 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
     return false;
   }
 
+  // Replies are dispatched by the processing thread; blocking it here would
+  // deadlock until the timeout, so refuse outright.
+  if (std::this_thread::get_id() == self->m_processingThread.get_id()) {
+    Logger::Log(Logger::ERROR, "sendRequest() called from inside a message callback - it would deadlock waiting for its own reply. Request from another thread instead.");
+    return false;
+  }
+
   auto promise = std::make_shared<std::promise<std::string>>();
   std::future<std::string> future = promise->get_future();
 
