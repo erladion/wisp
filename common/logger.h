@@ -33,7 +33,11 @@ private:
 
     std::ostream& out = (level == ERROR) ? std::cerr : std::cout;
 
-    out << "[" << std::put_time(std::localtime(&time), "%H:%M:%S") << "." << std::setfill('0') << std::setw(3) << ms.count() << "] ";
+    // Save and restore the fill character - leaking a '0' fill into a shared
+    // stream corrupts any setw-formatted output the host program prints later.
+    const char previousFill = out.fill('0');
+    out << "[" << std::put_time(std::localtime(&time), "%H:%M:%S") << "." << std::setw(3) << ms.count() << "] ";
+    out.fill(previousFill);
 
     switch (level) {
       case DEBUG:
