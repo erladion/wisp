@@ -430,6 +430,10 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
 
   wire::sendFrames(inspectorSocket, headerBytes, payload);
 
+  // Exact-match subscribers only, unlike processMessage's exact+wildcard
+  // union: wildcard subscribers include peer links, and per-broker stats must
+  // not flood the mesh every second. The cost is that a local wildcard
+  // subscriber misses stats too - subscribe to SYS_STATS explicitly to get them.
   if (const auto* subs = m_subscriptions.subscribersOf(sysStatsKey)) {
     for (const auto& id : *subs) {
       sendToClient(socket, id, headerBytes, payload);
