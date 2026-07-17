@@ -8,6 +8,9 @@ FetchContent_Declare(
 
 # Match the parent project's runtime so gtest links cleanly alongside it.
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+# Keep the vendored gtest out of `make install` - it's a test dependency, not
+# a deliverable.
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 enable_testing()

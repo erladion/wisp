@@ -32,7 +32,7 @@ cmake --build build
 ./build/tests/broker_tests      # run the test suite
 ```
 
-Requires a C++17 compiler, ZeroMQ, and Protocol Buffers. Qt is optional — it enables the inspector and the Qt binding.
+Requires a C++17 compiler, ZeroMQ, and Protocol Buffers. Qt is optional — it enables the inspector and the Qt binding. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given; `make install` ships the broker, `libwisp.so`, and `connectionapi.h`.
 
 ## Configuration
 
