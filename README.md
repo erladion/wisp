@@ -33,3 +33,15 @@ cmake --build build
 ```
 
 Requires a C++17 compiler, ZeroMQ, and Protocol Buffers. Qt is optional — it enables the inspector and the Qt binding.
+
+## Configuration
+
+Everything is optional and set through environment variables:
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `WISP_CLUSTER` | broker | Discovery cluster name (default `default`); brokers only mesh with brokers sharing it |
+| `WISP_NO_DISCOVERY` | broker | Set (to anything) to disable LAN auto-discovery |
+| `WISP_LOG_LEVEL` | broker and any process embedding the client library | Minimum log severity: `debug`, `info`, `warn`, `error`; unset logs everything |
+
+The log level and destination can also be changed at runtime — `Logger::setMinLevel`/`setHandler` from C++, `setLogLevel`/`setLogHandler` through the C ABI.
