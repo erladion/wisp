@@ -45,3 +45,5 @@ Everything is optional and set through environment variables:
 | `WISP_LOG_LEVEL` | broker and any process embedding the client library | Minimum log severity: `debug`, `info`, `warn`, `error`; unset logs everything |
 
 The log level and destination can also be changed at runtime — `Logger::setMinLevel`/`setHandler` from C++, `setLogLevel`/`setLogHandler` through the C ABI.
+
+The cluster can be swapped at runtime too: send the broker a `__SET_CLUSTER__` message whose payload is the new cluster name (any client API works, e.g. `sendMessage("__SET_CLUSTER__", "blue")`). The broker re-targets its beacons, immediately drops the peer links it dialed, and meshes with the new cluster; links dialed *by* old-mesh peers linger until their discovery stops hearing the old beacons (a few seconds). Any connected client may send this — consistent with the broker's open trust model.

@@ -63,6 +63,7 @@ private:
   QDockWidget* m_pStatsDock;
 
   QLabel* m_pBrokerIdLabel;
+  QLabel* m_pClusterLabel;
   QLabel* m_pUptimeLabel;
   QLabel* m_pClientsLabel;
   QLabel* m_pPeersLabel;

@@ -337,7 +337,7 @@ const ProtobufCMessageDescriptor broker__client_info__descriptor =
   (ProtobufCMessageInit) broker__client_info__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCFieldDescriptor broker__system_stats__field_descriptors[8] =
+static const ProtobufCFieldDescriptor broker__system_stats__field_descriptors[9] =
 {
   {
     "broker_id",
@@ -435,10 +435,23 @@ static const ProtobufCFieldDescriptor broker__system_stats__field_descriptors[8]
     0,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
+  {
+    "cluster",
+    9,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_STRING,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, cluster),
+    NULL,
+    &protobuf_c_empty_string,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
 };
 static const unsigned broker__system_stats__field_indices_by_name[] = {
   0,   /* field[0] = broker_id */
   1,   /* field[1] = clients_count */
+  8,   /* field[8] = cluster */
   7,   /* field[7] = connected_clients */
   4,   /* field[4] = kb_per_sec */
   3,   /* field[3] = msgs_per_sec */
@@ -449,7 +462,7 @@ static const unsigned broker__system_stats__field_indices_by_name[] = {
 static const ProtobufCIntRange broker__system_stats__number_ranges[1 + 1] =
 {
   { 1, 0 },
-  { 0, 8 }
+  { 0, 9 }
 };
 const ProtobufCMessageDescriptor broker__system_stats__descriptor =
 {
@@ -459,7 +472,7 @@ const ProtobufCMessageDescriptor broker__system_stats__descriptor =
   "Broker__SystemStats",
   "broker",
   sizeof(Broker__SystemStats),
-  8,
+  9,
   broker__system_stats__field_descriptors,
   broker__system_stats__field_indices_by_name,
   1,  broker__system_stats__number_ranges,

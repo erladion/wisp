@@ -765,6 +765,7 @@ class SystemStats final : public ::google::protobuf::Message
   enum : int {
     kConnectedClientsFieldNumber = 8,
     kBrokerIdFieldNumber = 1,
+    kClusterFieldNumber = 9,
     kClientsCountFieldNumber = 2,
     kPeersCountFieldNumber = 3,
     kKbPerSecFieldNumber = 5,
@@ -802,6 +803,21 @@ class SystemStats final : public ::google::protobuf::Message
   const ::std::string& _internal_broker_id() const;
   PROTOBUF_ALWAYS_INLINE void _internal_set_broker_id(const ::std::string& value);
   ::std::string* PROTOBUF_NONNULL _internal_mutable_broker_id();
+
+  public:
+  // string cluster = 9;
+  void clear_cluster() ;
+  const ::std::string& cluster() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_cluster(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_cluster();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_cluster();
+  void set_allocated_cluster(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_cluster() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_cluster(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_cluster();
 
   public:
   // int32 clients_count = 2;
@@ -868,8 +884,8 @@ class SystemStats final : public ::google::protobuf::Message
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
-  static const ::google::protobuf::internal::TcParseTable<3, 8,
-                                   1, 44,
+  static const ::google::protobuf::internal::TcParseTable<4, 9,
+                                   1, 51,
                                    2>
       _table_;
 
@@ -892,6 +908,7 @@ class SystemStats final : public ::google::protobuf::Message
     ::google::protobuf::internal::CachedSize _cached_size_;
     ::google::protobuf::RepeatedPtrField< ::broker::ClientInfo > connected_clients_;
     ::google::protobuf::internal::ArenaStringPtr broker_id_;
+    ::google::protobuf::internal::ArenaStringPtr cluster_;
     ::int32_t clients_count_;
     ::int32_t peers_count_;
     double kb_per_sec_;
@@ -1631,7 +1648,7 @@ inline void SystemStats::set_allocated_broker_id(::std::string* PROTOBUF_NULLABL
 inline void SystemStats::clear_clients_count() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.clients_count_ = 0;
-  _impl_._has_bits_[0] &= ~0x00000002u;
+  _impl_._has_bits_[0] &= ~0x00000004u;
 }
 inline ::int32_t SystemStats::clients_count() const {
   // @@protoc_insertion_point(field_get:broker.SystemStats.clients_count)
@@ -1639,7 +1656,7 @@ inline ::int32_t SystemStats::clients_count() const {
 }
 inline void SystemStats::set_clients_count(::int32_t value) {
   _internal_set_clients_count(value);
-  _impl_._has_bits_[0] |= 0x00000002u;
+  _impl_._has_bits_[0] |= 0x00000004u;
   // @@protoc_insertion_point(field_set:broker.SystemStats.clients_count)
 }
 inline ::int32_t SystemStats::_internal_clients_count() const {
@@ -1655,7 +1672,7 @@ inline void SystemStats::_internal_set_clients_count(::int32_t value) {
 inline void SystemStats::clear_peers_count() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.peers_count_ = 0;
-  _impl_._has_bits_[0] &= ~0x00000004u;
+  _impl_._has_bits_[0] &= ~0x00000008u;
 }
 inline ::int32_t SystemStats::peers_count() const {
   // @@protoc_insertion_point(field_get:broker.SystemStats.peers_count)
@@ -1663,7 +1680,7 @@ inline ::int32_t SystemStats::peers_count() const {
 }
 inline void SystemStats::set_peers_count(::int32_t value) {
   _internal_set_peers_count(value);
-  _impl_._has_bits_[0] |= 0x00000004u;
+  _impl_._has_bits_[0] |= 0x00000008u;
   // @@protoc_insertion_point(field_set:broker.SystemStats.peers_count)
 }
 inline ::int32_t SystemStats::_internal_peers_count() const {
@@ -1679,7 +1696,7 @@ inline void SystemStats::_internal_set_peers_count(::int32_t value) {
 inline void SystemStats::clear_msgs_per_sec() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.msgs_per_sec_ = 0;
-  _impl_._has_bits_[0] &= ~0x00000040u;
+  _impl_._has_bits_[0] &= ~0x00000080u;
 }
 inline ::int32_t SystemStats::msgs_per_sec() const {
   // @@protoc_insertion_point(field_get:broker.SystemStats.msgs_per_sec)
@@ -1687,7 +1704,7 @@ inline ::int32_t SystemStats::msgs_per_sec() const {
 }
 inline void SystemStats::set_msgs_per_sec(::int32_t value) {
   _internal_set_msgs_per_sec(value);
-  _impl_._has_bits_[0] |= 0x00000040u;
+  _impl_._has_bits_[0] |= 0x00000080u;
   // @@protoc_insertion_point(field_set:broker.SystemStats.msgs_per_sec)
 }
 inline ::int32_t SystemStats::_internal_msgs_per_sec() const {
@@ -1703,7 +1720,7 @@ inline void SystemStats::_internal_set_msgs_per_sec(::int32_t value) {
 inline void SystemStats::clear_kb_per_sec() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.kb_per_sec_ = 0;
-  _impl_._has_bits_[0] &= ~0x00000008u;
+  _impl_._has_bits_[0] &= ~0x00000010u;
 }
 inline double SystemStats::kb_per_sec() const {
   // @@protoc_insertion_point(field_get:broker.SystemStats.kb_per_sec)
@@ -1711,7 +1728,7 @@ inline double SystemStats::kb_per_sec() const {
 }
 inline void SystemStats::set_kb_per_sec(double value) {
   _internal_set_kb_per_sec(value);
-  _impl_._has_bits_[0] |= 0x00000008u;
+  _impl_._has_bits_[0] |= 0x00000010u;
   // @@protoc_insertion_point(field_set:broker.SystemStats.kb_per_sec)
 }
 inline double SystemStats::_internal_kb_per_sec() const {
@@ -1727,7 +1744,7 @@ inline void SystemStats::_internal_set_kb_per_sec(double value) {
 inline void SystemStats::clear_total_msgs() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.total_msgs_ = ::int64_t{0};
-  _impl_._has_bits_[0] &= ~0x00000010u;
+  _impl_._has_bits_[0] &= ~0x00000020u;
 }
 inline ::int64_t SystemStats::total_msgs() const {
   // @@protoc_insertion_point(field_get:broker.SystemStats.total_msgs)
@@ -1735,7 +1752,7 @@ inline ::int64_t SystemStats::total_msgs() const {
 }
 inline void SystemStats::set_total_msgs(::int64_t value) {
   _internal_set_total_msgs(value);
-  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_._has_bits_[0] |= 0x00000020u;
   // @@protoc_insertion_point(field_set:broker.SystemStats.total_msgs)
 }
 inline ::int64_t SystemStats::_internal_total_msgs() const {
@@ -1751,7 +1768,7 @@ inline void SystemStats::_internal_set_total_msgs(::int64_t value) {
 inline void SystemStats::clear_uptime_sec() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.uptime_sec_ = ::int64_t{0};
-  _impl_._has_bits_[0] &= ~0x00000020u;
+  _impl_._has_bits_[0] &= ~0x00000040u;
 }
 inline ::int64_t SystemStats::uptime_sec() const {
   // @@protoc_insertion_point(field_get:broker.SystemStats.uptime_sec)
@@ -1759,7 +1776,7 @@ inline ::int64_t SystemStats::uptime_sec() const {
 }
 inline void SystemStats::set_uptime_sec(::int64_t value) {
   _internal_set_uptime_sec(value);
-  _impl_._has_bits_[0] |= 0x00000020u;
+  _impl_._has_bits_[0] |= 0x00000040u;
   // @@protoc_insertion_point(field_set:broker.SystemStats.uptime_sec)
 }
 inline ::int64_t SystemStats::_internal_uptime_sec() const {
@@ -1819,6 +1836,71 @@ inline ::google::protobuf::RepeatedPtrField<::broker::ClientInfo>* PROTOBUF_NONN
 SystemStats::_internal_mutable_connected_clients() {
   ::google::protobuf::internal::TSanRead(&_impl_);
   return &_impl_.connected_clients_;
+}
+
+// string cluster = 9;
+inline void SystemStats::clear_cluster() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.cluster_.ClearToEmpty();
+  _impl_._has_bits_[0] &= ~0x00000002u;
+}
+inline const ::std::string& SystemStats::cluster() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:broker.SystemStats.cluster)
+  return _internal_cluster();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void SystemStats::set_cluster(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000002u;
+  _impl_.cluster_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:broker.SystemStats.cluster)
+}
+inline ::std::string* PROTOBUF_NONNULL SystemStats::mutable_cluster()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  ::std::string* _s = _internal_mutable_cluster();
+  // @@protoc_insertion_point(field_mutable:broker.SystemStats.cluster)
+  return _s;
+}
+inline const ::std::string& SystemStats::_internal_cluster() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.cluster_.Get();
+}
+inline void SystemStats::_internal_set_cluster(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000002u;
+  _impl_.cluster_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL SystemStats::_internal_mutable_cluster() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000002u;
+  return _impl_.cluster_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE SystemStats::release_cluster() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:broker.SystemStats.cluster)
+  if ((_impl_._has_bits_[0] & 0x00000002u) == 0) {
+    return nullptr;
+  }
+  _impl_._has_bits_[0] &= ~0x00000002u;
+  auto* released = _impl_.cluster_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.cluster_.Set("", GetArena());
+  }
+  return released;
+}
+inline void SystemStats::set_allocated_cluster(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    _impl_._has_bits_[0] |= 0x00000002u;
+  } else {
+    _impl_._has_bits_[0] &= ~0x00000002u;
+  }
+  _impl_.cluster_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.cluster_.IsDefault()) {
+    _impl_.cluster_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:broker.SystemStats.cluster)
 }
 
 #ifdef __GNUC__

@@ -89,6 +89,49 @@ TEST(DiscoveryTest, DialsEachPeerOnce) {
   EXPECT_EQ(rec.dials.size(), 1u);
 }
 
+// A runtime cluster swap drops every link this side initiated, stops reacting
+// to the old cluster's beacons, and meshes with the new cluster instead.
+TEST(DiscoveryTest, SetClusterDropsDialedPeersAndRetargets) {
+  Recorder rec;
+  auto disc = makeDiscovery("blue", "aaa", rec);
+  const auto now = std::chrono::steady_clock::now();
+  feed(*disc, "10.0.0.5", "blue", "zzz", 6000, now);
+  ASSERT_EQ(rec.dials.size(), 1u);
+
+  disc->setCluster("green");
+  ASSERT_EQ(rec.drops.size(), 1u);
+  EXPECT_EQ(rec.drops[0], "zzz");
+
+  feed(*disc, "10.0.0.5", "blue", "zzz", 6000, now + 1s);  // old cluster: ignored
+  EXPECT_EQ(rec.dials.size(), 1u);
+
+  feed(*disc, "10.0.0.6", "green", "yyy", 6001, now + 1s);  // new cluster: dialed
+  ASSERT_EQ(rec.dials.size(), 2u);
+  EXPECT_EQ(rec.dials[1].first, "yyy");
+  EXPECT_EQ(rec.dials[1].second, "tcp://10.0.0.6:6001");
+}
+
+TEST(DiscoveryTest, SetClusterSameNameIsANoOp) {
+  Recorder rec;
+  auto disc = makeDiscovery("blue", "aaa", rec);
+  feed(*disc, "10.0.0.5", "blue", "zzz", 6000, std::chrono::steady_clock::now());
+  disc->setCluster("blue");
+  EXPECT_TRUE(rec.drops.empty());
+}
+
+// Swapping away and back must re-dial: the dialed-set is cleared on swap, so
+// the peer counts as new again.
+TEST(DiscoveryTest, SwappingBackRedialsFormerPeer) {
+  Recorder rec;
+  auto disc = makeDiscovery("blue", "aaa", rec);
+  const auto now = std::chrono::steady_clock::now();
+  feed(*disc, "10.0.0.5", "blue", "zzz", 6000, now);
+  disc->setCluster("green");
+  disc->setCluster("blue");
+  feed(*disc, "10.0.0.5", "blue", "zzz", 6000, now + 1s);
+  EXPECT_EQ(rec.dials.size(), 2u);
+}
+
 TEST(DiscoveryTest, DropsPeerThatGoesSilent) {
   Recorder rec;
   auto disc = makeDiscovery("default", "aaa", rec);

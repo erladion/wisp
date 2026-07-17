@@ -80,6 +80,8 @@ void MainWindow::onNewPacket(const InspectorPacket& packet) {
     google::protobuf::Any any;
     if (any.ParseFromString(packet.payload) && any.UnpackTo(&statsMsg)) {
       m_pBrokerIdLabel->setText(QString("Broker ID: %1").arg(QString::fromStdString(statsMsg.broker_id())));
+      const QString cluster = QString::fromStdString(statsMsg.cluster());
+      m_pClusterLabel->setText(QString("Cluster: %1").arg(cluster.isEmpty() ? "--" : cluster));
       m_pUptimeLabel->setText(QString("Uptime: %1 s").arg(statsMsg.uptime_sec()));
 
       m_pClientsLabel->setText(QString("Clients: %1").arg(statsMsg.clients_count()));
@@ -182,6 +184,7 @@ void MainWindow::setupSysStatsView() {
   m_pBrokerIdLabel = new QLabel("Broker ID: --");
   m_pBrokerIdLabel->setWordWrap(true);
   m_pBrokerIdLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  m_pClusterLabel = new QLabel("Cluster: --");
   m_pUptimeLabel = new QLabel("Uptime: -- s");
   m_pClientsLabel = new QLabel("Clients: 0");
   m_pPeersLabel = new QLabel("Peers: 0");
@@ -195,6 +198,7 @@ void MainWindow::setupSysStatsView() {
   m_pMsgsSecLabel->setStyleSheet("color: #2ecc71; font-weight: bold;");  // Green
 
   layout->addWidget(m_pBrokerIdLabel);
+  layout->addWidget(m_pClusterLabel);
   layout->addWidget(m_pUptimeLabel);
 
   QFrame* line1 = new QFrame();

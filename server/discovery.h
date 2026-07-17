@@ -36,6 +36,14 @@ public:
   void start();  // bind the UDP socket and spawn the beacon/listen loop
   void stop();
 
+  // Switch to a different cluster at runtime: subsequent beacons announce the
+  // new name, beacons from other clusters are ignored, and every link this
+  // broker initiated is dropped immediately (the drop callback fires for each,
+  // on the caller's thread). Links dialed by remote peers survive until the
+  // remote stops hearing our old-cluster beacons - up to its peer timeout.
+  // A no-op when the name is unchanged. Callable from any thread.
+  void setCluster(const std::string& cluster);
+
   // --- Pure logic (no sockets); the loop drives these, tests call them directly ---
 
   struct Beacon {
@@ -63,7 +71,8 @@ private:
     std::chrono::steady_clock::time_point lastSeen;
   };
 
-  const std::string m_cluster;
+  // Guarded by m_mutex (swappable at runtime, read by the beacon loop).
+  std::string m_cluster;
   const std::string m_selfUuid;
   const std::uint16_t m_routerPort;
   const std::uint16_t m_discoveryPort;

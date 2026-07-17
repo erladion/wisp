@@ -42,4 +42,7 @@ message SystemStats {
     int64 total_msgs = 6;
     int64 uptime_sec = 7;
     repeated ClientInfo connected_clients = 8;
+    // Discovery cluster this broker currently meshes in; empty when discovery
+    // is disabled. Changes at runtime via a SET_CLUSTER message.
+    string cluster = 9;
 }

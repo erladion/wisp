@@ -80,10 +80,15 @@ struct  _Broker__SystemStats
   int64_t uptime_sec;
   size_t n_connected_clients;
   Broker__ClientInfo **connected_clients;
+  /*
+   * Discovery cluster this broker currently meshes in; empty when discovery
+   * is disabled. Changes at runtime via a SET_CLUSTER message.
+   */
+  char *cluster;
 };
 #define BROKER__SYSTEM_STATS__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&broker__system_stats__descriptor) \
-    , (char *)protobuf_c_empty_string, 0, 0, 0, 0, 0, 0, 0,NULL }
+    , (char *)protobuf_c_empty_string, 0, 0, 0, 0, 0, 0, 0,NULL, (char *)protobuf_c_empty_string }
 
 
 /* Broker__MessageHeader methods */

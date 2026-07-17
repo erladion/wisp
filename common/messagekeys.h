@@ -15,12 +15,19 @@ constexpr std::string_view UNSUBSCRIBE = "__UNSUBSCRIBE__";
 
 constexpr std::string_view SYS_STATS = "__SYS_STATS__";
 
+// Runtime cluster swap: the payload carries the new cluster name as raw bytes
+// (a header-only control message can't be sent through the plain client APIs,
+// whose topic always mirrors the handler key). Handled by the local broker
+// only, never forwarded.
+constexpr std::string_view SET_CLUSTER = "__SET_CLUSTER__";
+
 constexpr bool isSystemPacket(std::string_view key) {
   return key == HEARTBEAT || key == HEARTBEAT_ACK || key == CONNECT || key == DISCONNECT || key == RESET;
 }
 
 constexpr bool isControlMessage(std::string_view key) {
-  return key == HEARTBEAT || key == HEARTBEAT_ACK || key == SUBSCRIBE || key == UNSUBSCRIBE || key == CONNECT || key == DISCONNECT || key == RESET;
+  return key == HEARTBEAT || key == HEARTBEAT_ACK || key == SUBSCRIBE || key == UNSUBSCRIBE || key == CONNECT || key == DISCONNECT || key == RESET ||
+         key == SET_CLUSTER;
 }
 
 }  // namespace Keys

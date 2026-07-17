@@ -70,7 +70,12 @@ void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, 
   if (!decodeBeacon(data, size, beacon)) {
     return;
   }
-  if (beacon.cluster != m_cluster) {
+  std::string cluster;
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    cluster = m_cluster;
+  }
+  if (beacon.cluster != cluster) {
     return;  // different mesh on the same LAN
   }
   if (beacon.uuid == m_selfUuid) {
@@ -99,6 +104,28 @@ void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, 
 
   if (isNew && m_dial) {
     m_dial(beacon.uuid, address);
+  }
+}
+
+void BrokerDiscovery::setCluster(const std::string& cluster) {
+  std::vector<std::string> dropped;
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (cluster == m_cluster) {
+      return;
+    }
+    m_cluster = cluster;
+    dropped.reserve(m_dialed.size());
+    for (const auto& [uuid, entry] : m_dialed) {
+      dropped.push_back(uuid);
+    }
+    m_dialed.clear();
+  }
+  // Outside the lock: dropping a peer joins its worker thread.
+  for (const auto& uuid : dropped) {
+    if (m_drop) {
+      m_drop(uuid);
+    }
   }
 }
 
@@ -164,13 +191,21 @@ void BrokerDiscovery::run() {
   broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
   broadcastAddr.sin_port = htons(m_discoveryPort);
 
-  const std::string beacon = encodeBeacon(m_cluster, m_selfUuid, m_routerPort);
-  Logger::Log(Logger::INFO, "Discovery active on UDP " + std::to_string(m_discoveryPort) + " (cluster '" + m_cluster + "')");
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    Logger::Log(Logger::INFO, "Discovery active on UDP " + std::to_string(m_discoveryPort) + " (cluster '" + m_cluster + "')");
+  }
 
   auto nextBeacon = std::chrono::steady_clock::now();
   while (m_running) {
     const auto now = std::chrono::steady_clock::now();
     if (now >= nextBeacon) {
+      // Re-encoded every send: the cluster can change under us via setCluster.
+      std::string beacon;
+      {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        beacon = encodeBeacon(m_cluster, m_selfUuid, m_routerPort);
+      }
       ::sendto(m_socket, beacon.data(), beacon.size(), 0, reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
       expireStale(now);
       nextBeacon = now + m_beaconInterval;

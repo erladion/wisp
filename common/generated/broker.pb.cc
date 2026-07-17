@@ -108,6 +108,9 @@ inline constexpr SystemStats::Impl_::Impl_(
         broker_id_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
+        cluster_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
         clients_count_{0},
         peers_count_{0},
         kb_per_sec_{0},
@@ -172,7 +175,7 @@ const ::uint32_t
         ~0u,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_._has_bits_),
-        11, // hasbit index offset
+        12, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.broker_id_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.clients_count_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.peers_count_),
@@ -181,14 +184,16 @@ const ::uint32_t
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.total_msgs_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.uptime_sec_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.connected_clients_),
+        PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.cluster_),
         0,
-        1,
         2,
-        6,
         3,
+        7,
         4,
         5,
+        6,
         ~0u,
+        1,
 };
 
 static const ::_pbi::MigrationSchema
@@ -211,18 +216,19 @@ const char descriptor_table_protodef_broker_2eproto[] ABSL_ATTRIBUTE_SECTION_VAR
     " \001(\t\022\027\n\017sequence_number\030\010 \001(\005\022\026\n\016sequenc"
     "e_count\030\t \001(\005\022\023\n\013reply_topic\030\013 \001(\tJ\004\010\004\020\005"
     "J\004\010\n\020\013\"/\n\nClientInfo\022\n\n\002id\030\001 \001(\t\022\025\n\rsubs"
-    "criptions\030\002 \003(\t\"\315\001\n\013SystemStats\022\021\n\tbroke"
+    "criptions\030\002 \003(\t\"\336\001\n\013SystemStats\022\021\n\tbroke"
     "r_id\030\001 \001(\t\022\025\n\rclients_count\030\002 \001(\005\022\023\n\013pee"
     "rs_count\030\003 \001(\005\022\024\n\014msgs_per_sec\030\004 \001(\005\022\022\n\n"
     "kb_per_sec\030\005 \001(\001\022\022\n\ntotal_msgs\030\006 \001(\003\022\022\n\n"
     "uptime_sec\030\007 \001(\003\022-\n\021connected_clients\030\010 "
-    "\003(\0132\022.broker.ClientInfoB\003\370\001\001b\006proto3"
+    "\003(\0132\022.broker.ClientInfo\022\017\n\007cluster\030\t \001(\t"
+    "B\003\370\001\001b\006proto3"
 };
 static ::absl::once_flag descriptor_table_broker_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_broker_2eproto = {
     false,
     false,
-    516,
+    533,
     descriptor_table_protodef_broker_2eproto,
     "broker.proto",
     &descriptor_table_broker_2eproto_once,
@@ -1156,7 +1162,8 @@ PROTOBUF_NDEBUG_INLINE SystemStats::Impl_::Impl_(
       : _has_bits_{from._has_bits_},
         _cached_size_{0},
         connected_clients_{visibility, arena, from.connected_clients_},
-        broker_id_(arena, from.broker_id_) {}
+        broker_id_(arena, from.broker_id_),
+        cluster_(arena, from.cluster_) {}
 
 SystemStats::SystemStats(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -1186,7 +1193,8 @@ PROTOBUF_NDEBUG_INLINE SystemStats::Impl_::Impl_(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
       : _cached_size_{0},
         connected_clients_{visibility, arena},
-        broker_id_(arena) {}
+        broker_id_(arena),
+        cluster_(arena) {}
 
 inline void SystemStats::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
@@ -1206,6 +1214,7 @@ inline void SystemStats::SharedDtor(MessageLite& self) {
   this_._internal_metadata_.Delete<::google::protobuf::UnknownFieldSet>();
   ABSL_DCHECK(this_.GetArena() == nullptr);
   this_._impl_.broker_id_.Destroy();
+  this_._impl_.cluster_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -1264,16 +1273,16 @@ SystemStats::GetClassData() const {
   return SystemStats_class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<3, 8, 1, 44, 2>
+const ::_pbi::TcParseTable<4, 9, 1, 51, 2>
 SystemStats::_table_ = {
   {
     PROTOBUF_FIELD_OFFSET(SystemStats, _impl_._has_bits_),
     0, // no _extensions_
-    8, 56,  // max_field_number, fast_idx_mask
+    9, 120,  // max_field_number, fast_idx_mask
     offsetof(decltype(_table_), field_lookup_table),
-    4294967040,  // skipmap
+    4294966784,  // skipmap
     offsetof(decltype(_table_), field_entries),
-    8,  // num_field_entries
+    9,  // num_field_entries
     1,  // num_aux_entries
     offsetof(decltype(_table_), aux_entries),
     SystemStats_class_data_.base(),
@@ -1283,30 +1292,40 @@ SystemStats::_table_ = {
     ::_pbi::TcParser::GetTable<::broker::SystemStats>(),  // to_prefetch
     #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
   }, {{
-    // repeated .broker.ClientInfo connected_clients = 8;
-    {::_pbi::TcParser::FastMtR1,
-     {66, 63, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.connected_clients_)}},
+    {::_pbi::TcParser::MiniParse, {}},
     // string broker_id = 1;
     {::_pbi::TcParser::FastUS1,
      {10, 0, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.broker_id_)}},
     // int32 clients_count = 2;
-    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.clients_count_), 1>(),
-     {16, 1, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.clients_count_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.clients_count_), 2>(),
+     {16, 2, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.clients_count_)}},
     // int32 peers_count = 3;
-    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.peers_count_), 2>(),
-     {24, 2, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.peers_count_), 3>(),
+     {24, 3, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_)}},
     // int32 msgs_per_sec = 4;
-    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.msgs_per_sec_), 6>(),
-     {32, 6, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.msgs_per_sec_), 7>(),
+     {32, 7, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_)}},
     // double kb_per_sec = 5;
     {::_pbi::TcParser::FastF64S1,
-     {41, 3, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_)}},
+     {41, 4, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_)}},
     // int64 total_msgs = 6;
-    {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(SystemStats, _impl_.total_msgs_), 4>(),
-     {48, 4, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_msgs_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(SystemStats, _impl_.total_msgs_), 5>(),
+     {48, 5, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_msgs_)}},
     // int64 uptime_sec = 7;
-    {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(SystemStats, _impl_.uptime_sec_), 5>(),
-     {56, 5, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.uptime_sec_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(SystemStats, _impl_.uptime_sec_), 6>(),
+     {56, 6, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.uptime_sec_)}},
+    // repeated .broker.ClientInfo connected_clients = 8;
+    {::_pbi::TcParser::FastMtR1,
+     {66, 63, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.connected_clients_)}},
+    // string cluster = 9;
+    {::_pbi::TcParser::FastUS1,
+     {74, 1, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.cluster_)}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
   }}, {{
     65535, 65535
   }}, {{
@@ -1314,34 +1333,38 @@ SystemStats::_table_ = {
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.broker_id_), _Internal::kHasBitsOffset + 0, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
     // int32 clients_count = 2;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.clients_count_), _Internal::kHasBitsOffset + 1, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.clients_count_), _Internal::kHasBitsOffset + 2, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
     // int32 peers_count = 3;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_), _Internal::kHasBitsOffset + 2, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_), _Internal::kHasBitsOffset + 3, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
     // int32 msgs_per_sec = 4;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_), _Internal::kHasBitsOffset + 6, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_), _Internal::kHasBitsOffset + 7, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
     // double kb_per_sec = 5;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_), _Internal::kHasBitsOffset + 3, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_), _Internal::kHasBitsOffset + 4, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kDouble)},
     // int64 total_msgs = 6;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_msgs_), _Internal::kHasBitsOffset + 4, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_msgs_), _Internal::kHasBitsOffset + 5, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
     // int64 uptime_sec = 7;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.uptime_sec_), _Internal::kHasBitsOffset + 5, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.uptime_sec_), _Internal::kHasBitsOffset + 6, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt64)},
     // repeated .broker.ClientInfo connected_clients = 8;
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.connected_clients_), -1, 0,
     (0 | ::_fl::kFcRepeated | ::_fl::kMessage | ::_fl::kTvTable)},
+    // string cluster = 9;
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.cluster_), _Internal::kHasBitsOffset + 1, 0,
+    (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
   }},
   {{
       {::_pbi::TcParser::GetTable<::broker::ClientInfo>()},
   }},
   {{
-    "\22\11\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+    "\22\11\0\0\0\0\0\0\0\7\0\0\0\0\0\0"
     "broker.SystemStats"
     "broker_id"
+    "cluster"
   }},
 };
 PROTOBUF_NOINLINE void SystemStats::Clear() {
@@ -1353,10 +1376,15 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
 
   _impl_.connected_clients_.Clear();
   cached_has_bits = _impl_._has_bits_[0];
-  if ((cached_has_bits & 0x00000001u) != 0) {
-    _impl_.broker_id_.ClearNonDefaultToEmpty();
+  if ((cached_has_bits & 0x00000003u) != 0) {
+    if ((cached_has_bits & 0x00000001u) != 0) {
+      _impl_.broker_id_.ClearNonDefaultToEmpty();
+    }
+    if ((cached_has_bits & 0x00000002u) != 0) {
+      _impl_.cluster_.ClearNonDefaultToEmpty();
+    }
   }
-  if ((cached_has_bits & 0x0000007eu) != 0) {
+  if ((cached_has_bits & 0x000000fcu) != 0) {
     ::memset(&_impl_.clients_count_, 0, static_cast<::size_t>(
         reinterpret_cast<char*>(&_impl_.msgs_per_sec_) -
         reinterpret_cast<char*>(&_impl_.clients_count_)) + sizeof(_impl_.msgs_per_sec_));
@@ -1391,7 +1419,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // int32 clients_count = 2;
-  if ((this_._impl_._has_bits_[0] & 0x00000002u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000004u) != 0) {
     if (this_._internal_clients_count() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<2>(
@@ -1400,7 +1428,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // int32 peers_count = 3;
-  if ((this_._impl_._has_bits_[0] & 0x00000004u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000008u) != 0) {
     if (this_._internal_peers_count() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<3>(
@@ -1409,7 +1437,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // int32 msgs_per_sec = 4;
-  if ((this_._impl_._has_bits_[0] & 0x00000040u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000080u) != 0) {
     if (this_._internal_msgs_per_sec() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<4>(
@@ -1418,7 +1446,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // double kb_per_sec = 5;
-  if ((this_._impl_._has_bits_[0] & 0x00000008u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000010u) != 0) {
     if (::absl::bit_cast<::uint64_t>(this_._internal_kb_per_sec()) != 0) {
       target = stream->EnsureSpace(target);
       target = ::_pbi::WireFormatLite::WriteDoubleToArray(
@@ -1427,7 +1455,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // int64 total_msgs = 6;
-  if ((this_._impl_._has_bits_[0] & 0x00000010u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000020u) != 0) {
     if (this_._internal_total_msgs() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt64ToArrayWithField<6>(
@@ -1436,7 +1464,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // int64 uptime_sec = 7;
-  if ((this_._impl_._has_bits_[0] & 0x00000020u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000040u) != 0) {
     if (this_._internal_uptime_sec() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt64ToArrayWithField<7>(
@@ -1453,6 +1481,16 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
         ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
             8, repfield, repfield.GetCachedSize(),
             target, stream);
+  }
+
+  // string cluster = 9;
+  if ((this_._impl_._has_bits_[0] & 0x00000002u) != 0) {
+    if (!this_._internal_cluster().empty()) {
+      const ::std::string& _s = this_._internal_cluster();
+      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "broker.SystemStats.cluster");
+      target = stream->WriteStringMaybeAliased(9, _s, target);
+    }
   }
 
   if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
@@ -1489,7 +1527,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
     }
   }
   cached_has_bits = this_._impl_._has_bits_[0];
-  if ((cached_has_bits & 0x0000007fu) != 0) {
+  if ((cached_has_bits & 0x000000ffu) != 0) {
     // string broker_id = 1;
     if ((cached_has_bits & 0x00000001u) != 0) {
       if (!this_._internal_broker_id().empty()) {
@@ -1497,42 +1535,49 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
                                         this_._internal_broker_id());
       }
     }
-    // int32 clients_count = 2;
+    // string cluster = 9;
     if ((cached_has_bits & 0x00000002u) != 0) {
+      if (!this_._internal_cluster().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                        this_._internal_cluster());
+      }
+    }
+    // int32 clients_count = 2;
+    if ((cached_has_bits & 0x00000004u) != 0) {
       if (this_._internal_clients_count() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_clients_count());
       }
     }
     // int32 peers_count = 3;
-    if ((cached_has_bits & 0x00000004u) != 0) {
+    if ((cached_has_bits & 0x00000008u) != 0) {
       if (this_._internal_peers_count() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_peers_count());
       }
     }
     // double kb_per_sec = 5;
-    if ((cached_has_bits & 0x00000008u) != 0) {
+    if ((cached_has_bits & 0x00000010u) != 0) {
       if (::absl::bit_cast<::uint64_t>(this_._internal_kb_per_sec()) != 0) {
         total_size += 9;
       }
     }
     // int64 total_msgs = 6;
-    if ((cached_has_bits & 0x00000010u) != 0) {
+    if ((cached_has_bits & 0x00000020u) != 0) {
       if (this_._internal_total_msgs() != 0) {
         total_size += ::_pbi::WireFormatLite::Int64SizePlusOne(
             this_._internal_total_msgs());
       }
     }
     // int64 uptime_sec = 7;
-    if ((cached_has_bits & 0x00000020u) != 0) {
+    if ((cached_has_bits & 0x00000040u) != 0) {
       if (this_._internal_uptime_sec() != 0) {
         total_size += ::_pbi::WireFormatLite::Int64SizePlusOne(
             this_._internal_uptime_sec());
       }
     }
     // int32 msgs_per_sec = 4;
-    if ((cached_has_bits & 0x00000040u) != 0) {
+    if ((cached_has_bits & 0x00000080u) != 0) {
       if (this_._internal_msgs_per_sec() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_msgs_per_sec());
@@ -1554,7 +1599,7 @@ void SystemStats::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goo
   _this->_internal_mutable_connected_clients()->MergeFrom(
       from._internal_connected_clients());
   cached_has_bits = from._impl_._has_bits_[0];
-  if ((cached_has_bits & 0x0000007fu) != 0) {
+  if ((cached_has_bits & 0x000000ffu) != 0) {
     if ((cached_has_bits & 0x00000001u) != 0) {
       if (!from._internal_broker_id().empty()) {
         _this->_internal_set_broker_id(from._internal_broker_id());
@@ -1565,31 +1610,40 @@ void SystemStats::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goo
       }
     }
     if ((cached_has_bits & 0x00000002u) != 0) {
+      if (!from._internal_cluster().empty()) {
+        _this->_internal_set_cluster(from._internal_cluster());
+      } else {
+        if (_this->_impl_.cluster_.IsDefault()) {
+          _this->_internal_set_cluster("");
+        }
+      }
+    }
+    if ((cached_has_bits & 0x00000004u) != 0) {
       if (from._internal_clients_count() != 0) {
         _this->_impl_.clients_count_ = from._impl_.clients_count_;
       }
     }
-    if ((cached_has_bits & 0x00000004u) != 0) {
+    if ((cached_has_bits & 0x00000008u) != 0) {
       if (from._internal_peers_count() != 0) {
         _this->_impl_.peers_count_ = from._impl_.peers_count_;
       }
     }
-    if ((cached_has_bits & 0x00000008u) != 0) {
+    if ((cached_has_bits & 0x00000010u) != 0) {
       if (::absl::bit_cast<::uint64_t>(from._internal_kb_per_sec()) != 0) {
         _this->_impl_.kb_per_sec_ = from._impl_.kb_per_sec_;
       }
     }
-    if ((cached_has_bits & 0x00000010u) != 0) {
+    if ((cached_has_bits & 0x00000020u) != 0) {
       if (from._internal_total_msgs() != 0) {
         _this->_impl_.total_msgs_ = from._impl_.total_msgs_;
       }
     }
-    if ((cached_has_bits & 0x00000020u) != 0) {
+    if ((cached_has_bits & 0x00000040u) != 0) {
       if (from._internal_uptime_sec() != 0) {
         _this->_impl_.uptime_sec_ = from._impl_.uptime_sec_;
       }
     }
-    if ((cached_has_bits & 0x00000040u) != 0) {
+    if ((cached_has_bits & 0x00000080u) != 0) {
       if (from._internal_msgs_per_sec() != 0) {
         _this->_impl_.msgs_per_sec_ = from._impl_.msgs_per_sec_;
       }
@@ -1615,6 +1669,7 @@ void SystemStats::InternalSwap(SystemStats* PROTOBUF_RESTRICT PROTOBUF_NONNULL o
   swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
   _impl_.connected_clients_.InternalSwap(&other->_impl_.connected_clients_);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.broker_id_, &other->_impl_.broker_id_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.cluster_, &other->_impl_.cluster_, arena);
   ::google::protobuf::internal::memswap<
       PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_)
       + sizeof(SystemStats::_impl_.msgs_per_sec_)

@@ -15,6 +15,7 @@ enable_testing()
 set(BROKER_TEST_SOURCES
   support/test_helpers.h
   any_payload_roundtrip_test.cpp
+  cluster_swap_test.cpp
   discovery_test.cpp
   message_size_limit_test.cpp
   reply_to_sender_context_test.cpp

@@ -125,8 +125,10 @@ void ZmqBroker::start(const std::vector<std::string>& bindAddresses) {
   m_running = true;
   m_startTime = std::chrono::steady_clock::now();
   m_lastStatsTime = std::chrono::steady_clock::now();
-  m_brokerThread = std::thread(&ZmqBroker::run, this, bindAddresses);
 
+  // Discovery is set up before the broker thread exists, so m_discovery is
+  // never written while that thread might read it (SET_CLUSTER handling).
+  // Peers dialed this early just retry until the ROUTER binds.
   if (m_discoveryEnabled) {
     const std::uint16_t routerPort = parseTcpPort(bindAddresses);
     if (routerPort == 0) {
@@ -139,6 +141,8 @@ void ZmqBroker::start(const std::vector<std::string>& bindAddresses) {
       m_discovery->start();
     }
   }
+
+  m_brokerThread = std::thread(&ZmqBroker::run, this, bindAddresses);
 }
 
 void ZmqBroker::stop() {
@@ -365,9 +369,27 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
       }
       return;
     }
+
+    if (key == Keys::SET_CLUSTER) {
+      // The payload carries the new cluster name (see Keys::SET_CLUSTER).
+      // The 64-byte cap keeps beacons well inside the discovery loop's
+      // 512-byte datagram buffer; '|' is the beacon field separator.
+      const std::string newCluster(payload.data<char>(), payload.size());
+      if (newCluster.empty() || newCluster.size() > 64 || newCluster.find('|') != std::string::npos) {
+        Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " rejected: name must be 1-64 chars without '|'");
+      } else if (!m_discovery) {
+        Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " ignored: discovery is not active");
+      } else if (newCluster != m_clusterName) {
+        Logger::Log(Logger::INFO, "Switching cluster '" + m_clusterName + "' -> '" + newCluster + "' (requested by " + senderId + ")");
+        m_clusterName = newCluster;
+        m_discovery->setCluster(newCluster);
+      }
+      return;  // Never broadcast; the swap is local to this broker
+    }
   } else {
     // Ignore internal control messages from peers to prevent loops/confusion
-    if (key == Keys::RESET || key == Keys::HEARTBEAT_ACK || key == Keys::HEARTBEAT) {
+    // (SET_CLUSTER included: a remote broker must not re-cluster this one)
+    if (key == Keys::RESET || key == Keys::HEARTBEAT_ACK || key == Keys::HEARTBEAT || key == Keys::SET_CLUSTER) {
       return;
     }
   }
@@ -469,6 +491,7 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   stats.set_kb_per_sec(kbSec);
   stats.set_total_msgs(m_totalMessages);
   stats.set_uptime_sec(uptime);
+  stats.set_cluster(m_clusterName);  // empty when discovery is disabled
 
   for (const auto& entry : m_clients) {
     broker::ClientInfo* clientInfo = stats.add_connected_clients();
