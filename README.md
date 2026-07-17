@@ -25,6 +25,8 @@ Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. E
 | `common/` | Client library: `ConnectionManager` (C++) plus a C ABI (`connectionapi.h`) |
 | `bindings/qt/` | Optional Qt binding (`QtConnectionAdapter`) |
 | `bindings/polling/` | Frame-loop adapter (`wisp::MessagePoller`) for immediate-mode UIs and game loops |
+| `bindings/ada/` | Ada binding (`Wisp` package over the C ABI) |
+| `bindings/python/` | Python binding (`wisp.py`, ctypes over the C ABI) |
 | `inspector/` | Qt GUI that taps and displays live broker traffic |
 | `examples/` | Small demo clients exercising the C++ API |
 
