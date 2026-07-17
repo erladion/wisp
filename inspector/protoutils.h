@@ -9,11 +9,35 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
+#include <algorithm>
 #include <memory>
+#include <string>
 
 #include "broker.pb.h"
 
 namespace ProtoUtils {
+
+// Bytes fields (e.g. the 16-byte binary message uuid) render as spaced hex -
+// TextFormat would escape them into unreadable \x noise.
+inline QString formatBytesValue(const std::string& bytes) {
+  static const char hexChars[] = "0123456789abcdef";
+  const std::size_t shown = std::min<std::size_t>(bytes.size(), 64);
+
+  QString out;
+  out.reserve(static_cast<int>(shown) * 3 + 16);
+  for (std::size_t i = 0; i < shown; ++i) {
+    const auto c = static_cast<unsigned char>(bytes[i]);
+    if (i > 0) {
+      out += ' ';
+    }
+    out += hexChars[c >> 4];
+    out += hexChars[c & 0xf];
+  }
+  if (bytes.size() > shown) {
+    out += QString(" … (+%1 bytes)").arg(bytes.size() - shown);
+  }
+  return out;
+}
 
 inline void populateProtobufTree(const google::protobuf::Message& msg, QTreeWidgetItem* parentNode) {
   const google::protobuf::Descriptor* descriptor = msg.GetDescriptor();
@@ -51,6 +75,10 @@ inline void populateProtobufTree(const google::protobuf::Message& msg, QTreeWidg
           QTreeWidgetItem* itemNode = new QTreeWidgetItem(fieldNode);
           itemNode->setText(0, QString("[%1]").arg(j));
 
+          if (field->type() == google::protobuf::FieldDescriptor::TYPE_BYTES) {
+            itemNode->setText(1, formatBytesValue(reflection->GetRepeatedString(msg, field, j)));
+            continue;
+          }
           std::string valueStr;
           google::protobuf::TextFormat::PrintFieldValueToString(msg, field, j, &valueStr);
           if (!valueStr.empty() && valueStr.back() == '\n') {
@@ -58,6 +86,8 @@ inline void populateProtobufTree(const google::protobuf::Message& msg, QTreeWidg
           }
           itemNode->setText(1, QString::fromStdString(valueStr));
         }
+      } else if (field->type() == google::protobuf::FieldDescriptor::TYPE_BYTES) {
+        fieldNode->setText(1, formatBytesValue(reflection->GetString(msg, field)));
       } else {
         std::string valueStr;
         google::protobuf::TextFormat::PrintFieldValueToString(msg, field, -1, &valueStr);
