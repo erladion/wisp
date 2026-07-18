@@ -7,7 +7,6 @@
 #include <google/protobuf/util/message_differencer.h>
 
 #include "broker.pb.h"
-#include "update.pb.h"
 
 #include "safequeue.h"
 #include "wireframe.h"
@@ -156,12 +155,11 @@ protected:
 };
 
 TEST_F(AnyPayloadRoundtripTest, FlatMessageSurvivesRoundTrip) {
-  communication::Update update;
-  update.set_id("client-42");
-  update.set_message("hello from the any-payload test");
-  update.set_timestamp_utc(1717000000123);
+  broker::ClientInfo info;
+  info.set_id("client-42");
+  info.add_subscriptions("hello/from/the/any-payload-test");
 
-  expectRoundTrips("UPDATE", update);
+  expectRoundTrips("UPDATE", info);
 }
 
 TEST_F(AnyPayloadRoundtripTest, MessageWithRepeatedNestedMessagesSurvivesRoundTrip) {

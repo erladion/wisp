@@ -29,9 +29,7 @@ typedef struct _Broker__SystemStats Broker__SystemStats;
  * Routing envelope, carried as its own ZMQ frame ahead of an opaque payload
  * frame. The broker parses only this header to route a message and never looks
  * at the payload that follows, so any payload encoding (a packed protobuf Any,
- * JSON, raw bytes) passes through untouched. Field numbers 4 and 10 previously
- * held the inlined payload (a google.protobuf.Any) and raw_data; both now
- * travel as the second frame - see common/wireframe.h.
+ * JSON, raw bytes) passes through untouched - see common/wireframe.h.
  */
 struct  _Broker__MessageHeader
 {
@@ -46,14 +44,11 @@ struct  _Broker__MessageHeader
    * the dedup treats both as opaque.
    */
   ProtobufCBinaryData message_uuid;
-  char *transfer_id;
-  int32_t sequence_number;
-  int32_t sequence_count;
   char *reply_topic;
 };
 #define BROKER__MESSAGE_HEADER__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&broker__message_header__descriptor) \
-    , (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, {0,NULL}, (char *)protobuf_c_empty_string, 0, 0, (char *)protobuf_c_empty_string }
+    , (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, (char *)protobuf_c_empty_string, {0,NULL}, (char *)protobuf_c_empty_string }
 
 
 struct  _Broker__ClientInfo

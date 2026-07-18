@@ -5,7 +5,7 @@
 #include <QTimer>
 
 #include "connectionmanager.h"
-#include "update.pb.h"
+#include "broker.pb.h"
 #include "logger.h"
 
 struct TestStruct {
@@ -51,13 +51,12 @@ int main(int argc, char* argv[]) {
   QTimer t2;
   QObject::connect(&t2, &QTimer::timeout, []() {
     Logger::Log(Logger::INFO, "Sending a protobuf");
-    communication::Update upd;
+    broker::ClientInfo info;
 
-    upd.set_id("client2");
-    upd.set_message("message from client2");
-    upd.set_timestamp_utc(QDateTime::currentMSecsSinceEpoch());
+    info.set_id("client2");
+    info.add_subscriptions("message from client2");
 
-    ConnectionManager::sendMessage("protobuf", upd);
+    ConnectionManager::sendMessage("protobuf", info);
   });
 
   ConnectionManager::registerCallback("Hejsan", [](int t) { std::cout << t << std::endl; });

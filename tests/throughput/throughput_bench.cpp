@@ -48,19 +48,21 @@ using TestSupport::testBrokerAddress;
 namespace {
 
 const std::string kTopic = "throughput-bench";
-constexpr int kMinPayloadBytes = static_cast<int>(sizeof(int64_t));
+// Payload layout: 8 bytes send timestamp + 1 phase tag byte.
+constexpr int kMinPayloadBytes = static_cast<int>(sizeof(int64_t)) + 1;
 constexpr auto kDrainGrace = 2s;
 
-// Messages are tagged at send-time (via transfer_id) with which phase produced
-// them. This is what lets publish- and delivery-side counts line up correctly:
-// deciding whether to count a message based on the *subscriber's* clock at
-// receive-time would be racy (a message generated a microsecond before the
-// measurement window opens can easily arrive a microsecond after it does,
-// inflating "received" beyond "sent" and corrupting the delivered-ratio and
-// latency numbers - this is exactly what an earlier draft of this benchmark
-// got wrong).
-const std::string kWarmupTag = "warmup";
-const std::string kMeasureTag = "measure";
+// Messages are tagged at send-time (a phase byte embedded in the payload)
+// with which phase produced them. This is what lets publish- and
+// delivery-side counts line up correctly: deciding whether to count a message
+// based on the *subscriber's* clock at receive-time would be racy (a message
+// generated a microsecond before the measurement window opens can easily
+// arrive a microsecond after it does, inflating "received" beyond "sent" and
+// corrupting the delivered-ratio and latency numbers - this is exactly what
+// an earlier draft of this benchmark got wrong).
+constexpr char kWarmupTag = 'w';
+constexpr char kMeasureTag = 'm';
+constexpr std::size_t kPhaseByteOffset = sizeof(int64_t);
 
 struct BenchConfig {
   int publisherCount = 2;
@@ -138,7 +140,7 @@ BenchConfig parseArgs(int argc, char** argv) {
   }
   for (const int size : config.payloadSizes) {
     if (size < kMinPayloadBytes) {
-      throw std::runtime_error("--payload-bytes must be >= " + std::to_string(kMinPayloadBytes) + " (a send timestamp is embedded in the payload)");
+      throw std::runtime_error("--payload-bytes must be >= " + std::to_string(kMinPayloadBytes) + " (a send timestamp and phase tag are embedded in the payload)");
     }
   }
   return config;
@@ -148,11 +150,16 @@ BenchConfig parseArgs(int argc, char** argv) {
 // publisher and subscriber threads - embed the send time directly in the
 // (otherwise opaque) payload bytes and diff against it on receipt to measure
 // end-to-end latency without any external clock-sync machinery.
-std::string makeTimestampedPayload(int size) {
+std::string makeTimestampedPayload(int size, char phaseTag) {
   std::string data(static_cast<std::size_t>(size), '\0');
   const int64_t sendNanos = std::chrono::steady_clock::now().time_since_epoch().count();
   std::memcpy(data.data(), &sendNanos, sizeof(sendNanos));
+  data[kPhaseByteOffset] = phaseTag;
   return data;
+}
+
+char phaseTagOf(const Envelope& msg) {
+  return msg.payload.size() > kPhaseByteOffset ? msg.payload[kPhaseByteOffset] : '\0';
 }
 
 std::chrono::nanoseconds latencySince(const Envelope& msg) {
@@ -225,7 +232,6 @@ struct PublisherResult {
 // traffic doesn't skew the reported numbers.
 PublisherResult runPublisher(ZmqWorker& worker, std::string senderId, int payloadBytes, const std::atomic<bool>& running, const std::atomic<bool>& recording) {
   PublisherResult result;
-  int32_t sequence = 0;
 
   while (running.load(std::memory_order_relaxed)) {
     // Read once and reuse for both the tag and the counters, so a message is
@@ -236,9 +242,7 @@ PublisherResult runPublisher(ZmqWorker& worker, std::string senderId, int payloa
     msg.header.set_handler_key("LOAD");
     msg.header.set_sender_id(senderId);
     msg.header.set_topic(kTopic);
-    msg.header.set_sequence_number(sequence++);
-    msg.header.set_transfer_id(measuring ? kMeasureTag : kWarmupTag);
-    msg.payload = makeTimestampedPayload(payloadBytes);
+    msg.payload = makeTimestampedPayload(payloadBytes, measuring ? kMeasureTag : kWarmupTag);
 
     const bool enqueued = worker.writeMessage(msg);
     if (measuring) {
@@ -270,7 +274,7 @@ SubscriberResult runSubscriber(SafeQueue<Envelope>& queue) {
   Envelope msg;
 
   while (queue.pop(msg)) {
-    if (msg.header.handler_key() != "LOAD" || msg.header.transfer_id() != kMeasureTag) {
+    if (msg.header.handler_key() != "LOAD" || phaseTagOf(msg) != kMeasureTag) {
       continue;
     }
     const uint32_t wireBytes = static_cast<uint32_t>(msg.header.ByteSizeLong() + msg.payload.size());

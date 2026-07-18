@@ -7,7 +7,7 @@
 #include <iostream>
 
 #include "connectionmanager.h"
-#include "update.pb.h"
+#include "broker.pb.h"
 #include "logger.h"
 
 struct TestStruct {
@@ -38,9 +38,9 @@ int main(int argc, char* argv[]) {
     Logger::Log(Logger::INFO, "\n" + std::to_string(s.d) + "\n" + std::to_string(s.dd) + "\n" + std::to_string(s.ddd) + "\n" + std::to_string(s.h));
   });
 
-  ConnectionManager::registerCallback("protobuf", [](const communication::Update& s) {
+  ConnectionManager::registerCallback("protobuf", [](const broker::ClientInfo& s) {
     Logger::Log(Logger::INFO, "Receiving a protobuf");
-    Logger::Log(Logger::INFO, "\n" + s.id() + "\n" + s.message() + "\n" + std::to_string(s.timestamp_utc()));
+    Logger::Log(Logger::INFO, "\n" + s.id() + "\n" + std::to_string(s.subscriptions_size()) + " subscription(s)");
   });
 
   QTimer t;

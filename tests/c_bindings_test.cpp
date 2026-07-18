@@ -24,10 +24,7 @@ TEST(CBindingsTest, CPackedHeaderParsesInCpp) {
   cHeader.origin_broker_id = const_cast<char*>("c-broker");
   cHeader.message_uuid.data = reinterpret_cast<uint8_t*>(cUuid.data());
   cHeader.message_uuid.len = cUuid.size();
-  cHeader.transfer_id = const_cast<char*>("c-transfer");
   cHeader.reply_topic = const_cast<char*>("c-reply");
-  cHeader.sequence_number = 7;
-  cHeader.sequence_count = 9;
 
   const size_t size = broker__message_header__get_packed_size(&cHeader);
   std::vector<uint8_t> buffer(size);
@@ -41,10 +38,7 @@ TEST(CBindingsTest, CPackedHeaderParsesInCpp) {
   EXPECT_EQ(cppHeader.topic(), "c-topic");
   EXPECT_EQ(cppHeader.origin_broker_id(), "c-broker");
   EXPECT_EQ(cppHeader.message_uuid(), "c-uuid-1234");
-  EXPECT_EQ(cppHeader.transfer_id(), "c-transfer");
   EXPECT_EQ(cppHeader.reply_topic(), "c-reply");
-  EXPECT_EQ(cppHeader.sequence_number(), 7);
-  EXPECT_EQ(cppHeader.sequence_count(), 9);
 }
 
 TEST(CBindingsTest, CppSerializedHeaderUnpacksInC) {
@@ -53,7 +47,7 @@ TEST(CBindingsTest, CppSerializedHeaderUnpacksInC) {
   cppHeader.set_sender_id("cpp-sender");
   cppHeader.set_topic("cpp-topic");
   cppHeader.set_message_uuid("cpp-uuid-5678");
-  cppHeader.set_sequence_number(3);
+  cppHeader.set_reply_topic("cpp-reply");
 
   const std::string bytes = cppHeader.SerializeAsString();
 
@@ -65,7 +59,7 @@ TEST(CBindingsTest, CppSerializedHeaderUnpacksInC) {
   EXPECT_STREQ(cHeader->sender_id, "cpp-sender");
   EXPECT_STREQ(cHeader->topic, "cpp-topic");
   EXPECT_EQ(std::string(reinterpret_cast<const char*>(cHeader->message_uuid.data), cHeader->message_uuid.len), "cpp-uuid-5678");
-  EXPECT_EQ(cHeader->sequence_number, 3);
+  EXPECT_STREQ(cHeader->reply_topic, "cpp-reply");
 
   broker__message_header__free_unpacked(cHeader, nullptr);
 }

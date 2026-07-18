@@ -6,26 +6,17 @@ option cc_enable_arenas = true;
 // Routing envelope, carried as its own ZMQ frame ahead of an opaque payload
 // frame. The broker parses only this header to route a message and never looks
 // at the payload that follows, so any payload encoding (a packed protobuf Any,
-// JSON, raw bytes) passes through untouched. Field numbers 4 and 10 previously
-// held the inlined payload (a google.protobuf.Any) and raw_data; both now
-// travel as the second frame - see common/wireframe.h.
+// JSON, raw bytes) passes through untouched - see common/wireframe.h.
 message MessageHeader {
-  reserved 4, 10;
-
   string handler_key = 1;
   string sender_id = 2;
   string topic = 3;
-  string origin_broker_id = 5;
+  string origin_broker_id = 4;
   // 16 raw UUID bytes (see generateBinaryUUID). `bytes` and `string` share a
   // wire type, so peers still speaking 36-char text uuids stay parseable -
   // the dedup treats both as opaque.
-  bytes message_uuid = 6;
-
-  string transfer_id = 7;
-  int32 sequence_number = 8;
-  int32 sequence_count = 9;
-
-  string reply_topic = 11;
+  bytes message_uuid = 5;
+  string reply_topic = 6;
 }
 
 message ClientInfo {

@@ -142,7 +142,7 @@ void   broker__system_stats__free_unpacked
   assert(message->base.descriptor == &broker__system_stats__descriptor);
   protobuf_c_message_free_unpacked ((ProtobufCMessage*)message, allocator);
 }
-static const ProtobufCFieldDescriptor broker__message_header__field_descriptors[9] =
+static const ProtobufCFieldDescriptor broker__message_header__field_descriptors[6] =
 {
   {
     "handler_key",
@@ -182,7 +182,7 @@ static const ProtobufCFieldDescriptor broker__message_header__field_descriptors[
   },
   {
     "origin_broker_id",
-    5,
+    4,
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
@@ -194,7 +194,7 @@ static const ProtobufCFieldDescriptor broker__message_header__field_descriptors[
   },
   {
     "message_uuid",
-    6,
+    5,
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_BYTES,
     0,   /* quantifier_offset */
@@ -205,44 +205,8 @@ static const ProtobufCFieldDescriptor broker__message_header__field_descriptors[
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
   {
-    "transfer_id",
-    7,
-    PROTOBUF_C_LABEL_NONE,
-    PROTOBUF_C_TYPE_STRING,
-    0,   /* quantifier_offset */
-    offsetof(Broker__MessageHeader, transfer_id),
-    NULL,
-    &protobuf_c_empty_string,
-    0,             /* flags */
-    0,NULL,NULL    /* reserved1,reserved2, etc */
-  },
-  {
-    "sequence_number",
-    8,
-    PROTOBUF_C_LABEL_NONE,
-    PROTOBUF_C_TYPE_INT32,
-    0,   /* quantifier_offset */
-    offsetof(Broker__MessageHeader, sequence_number),
-    NULL,
-    NULL,
-    0,             /* flags */
-    0,NULL,NULL    /* reserved1,reserved2, etc */
-  },
-  {
-    "sequence_count",
-    9,
-    PROTOBUF_C_LABEL_NONE,
-    PROTOBUF_C_TYPE_INT32,
-    0,   /* quantifier_offset */
-    offsetof(Broker__MessageHeader, sequence_count),
-    NULL,
-    NULL,
-    0,             /* flags */
-    0,NULL,NULL    /* reserved1,reserved2, etc */
-  },
-  {
     "reply_topic",
-    11,
+    6,
     PROTOBUF_C_LABEL_NONE,
     PROTOBUF_C_TYPE_STRING,
     0,   /* quantifier_offset */
@@ -257,19 +221,14 @@ static const unsigned broker__message_header__field_indices_by_name[] = {
   0,   /* field[0] = handler_key */
   4,   /* field[4] = message_uuid */
   3,   /* field[3] = origin_broker_id */
-  8,   /* field[8] = reply_topic */
+  5,   /* field[5] = reply_topic */
   1,   /* field[1] = sender_id */
-  7,   /* field[7] = sequence_count */
-  6,   /* field[6] = sequence_number */
   2,   /* field[2] = topic */
-  5,   /* field[5] = transfer_id */
 };
-static const ProtobufCIntRange broker__message_header__number_ranges[3 + 1] =
+static const ProtobufCIntRange broker__message_header__number_ranges[1 + 1] =
 {
   { 1, 0 },
-  { 5, 3 },
-  { 11, 8 },
-  { 0, 9 }
+  { 0, 6 }
 };
 const ProtobufCMessageDescriptor broker__message_header__descriptor =
 {
@@ -279,10 +238,10 @@ const ProtobufCMessageDescriptor broker__message_header__descriptor =
   "Broker__MessageHeader",
   "broker",
   sizeof(Broker__MessageHeader),
-  9,
+  6,
   broker__message_header__field_descriptors,
   broker__message_header__field_indices_by_name,
-  3,  broker__message_header__number_ranges,
+  1,  broker__message_header__number_ranges,
   (ProtobufCMessageInit) broker__message_header__init,
   NULL,NULL,NULL    /* reserved[123] */
 };

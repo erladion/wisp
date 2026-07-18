@@ -1,7 +1,6 @@
 set(PROTO_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
 set(PROTO_FILES
     ${PROTO_SRC_DIR}/broker.proto
-    ${PROTO_SRC_DIR}/update.proto
 )
 
 # --- C++ protobuf sources ---------------------------------------------------
@@ -19,8 +18,8 @@ if (PROTOC_COMMAND)
     set(PROTO_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
     file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
-    set(PROTO_GENERATED_SOURCES ${PROTO_GEN_DIR}/broker.pb.cc ${PROTO_GEN_DIR}/update.pb.cc)
-    set(PROTO_GENERATED_HEADERS ${PROTO_GEN_DIR}/broker.pb.h ${PROTO_GEN_DIR}/update.pb.h)
+    set(PROTO_GENERATED_SOURCES ${PROTO_GEN_DIR}/broker.pb.cc)
+    set(PROTO_GENERATED_HEADERS ${PROTO_GEN_DIR}/broker.pb.h)
 
     add_custom_command(
         OUTPUT ${PROTO_GENERATED_SOURCES} ${PROTO_GENERATED_HEADERS}
@@ -35,8 +34,8 @@ if (PROTOC_COMMAND)
     message(STATUS "protoc found - C++ protobuf sources are generated at build time")
 else()
     set(PROTO_GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/generated)
-    set(PROTO_GENERATED_SOURCES ${PROTO_GEN_DIR}/broker.pb.cc ${PROTO_GEN_DIR}/update.pb.cc)
-    set(PROTO_GENERATED_HEADERS ${PROTO_GEN_DIR}/broker.pb.h ${PROTO_GEN_DIR}/update.pb.h)
+    set(PROTO_GENERATED_SOURCES ${PROTO_GEN_DIR}/broker.pb.cc)
+    set(PROTO_GENERATED_HEADERS ${PROTO_GEN_DIR}/broker.pb.h)
     message(STATUS "protoc NOT found - using committed protobuf sources in ${PROTO_GEN_DIR}")
 endif()
 
@@ -96,8 +95,8 @@ if (PROTOBUF_C_LIBRARY AND PROTOBUF_C_INCLUDE_DIR)
         set(PROTO_C_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated-c)
         file(MAKE_DIRECTORY ${PROTO_C_GEN_DIR})
 
-        set(PROTO_C_SOURCES ${PROTO_C_GEN_DIR}/broker.pb-c.c ${PROTO_C_GEN_DIR}/update.pb-c.c)
-        set(PROTO_C_HEADERS ${PROTO_C_GEN_DIR}/broker.pb-c.h ${PROTO_C_GEN_DIR}/update.pb-c.h)
+        set(PROTO_C_SOURCES ${PROTO_C_GEN_DIR}/broker.pb-c.c)
+        set(PROTO_C_HEADERS ${PROTO_C_GEN_DIR}/broker.pb-c.h)
 
         add_custom_command(
             OUTPUT ${PROTO_C_SOURCES} ${PROTO_C_HEADERS}
@@ -112,8 +111,8 @@ if (PROTOBUF_C_LIBRARY AND PROTOBUF_C_INCLUDE_DIR)
         message(STATUS "protoc-c found - C protobuf bindings are generated at build time")
     else()
         set(PROTO_C_GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/generated-c)
-        set(PROTO_C_SOURCES ${PROTO_C_GEN_DIR}/broker.pb-c.c ${PROTO_C_GEN_DIR}/update.pb-c.c)
-        set(PROTO_C_HEADERS ${PROTO_C_GEN_DIR}/broker.pb-c.h ${PROTO_C_GEN_DIR}/update.pb-c.h)
+        set(PROTO_C_SOURCES ${PROTO_C_GEN_DIR}/broker.pb-c.c)
+        set(PROTO_C_HEADERS ${PROTO_C_GEN_DIR}/broker.pb-c.h)
         message(STATUS "protoc-c NOT found - using committed C bindings in ${PROTO_C_GEN_DIR}")
     endif()
 
