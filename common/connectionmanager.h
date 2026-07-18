@@ -7,15 +7,19 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "config.h"
@@ -30,6 +34,11 @@ struct CallbackEntry {
   void* instance;
   MessageCallback func;
 };
+
+// Registrations per topic are stored as immutable snapshots: dispatch grabs
+// the shared_ptr under the lock and iterates outside it, allocation-free;
+// (un)registration replaces the whole list (copy-on-write - rare and cheap).
+using CallbackList = std::vector<CallbackEntry>;
 
 template <typename T, typename Enable = void>
 struct DataSerializer {
@@ -66,16 +75,106 @@ struct CallableTraits<ReturnType (ClassType::*)() const> {};
 
 namespace detail {
 
+inline constexpr std::string_view kAnyTypeUrlPrefix = "type.googleapis.com/";
+
+// Appends one length-delimited protobuf field (tag byte + varint length +
+// bytes) - the only encoding a google.protobuf.Any frame needs.
+inline void appendLengthDelimited(std::string& out, char tag, std::string_view bytes) {
+  out += tag;
+  std::uint64_t n = bytes.size();
+  while (n >= 0x80) {
+    out += static_cast<char>((n & 0x7f) | 0x80);
+    n >>= 7;
+  }
+  out += static_cast<char>(n);
+  out.append(bytes.data(), bytes.size());
+}
+
+// Reads the two fields of a serialized google.protobuf.Any without
+// materializing an Any object (which would copy the payload bytes only to
+// parse them again in UnpackTo). Unknown fields are skipped the way protobuf
+// skips them; returns false when the bytes are not a wire-valid message.
+inline bool readAnyFrame(std::string_view raw, std::string_view& typeUrl, std::string_view& valueBytes) {
+  std::size_t pos = 0;
+  const auto readVarint = [&](std::uint64_t& out) {
+    out = 0;
+    for (int shift = 0; shift < 64; shift += 7) {
+      if (pos >= raw.size()) {
+        return false;
+      }
+      const auto byte = static_cast<std::uint8_t>(raw[pos++]);
+      out |= std::uint64_t(byte & 0x7f) << shift;
+      if (!(byte & 0x80)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  typeUrl = {};
+  valueBytes = {};
+  while (pos < raw.size()) {
+    std::uint64_t key = 0;
+    if (!readVarint(key)) {
+      return false;
+    }
+    const std::uint64_t fieldNumber = key >> 3;
+    switch (key & 7) {
+      case 0: {  // varint
+        std::uint64_t skipped = 0;
+        if (!readVarint(skipped)) {
+          return false;
+        }
+        break;
+      }
+      case 1:  // fixed64
+        if (raw.size() - pos < 8) {
+          return false;
+        }
+        pos += 8;
+        break;
+      case 2: {  // length-delimited
+        std::uint64_t len = 0;
+        if (!readVarint(len) || len > raw.size() - pos) {
+          return false;
+        }
+        const std::string_view field(raw.data() + pos, static_cast<std::size_t>(len));
+        pos += static_cast<std::size_t>(len);
+        if (fieldNumber == 1) {
+          typeUrl = field;
+        } else if (fieldNumber == 2) {
+          valueBytes = field;
+        }
+        break;
+      }
+      case 5:  // fixed32
+        if (raw.size() - pos < 4) {
+          return false;
+        }
+        pos += 4;
+        break;
+      default:  // groups/reserved - nothing an Any frame ever contains
+        return false;
+    }
+  }
+  return true;
+}
+
 template <typename T>
 bool tryUnpack(const std::string& raw, T& outMsg) {
   // Payloads packed by sendMessage()/replyToSender() arrive as a serialized
   // Any. If the bytes are Any-shaped, commit to that interpretation: a type
   // mismatch is a hard failure, not a reason to re-parse the envelope bytes
   // as T (proto3 parsing is permissive enough that this would often
-  // "succeed" and hand the callback a garbage-filled message).
-  google::protobuf::Any any;
-  if (any.ParseFromString(raw) && any.type_url().rfind("type.googleapis.com/", 0) == 0) {
-    return any.Is<T>() && any.UnpackTo(&outMsg);
+  // "succeed" and hand the callback a garbage-filled message). The frame is
+  // read in place, so the payload bytes are parsed exactly once.
+  std::string_view typeUrl;
+  std::string_view valueBytes;
+  if (readAnyFrame(raw, typeUrl, valueBytes) && typeUrl.substr(0, kAnyTypeUrlPrefix.size()) == kAnyTypeUrlPrefix) {
+    if (typeUrl.substr(kAnyTypeUrlPrefix.size()) != outMsg.GetTypeName()) {
+      return false;
+    }
+    return outMsg.ParseFromArray(valueBytes.data(), static_cast<int>(valueBytes.size()));
   }
 
   // Not an Any: treat as a bare serialized T (e.g. a raw payload frame).
@@ -94,10 +193,16 @@ std::string encodePayload(const T& value) {
     return DataSerializer<T>::serialize(value);
   } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
     // Packed into an Any so the bytes stay self-describing: the broker forwards
-    // them opaquely, and the receiver's tryUnpack() can recover the type.
-    google::protobuf::Any any;
-    any.PackFrom(value);
-    return any.SerializeAsString();
+    // them opaquely, and the receiver's tryUnpack() can recover the type. The
+    // frame is assembled by hand - PackFrom + SerializeAsString would serialize
+    // the payload and then copy it wholesale into the wrapper. Wire-identical
+    // to a real Any.
+    const std::string body = value.SerializeAsString();
+    std::string out;
+    out.reserve(kAnyTypeUrlPrefix.size() + value.GetTypeName().size() + body.size() + 16);
+    appendLengthDelimited(out, '\x0a', std::string(kAnyTypeUrlPrefix) + std::string(value.GetTypeName()));  // Any.type_url
+    appendLengthDelimited(out, '\x12', body);                                                              // Any.value
+    return out;
   } else if constexpr (std::is_same<T, std::string>::value) {
     return value;
   } else if constexpr (std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value) {
@@ -311,7 +416,7 @@ private:
   std::condition_variable m_statusCv;
 
   std::mutex m_mapMutex;
-  std::map<std::string, std::vector<CallbackEntry>> m_msgHandlers;
+  std::map<std::string, std::shared_ptr<const CallbackList>> m_msgHandlers;
 
   static std::vector<std::tuple<std::string, MessageCallback, void*>> s_pendingMsgCallbacks;
 };

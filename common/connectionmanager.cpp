@@ -1,6 +1,7 @@
 #include "connectionmanager.h"
 
 #include <algorithm>
+#include <deque>
 #include <filesystem>
 #include <future>
 #include <random>
@@ -303,12 +304,7 @@ bool ConnectionManager::sendReplyEnvelope(Envelope reply) {
 }
 
 void ConnectionManager::processingLoop() {
-  Envelope env;
-  while (m_queue.pop(env)) {
-    if (!m_running) {
-      break;
-    }
-
+  auto handleOne = [this](const Envelope& env) {
     if (env.header.handler_key() == Keys::RESET) {
       // Re-subscribing is idempotent broker-side, so always answer a RESET -
       // a time-based guard here risks silently dropping a legitimate one.
@@ -316,13 +312,34 @@ void ConnectionManager::processingLoop() {
     } else {
       handleMessage(env);
     }
+  };
+
+  Envelope env;
+  std::deque<Envelope> batch;
+  while (m_queue.pop(env)) {
+    if (!m_running) {
+      break;
+    }
+    handleOne(env);
+
+    // Everything that queued up while handling drains in one lock
+    // acquisition instead of a condition-variable wakeup per message.
+    m_queue.drainTo(batch);
+    for (const Envelope& queued : batch) {
+      if (!m_running) {
+        break;
+      }
+      handleOne(queued);
+    }
   }
 }
 
 void ConnectionManager::handleMessage(const Envelope& env) {
   const std::string& topic = env.header.topic();
 
-  std::vector<CallbackEntry> callbacks;
+  // Snapshot, not copy: the shared_ptr keeps the list alive while dispatching
+  // even if a concurrent unregistration replaces it.
+  std::shared_ptr<const CallbackList> callbacks;
   {
     std::lock_guard<std::mutex> lock(m_mapMutex);
     auto it = m_msgHandlers.find(topic);
@@ -330,11 +347,14 @@ void ConnectionManager::handleMessage(const Envelope& env) {
       callbacks = it->second;
     }
   }
+  if (!callbacks) {
+    return;
+  }
 
   const std::string& data = env.payload;
 
   t_currentReplyTopic = env.header.reply_topic();
-  for (auto& entry : callbacks) {
+  for (const auto& entry : *callbacks) {
     try {
       if (entry.func) {
         entry.func(data);
@@ -351,7 +371,10 @@ void ConnectionManager::handleMessage(const Envelope& env) {
 void ConnectionManager::performRegistration(const std::string& key, MessageCallback callback, void* instance) {
   std::lock_guard<std::mutex> lock(m_mapMutex);
 
-  m_msgHandlers[key].push_back({instance, callback});
+  auto& slot = m_msgHandlers[key];
+  auto next = slot ? std::make_shared<CallbackList>(*slot) : std::make_shared<CallbackList>();
+  next->push_back({instance, std::move(callback)});
+  slot = std::move(next);
 
   if (m_connected) {
     sendRawEnvelope(createControlEnvelope(Keys::SUBSCRIBE, key));
@@ -362,15 +385,19 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
   std::lock_guard<std::mutex> lock(m_mapMutex);
 
   auto it = m_msgHandlers.find(key);
-  if (it == m_msgHandlers.end()) {
+  if (it == m_msgHandlers.end() || !it->second) {
     return;
   }
 
-  auto& vec = it->second;
-  auto newEnd = std::remove_if(vec.begin(), vec.end(), [instance](const CallbackEntry& entry) { return entry.instance == instance; });
-  vec.erase(newEnd, vec.end());
+  auto next = std::make_shared<CallbackList>();
+  next->reserve(it->second->size());
+  for (const CallbackEntry& entry : *it->second) {
+    if (entry.instance != instance) {
+      next->push_back(entry);
+    }
+  }
 
-  if (vec.empty()) {
+  if (next->empty()) {
     m_msgHandlers.erase(it);
 
     if (m_connected) {
@@ -380,6 +407,8 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
       unsubMsg.header.set_topic(key);
       sendRawEnvelope(std::move(unsubMsg));
     }
+  } else {
+    it->second = std::move(next);
   }
 }
 
