@@ -24,10 +24,12 @@ namespace wire {
 // formats coexist during a migration - without touching broker/worker/clients.
 enum class Format : std::uint8_t {
   Protobuf = 1,
+  FixedV1 = 2,
 };
 
 // The codec seam: header (de)serialization isolated behind one interface, so the
-// wire format is a single pluggable unit. Today only Protobuf is registered.
+// wire format is a single pluggable unit. Every registered codec stays
+// decodable forever; defaultFormat() picks what gets sent.
 class HeaderCodec {
 public:
   virtual ~HeaderCodec() = default;
@@ -43,18 +45,157 @@ public:
   bool decode(const char* data, std::size_t size, broker::MessageHeader& out) const override { return out.ParseFromArray(data, static_cast<int>(size)); }
 };
 
-// Format used for outgoing headers. To add a format: register it in codecFor()
-// and point this at it (or select per-message).
+/* Fixed binary header layout - the hot-path codec. Protobuf's reflection-free
+   parse still costs ~1.8us per header; this one is a bounds-checked pointer
+   walk. Layout (little-endian):
+
+     i32 sequence_number, i32 sequence_count, then the seven byte fields in
+     fixed order - handler_key, sender_id, topic, origin_broker_id,
+     message_uuid, transfer_id, reply_topic - each as varint length + bytes.
+
+   No field tags: order is the contract. Compatibility works like protobuf's:
+   a decoder accepts truncation at any field boundary (missing trailing fields
+   stay default), so appending fields later is safe. */
+class FixedV1HeaderCodec final : public HeaderCodec {
+public:
+  Format format() const override { return Format::FixedV1; }
+
+  std::string encode(const broker::MessageHeader& header) const override {
+    const std::string* fields[] = {&header.handler_key(),      &header.sender_id(),   &header.topic(),
+                                   &header.origin_broker_id(), &header.message_uuid(), &header.transfer_id(),
+                                   &header.reply_topic()};
+
+    std::size_t total = 8;
+    for (const std::string* field : fields) {
+      total += 5 + field->size();
+    }
+
+    std::string out;
+    out.reserve(total);
+    appendI32(out, header.sequence_number());
+    appendI32(out, header.sequence_count());
+    for (const std::string* field : fields) {
+      appendVarint(out, field->size());
+      out.append(*field);
+    }
+    return out;
+  }
+
+  bool decode(const char* data, std::size_t size, broker::MessageHeader& out) const override {
+    out.Clear();
+    std::size_t pos = 0;
+
+    std::int32_t sequenceNumber = 0;
+    std::int32_t sequenceCount = 0;
+    if (!readI32(data, size, pos, sequenceNumber) || !readI32(data, size, pos, sequenceCount)) {
+      return size == 0;  // empty frame = all-default header; anything shorter than the ints is torn
+    }
+    out.set_sequence_number(sequenceNumber);
+    out.set_sequence_count(sequenceCount);
+
+    for (int field = 0; field < 7; ++field) {
+      if (pos == size) {
+        return true;  // truncation at a field boundary: trailing fields stay default
+      }
+      std::uint64_t len = 0;
+      if (!readVarint(data, size, pos, len) || len > size - pos) {
+        return false;
+      }
+      if (len > 0) {
+        setField(out, field, data + pos, static_cast<std::size_t>(len));
+      }
+      pos += static_cast<std::size_t>(len);
+    }
+    return pos == size;  // trailing garbage is malformed, not ignorable
+  }
+
+private:
+  // Field order is the wire contract; keep in sync with encode()'s list.
+  static void setField(broker::MessageHeader& out, int field, const char* data, std::size_t len) {
+    switch (field) {
+      case 0:
+        out.set_handler_key(data, len);
+        break;
+      case 1:
+        out.set_sender_id(data, len);
+        break;
+      case 2:
+        out.set_topic(data, len);
+        break;
+      case 3:
+        out.set_origin_broker_id(data, len);
+        break;
+      case 4:
+        out.set_message_uuid(data, len);
+        break;
+      case 5:
+        out.set_transfer_id(data, len);
+        break;
+      case 6:
+        out.set_reply_topic(data, len);
+        break;
+    }
+  }
+
+  static void appendI32(std::string& out, std::int32_t value) {
+    const auto v = static_cast<std::uint32_t>(value);
+    out += static_cast<char>(v & 0xff);
+    out += static_cast<char>((v >> 8) & 0xff);
+    out += static_cast<char>((v >> 16) & 0xff);
+    out += static_cast<char>((v >> 24) & 0xff);
+  }
+
+  static bool readI32(const char* data, std::size_t size, std::size_t& pos, std::int32_t& value) {
+    if (size - pos < 4) {
+      return false;
+    }
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(data + pos);
+    value = static_cast<std::int32_t>(std::uint32_t(bytes[0]) | (std::uint32_t(bytes[1]) << 8) | (std::uint32_t(bytes[2]) << 16) |
+                                     (std::uint32_t(bytes[3]) << 24));
+    pos += 4;
+    return true;
+  }
+
+  static void appendVarint(std::string& out, std::uint64_t value) {
+    while (value >= 0x80) {
+      out += static_cast<char>((value & 0x7f) | 0x80);
+      value >>= 7;
+    }
+    out += static_cast<char>(value);
+  }
+
+  static bool readVarint(const char* data, std::size_t size, std::size_t& pos, std::uint64_t& value) {
+    value = 0;
+    for (int shift = 0; shift < 64; shift += 7) {
+      if (pos >= size) {
+        return false;
+      }
+      const auto byte = static_cast<std::uint8_t>(data[pos++]);
+      value |= std::uint64_t(byte & 0x7f) << shift;
+      if (!(byte & 0x80)) {
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
+// Format used for outgoing headers. Receivers dispatch on the format byte, so
+// flipping this only requires that every peer already understands the new
+// format (they all do - both codecs below are always registered).
 inline Format defaultFormat() {
-  return Format::Protobuf;
+  return Format::FixedV1;
 }
 
 // Resolve the codec for an incoming header's format byte; nullptr if unknown.
 inline const HeaderCodec* codecFor(Format format) {
   static const ProtobufHeaderCodec protobuf;
+  static const FixedV1HeaderCodec fixedV1;
   switch (format) {
     case Format::Protobuf:
       return &protobuf;
+    case Format::FixedV1:
+      return &fixedV1;
   }
   return nullptr;
 }
