@@ -10,10 +10,6 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -30,11 +26,22 @@ endif()
 include_directories(common)
 
 add_subdirectory(common)
-add_subdirectory(bindings/qt)
-add_subdirectory(client1)
-add_subdirectory(client2)
 add_subdirectory(server)
-add_subdirectory(inspector)
+
+# Everything below needs Qt; the broker and client library do not. A Qt-less
+# machine still builds and installs the full server-side deliverables.
+find_package(QT NAMES Qt6 Qt5 COMPONENTS Core QUIET)
+if (QT_FOUND)
+    set(CMAKE_AUTOUIC ON)
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+    add_subdirectory(bindings/qt)
+    add_subdirectory(client1)
+    add_subdirectory(client2)
+    add_subdirectory(inspector)
+else()
+    message(STATUS "Qt not found - skipping the inspector, the Qt binding, and the test clients")
+endif()
 
 option(BUILD_TESTING "Build the test suite" ON)
 if (BUILD_TESTING)

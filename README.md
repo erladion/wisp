@@ -32,11 +32,17 @@ cmake --build build
 ./build/tests/broker_tests      # run the test suite
 ```
 
-Requires a C++17 compiler, ZeroMQ, and Protocol Buffers. Qt is optional — it enables the inspector and the Qt binding. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given; `make install` ships the broker, `libwisp.so`, and `connectionapi.h`.
+Requires a C++17 compiler, ZeroMQ, and Protocol Buffers. Qt is optional — it enables the inspector, the Qt binding, and the demo clients; the broker and client library build without it. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given; `make install` ships the broker, `libwisp.so`, and `connectionapi.h`.
 
 ## Configuration
 
-Everything is optional and set through environment variables:
+The broker's bind endpoints are command-line arguments (default `tcp://*:5555` and `ipc:///tmp/broker.sock`):
+
+```sh
+./build/server/server tcp://*:6666 ipc:///tmp/my_broker.sock
+```
+
+Everything else is optional and set through environment variables:
 
 | Variable | Read by | Effect |
 |---|---|---|
