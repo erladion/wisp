@@ -3,9 +3,9 @@
 
 #include <zmq.hpp>
 
+#include <algorithm>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -39,12 +39,61 @@ struct MessageIdHash {
   size_t operator()(const MessageId& id) const { return id.hi ^ (id.lo * 0x9e3779b97f4a7c15ULL); }
 };
 
+// Insert-only open-addressed set of MessageIds: no per-insert allocation
+// (unordered_set pays a node per element). {0,0} marks an empty slot - the
+// caller remaps that one-in-2^128 id. Never grown; callers rotate to a fresh
+// set before the load factor hurts.
+class MessageIdSet {
+public:
+  // capacity must be a power of two, comfortably above the expected fill.
+  explicit MessageIdSet(size_t capacity) : m_slots(capacity), m_count(0) {}
+
+  bool contains(const MessageId& id) const {
+    size_t idx = MessageIdHash{}(id) & (m_slots.size() - 1);
+    while (!isEmptySlot(m_slots[idx])) {
+      if (m_slots[idx] == id) {
+        return true;
+      }
+      idx = (idx + 1) & (m_slots.size() - 1);
+    }
+    return false;
+  }
+
+  void insert(const MessageId& id) {
+    size_t idx = MessageIdHash{}(id) & (m_slots.size() - 1);
+    while (!isEmptySlot(m_slots[idx])) {
+      if (m_slots[idx] == id) {
+        return;
+      }
+      idx = (idx + 1) & (m_slots.size() - 1);
+    }
+    m_slots[idx] = id;
+    m_count++;
+  }
+
+  size_t size() const { return m_count; }
+
+  void clear() {
+    std::fill(m_slots.begin(), m_slots.end(), MessageId{0, 0});
+    m_count = 0;
+  }
+
+private:
+  static bool isEmptySlot(const MessageId& id) { return id.hi == 0 && id.lo == 0; }
+
+  std::vector<MessageId> m_slots;
+  size_t m_count;
+};
+
 class ZmqBroker {
   const std::chrono::seconds ClientTimeout{10};
   const size_t MaxHistorySize{10000};
   // Max envelopes drained from the client socket per poll wakeup, so a
   // sustained burst can't starve zombie cleanup and stats.
   const int MaxMessagesPerWake{1000};
+  // Power of two > 2*MaxHistorySize, keeping the dedup sets' load factor
+  // comfortably below 1/3.
+  static constexpr size_t DedupSetCapacity = 32768;
 
 public:
   ZmqBroker();
@@ -104,11 +153,12 @@ private:
   std::string m_clusterName;
   std::uint16_t m_discoveryPort = BrokerDiscovery::kDefaultPort;
 
-  // Dedup history: the set answers "seen?", the ring remembers insertion order
-  // so the oldest entry can be evicted once MaxHistorySize is reached.
-  std::unordered_set<MessageId, MessageIdHash> m_seenMessageIds;
-  std::vector<MessageId> m_messageIdRing;
-  size_t m_messageIdRingNext = 0;
+  // Dedup history as two rotating windows: ids land in the current set, and
+  // once it holds MaxHistorySize the sets swap and the older window is
+  // forgotten - between N and 2N of the most recent ids are remembered, with
+  // no per-message allocation and no eviction bookkeeping.
+  MessageIdSet m_seenCurrent;
+  MessageIdSet m_seenPrevious;
 
   // Stats
   std::chrono::steady_clock::time_point m_startTime;

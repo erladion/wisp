@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <sstream>
 
@@ -115,7 +116,8 @@ std::uint16_t parseTcpPort(const std::vector<std::string>& addresses) {
 
 }  // namespace
 
-ZmqBroker::ZmqBroker() : m_running(false), m_context(1), m_brokerId(generateUUID()) {}
+ZmqBroker::ZmqBroker()
+    : m_running(false), m_context(1), m_brokerId(generateUUID()), m_seenCurrent(DedupSetCapacity), m_seenPrevious(DedupSetCapacity) {}
 
 ZmqBroker::~ZmqBroker() {
   stop();
@@ -204,6 +206,7 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   }
 
   auto lastCleanup = std::chrono::steady_clock::now();
+  std::deque<Envelope> peerBatch;
 
   while (m_running) {
     // Poll for local clients and peer wake pings
@@ -262,10 +265,11 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
       }
     }
 
-    // Poll for peer messages. The queue hands over payloads as strings; wrap
-    // each in a zmq message once so the shared fan-out path applies.
-    Envelope peerEnv;
-    while (m_peerInboundQueue.try_pop(peerEnv)) {
+    // Poll for peer messages, drained in one lock acquisition. The queue hands
+    // over payloads as strings; wrap each in a zmq message once so the shared
+    // fan-out path applies.
+    m_peerInboundQueue.drainTo(peerBatch);
+    for (Envelope& peerEnv : peerBatch) {
       zmq::message_t peerPayload(peerEnv.payload.data(), peerEnv.payload.size());
       processMessage(socket, inspectorSocket, peerEnv.header, peerPayload, "PEER", true);
     }
@@ -457,18 +461,21 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
 }
 
 bool ZmqBroker::isDuplicate(const std::string& uuid) {
-  const MessageId id = messageIdFrom(uuid);
-  if (!m_seenMessageIds.insert(id).second) {
-    return true;
+  MessageId id = messageIdFrom(uuid);
+  if (id.hi == 0 && id.lo == 0) {
+    id.lo = 1;  // {0,0} is MessageIdSet's empty-slot sentinel; remap the 2^-128 collision
   }
 
-  if (m_messageIdRing.size() < MaxHistorySize) {
-    m_messageIdRing.push_back(id);
-  } else {
-    // Ring full: the slot holds the oldest id - forget it, reuse its slot.
-    m_seenMessageIds.erase(m_messageIdRing[m_messageIdRingNext]);
-    m_messageIdRing[m_messageIdRingNext] = id;
-    m_messageIdRingNext = (m_messageIdRingNext + 1) % MaxHistorySize;
+  if (m_seenCurrent.contains(id) || m_seenPrevious.contains(id)) {
+    return true;
+  }
+  m_seenCurrent.insert(id);
+
+  // Rotate the windows once the current one is full; the previous window is
+  // forgotten wholesale, so no per-message eviction is ever needed.
+  if (m_seenCurrent.size() >= MaxHistorySize) {
+    std::swap(m_seenCurrent, m_seenPrevious);
+    m_seenCurrent.clear();
   }
   return false;
 }
@@ -569,12 +576,14 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
       link->writeControlMessage(std::move(sub));
       return;
     }
-    m_peerInboundQueue.push(env);
-    // Ping the broker poll awake. A refused send means the pipe already holds
-    // pings (wakeup pending) or the broker isn't polling yet; either way the
-    // poll-timeout queue drain still delivers, so dropping the ping is fine.
-    zmq::message_t ping;
-    (void)wakeSocket->send(ping, zmq::send_flags::dontwait);
+    // Ping the broker poll awake only when the queue was empty - a non-empty
+    // queue means a wakeup is already pending. A refused send is also fine:
+    // the broker isn't polling yet and its poll-timeout drain still delivers.
+    bool wasEmpty = false;
+    if (m_peerInboundQueue.push(env, wasEmpty) && wasEmpty) {
+      zmq::message_t ping;
+      (void)wakeSocket->send(ping, zmq::send_flags::dontwait);
+    }
   });
 
   {
