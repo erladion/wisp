@@ -344,15 +344,23 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
     client.lastSeen = std::chrono::steady_clock::now();
 
     if (newClient) {
-      Logger::Log(Logger::INFO, "New client: " + senderId + ". Requesting Subscription Reset");
+      if (key == Keys::CONNECT) {
+        // A fresh session leading with CONNECT, as the protocol prescribes:
+        // register it silently - the client sends its subscriptions itself.
+        Logger::Log(Logger::INFO, "New client: " + senderId);
+      } else {
+        // An identity we don't know that thinks it has a session: the broker
+        // restarted, or the client was timed out. Ask it to rebuild via
+        // RESET. The triggering message is processed normally below -
+        // nothing is sacrificed (a publish still routes).
+        Logger::Log(Logger::INFO, "Unknown session from " + senderId + ". Requesting subscription reset");
 
-      broker::MessageHeader resetMsg;
-      resetMsg.set_handler_key(Keys::RESET);
-      resetMsg.set_topic("");
+        broker::MessageHeader resetMsg;
+        resetMsg.set_handler_key(Keys::RESET);
+        resetMsg.set_topic("");
 
-      sendToClient(socket, senderId, wire::encodeHeader(resetMsg), std::string());
-
-      return;  // Don't broadcast RESET requests
+        sendToClient(socket, senderId, wire::encodeHeader(resetMsg), std::string());
+      }
     }
 
     if (key == Keys::CONNECT || key == Keys::HEARTBEAT) {
@@ -601,6 +609,17 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
       (void)wakeSocket->send(ping, zmq::send_flags::dontwait);
     }
   });
+
+  // Subscribe the link to everything up front, queued right behind the
+  // worker's automatic CONNECT: a fresh session is registered silently by the
+  // remote, so the mesh must not depend on a RESET to trigger this. The
+  // RESET-driven re-subscribe in the callback above remains the recovery path
+  // for a remote broker restart.
+  Envelope wildcard;
+  wildcard.header.set_handler_key(Keys::SUBSCRIBE);
+  wildcard.header.set_sender_id(config.clientId);
+  wildcard.header.set_topic(std::string(Keys::WILDCARD_TOPIC));
+  worker->writeControlMessage(std::move(wildcard));
 
   {
     std::lock_guard<std::mutex> lock(m_peersMutex);

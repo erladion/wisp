@@ -99,6 +99,15 @@ void ZmqWorker::run() {
   wakePull.set(zmq::sockopt::linger, 0);
   wakePull.bind(WAKE_ENDPOINT);
 
+  // Lead with CONNECT before anything else on the socket: a session that
+  // announces itself is registered silently, while any other first message
+  // from an unknown identity draws a __RESET__ (see PROTOCOL.md, Sessions).
+  broker::MessageHeader hello;
+  hello.set_handler_key(Keys::CONNECT);
+  hello.set_sender_id(m_config.clientId);
+  hello.set_topic("");
+  (void)wire::send(socket, hello, std::string());
+
   // Heartbeat cadence and offline detection come from the connection config;
   // non-positive values fall back to the defaults. The silence window must
   // exceed the heartbeat interval or the connection would flap offline
@@ -181,10 +190,10 @@ void ZmqWorker::run() {
       didWork = true;
     }
 
-    // Data messages wait for the connection to be online: the broker swallows
-    // the first envelope from an unknown identity as part of the RESET
-    // handshake, and that sacrifice must be a control message, never user
-    // data. Messages queued while offline are held, not dropped.
+    // Data messages wait for the connection to be online. Not a protocol
+    // requirement (the broker routes a publish even from an unknown session);
+    // holding just avoids pushing payloads at a broker that may not be
+    // reachable. Messages queued while offline are held, not dropped.
     if (m_isOnline && m_outboundQueue.drainTo(batch) > 0) {
       for (Envelope& queued : batch) {
         (void)wire::send(socket, queued);

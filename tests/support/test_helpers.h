@@ -33,12 +33,10 @@ bool popWithTimeout(SafeQueue<T>& queue, T& out, std::chrono::milliseconds timeo
   return false;
 }
 
-// A brand new client identity is always met with a RESET that swallows
-// whatever message triggered it (see the "newClient" branch in
-// ZmqBroker::processMessage). Real clients clear this automatically via
-// ConnectionManager's CONNECT-on-connect handshake; the raw ZmqWorkers used in
-// these tests have to do it explicitly before the broker will act on anything
-// else they send.
+// Largely historical: ZmqWorker now leads with CONNECT automatically, and the
+// broker registers a CONNECT-first session silently, so no explicit handshake
+// is required anymore. Kept because an extra CONNECT is a harmless keep-alive
+// and many tests still call it.
 inline void completeHandshake(ZmqWorker& worker, const std::string& clientId) {
   Envelope connect;
   connect.header.set_handler_key(Keys::CONNECT);

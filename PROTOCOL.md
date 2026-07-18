@@ -65,22 +65,27 @@ conventions (a custom client may use anything):
 
 ## Session lifecycle
 
-**Handshake.** The broker consumes the *first* envelope it sees from an
-unknown identity — whatever it is — and answers with a `__RESET__` message.
-The client must respond by sending `__CONNECT__` and re-sending its
-`__SUBSCRIBE__`s. Because the first envelope is sacrificed, clients must not
-lead with application data; the stock client library holds data messages until
-the connection is online and leads with control traffic.
+**Sessions.** A client leads with `__CONNECT__` — the first message it sends
+on a fresh socket. The broker registers a CONNECT-first identity silently;
+the client then sends whatever `__SUBSCRIBE__`s it wants. No reply is defined
+for `__CONNECT__` itself; the first `__HEARTBEAT_ACK__` doubles as evidence
+the broker is there.
 
-`__RESET__` can arrive again at any time (e.g. after a broker restart or after
-the broker timed the client out); the reaction is the same: re-subscribe
-everything. Re-subscribing is idempotent.
+When the broker receives a *non*-CONNECT message from an identity it does not
+know, the sender believes in a session the broker has lost — the broker
+restarted, or it timed the client out. The broker answers `__RESET__`: the
+session is gone, re-send `__CONNECT__` and every `__SUBSCRIBE__`.
+Re-subscribing is idempotent, so reacting to a spurious `__RESET__` is
+harmless. Either way the triggering message is still **processed normally** —
+a publish routes, a heartbeat is acknowledged; nothing is lost along with the
+session.
 
 **Liveness.** Clients send `__HEARTBEAT__` on an interval (default 3 s; keep
 it under the broker's timeout) and the broker answers `__HEARTBEAT_ACK__`.
 The broker forgets clients that have been silent for **10 s** (checked every
-2 s); a forgotten client is re-treated as unknown on its next message (see
-handshake). Any received traffic counts as liveness in both directions.
+2 s); a forgotten client is treated as an unknown session on its next message
+and drawn a `__RESET__` (see Sessions). Any received traffic counts as
+liveness in both directions.
 
 **Goodbye.** `__DISCONNECT__` removes the client's state immediately;
 otherwise the zombie timeout cleans up.
@@ -95,7 +100,7 @@ with `__`. Sent by the client unless noted:
 
 | Key | Meaning |
 |---|---|
-| `__CONNECT__` | presence announcement; no payload |
+| `__CONNECT__` | session start — the first message on a fresh socket; harmless keep-alive thereafter |
 | `__DISCONNECT__` | immediate goodbye |
 | `__HEARTBEAT__` | liveness probe; broker answers `__HEARTBEAT_ACK__` |
 | `__HEARTBEAT_ACK__` | broker → client answer |
