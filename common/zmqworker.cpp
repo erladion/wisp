@@ -4,6 +4,7 @@
 #include "messagekeys.h"
 #include "wireframe.h"
 
+#include <deque>
 #include <iostream>
 
 namespace {
@@ -42,18 +43,26 @@ void ZmqWorker::stop() {
 }
 
 bool ZmqWorker::writeMessage(Envelope msg) {
-  if (!m_outboundQueue.push(std::move(msg), std::chrono::milliseconds(100))) {
+  // Ping only when the queue was empty: a non-empty queue means a wakeup is
+  // already pending, so further pings would just be drained and discarded.
+  bool wasEmpty = false;
+  if (!m_outboundQueue.push(std::move(msg), std::chrono::milliseconds(100), wasEmpty)) {
     return false;
   }
-  wake();
+  if (wasEmpty) {
+    wake();
+  }
   return true;
 }
 
 bool ZmqWorker::writeControlMessage(Envelope msg) {
-  if (!m_controlQueue.push(std::move(msg), std::chrono::milliseconds(100))) {
+  bool wasEmpty = false;
+  if (!m_controlQueue.push(std::move(msg), std::chrono::milliseconds(100), wasEmpty)) {
     return false;
   }
-  wake();
+  if (wasEmpty) {
+    wake();
+  }
   return true;
 }
 
@@ -103,7 +112,7 @@ void ZmqWorker::run() {
     m_statusCallback(m_isOnline);
   }
 
-  Envelope envelope;
+  std::deque<Envelope> batch;
   bool didWork = false;
   while (m_running) {
     zmq::pollitem_t items[] = {
@@ -148,11 +157,14 @@ void ZmqWorker::run() {
       }
     }
 
-    while (m_controlQueue.try_pop(envelope)) {
-      // dontwait: a full send pipe (broker down or stalled) must not wedge
-      // this thread - stop() needs the loop alive to join it. Overflow is
-      // dropped; subscriptions resync via the RESET handshake on reconnect.
-      (void)wire::send(socket, envelope);
+    // Both queues drain in one lock acquisition per wakeup instead of one per
+    // element. dontwait sends: a full send pipe (broker down or stalled) must
+    // not wedge this thread - stop() needs the loop alive to join it. Overflow
+    // is dropped; subscriptions resync via the RESET handshake on reconnect.
+    if (m_controlQueue.drainTo(batch) > 0) {
+      for (Envelope& queued : batch) {
+        (void)wire::send(socket, queued);
+      }
       didWork = true;
     }
 
@@ -160,11 +172,11 @@ void ZmqWorker::run() {
     // the first envelope from an unknown identity as part of the RESET
     // handshake, and that sacrifice must be a control message, never user
     // data. Messages queued while offline are held, not dropped.
-    if (m_isOnline) {
-      while (m_outboundQueue.try_pop(envelope)) {
-        (void)wire::send(socket, envelope);
-        didWork = true;
+    if (m_isOnline && m_outboundQueue.drainTo(batch) > 0) {
+      for (Envelope& queued : batch) {
+        (void)wire::send(socket, queued);
       }
+      didWork = true;
     }
 
     auto now = std::chrono::steady_clock::now();
@@ -185,8 +197,9 @@ void ZmqWorker::run() {
   // Final drain so control messages queued during shutdown (DISCONNECT from
   // ConnectionManager::shutdown()) are sent before the socket closes; without
   // it the broker only notices the disconnect via its zombie timeout.
-  while (m_controlQueue.try_pop(envelope)) {
-    (void)wire::send(socket, envelope);
+  m_controlQueue.drainTo(batch);
+  for (Envelope& queued : batch) {
+    (void)wire::send(socket, queued);
   }
 
   socket.close();

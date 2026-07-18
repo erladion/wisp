@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <thread>
 
 #include "safequeue.h"
@@ -177,4 +178,61 @@ TEST(SafeQueueTest, PushAfterStopReturnsFalseImmediately) {
 
   int value = 0;
   EXPECT_FALSE(queue.try_pop(value)) << "push() after stop() should not have enqueued anything";
+}
+
+TEST(SafeQueueTest, DrainToHandsOverEverythingInOrder) {
+  SafeQueue<int> queue;
+  ASSERT_TRUE(queue.push(1));
+  ASSERT_TRUE(queue.push(2));
+  ASSERT_TRUE(queue.push(3));
+
+  std::deque<int> batch{99};  // pre-existing content must be discarded
+  EXPECT_EQ(queue.drainTo(batch), 3u);
+  ASSERT_EQ(batch.size(), 3u);
+  EXPECT_EQ(batch[0], 1);
+  EXPECT_EQ(batch[1], 2);
+  EXPECT_EQ(batch[2], 3);
+
+  int value = 0;
+  EXPECT_FALSE(queue.try_pop(value)) << "the queue should be empty after a drain";
+  EXPECT_EQ(queue.drainTo(batch), 0u);
+  EXPECT_TRUE(batch.empty());
+}
+
+TEST(SafeQueueTest, DrainToUnblocksAWaitingPush) {
+  SafeQueue<int> queue(2);
+  ASSERT_TRUE(queue.push(1));
+  ASSERT_TRUE(queue.push(2));
+
+  std::atomic<bool> pushed{false};
+  std::thread pusher([&]() {
+    queue.push(3);
+    pushed = true;
+  });
+
+  std::this_thread::sleep_for(50ms);
+  EXPECT_FALSE(pushed) << "push() returned before the queue had room";
+
+  std::deque<int> batch;
+  EXPECT_EQ(queue.drainTo(batch), 2u);
+
+  pusher.join();
+  EXPECT_TRUE(pushed);
+}
+
+TEST(SafeQueueTest, PushReportsWhetherTheQueueWasEmpty) {
+  SafeQueue<int> queue;
+
+  bool wasEmpty = false;
+  ASSERT_TRUE(queue.push(1, wasEmpty));
+  EXPECT_TRUE(wasEmpty) << "the first push lands in an empty queue";
+
+  ASSERT_TRUE(queue.push(2, wasEmpty));
+  EXPECT_FALSE(wasEmpty) << "the queue already held an item";
+
+  std::deque<int> batch;
+  queue.drainTo(batch);
+
+  ASSERT_TRUE(queue.push(3, 50ms, wasEmpty));
+  EXPECT_TRUE(wasEmpty) << "a drain empties the queue again";
 }

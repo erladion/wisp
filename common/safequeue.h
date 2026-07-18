@@ -1,45 +1,26 @@
 #ifndef SAFEQUEUE_H
 #define SAFEQUEUE_H
 
+#include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
-#include <queue>
 
 template <typename T>
 class SafeQueue {
 public:
   explicit SafeQueue(size_t maxSize = 5000) : m_maxSize(maxSize) {}
 
-  bool push(T value) {
-    std::unique_lock<std::mutex> lock(m_mutex);
+  // The `wasEmpty` overloads report whether the queue was empty before this
+  // push - i.e. whether the consumer may be asleep and needs a wakeup. Lets
+  // producers skip redundant wake signals when a wakeup is already pending.
+  bool push(T value) { return pushInternal(std::move(value), nullptr, nullptr); }
 
-    m_condFull.wait(lock, [this] { return m_queue.size() < m_maxSize || m_stop; });
+  bool push(T value, bool& wasEmpty) { return pushInternal(std::move(value), nullptr, &wasEmpty); }
 
-    if (m_stop) {
-      return false;
-    }
+  bool push(T value, std::chrono::milliseconds timeout) { return pushInternal(std::move(value), &timeout, nullptr); }
 
-    m_queue.push(std::move(value));
-    m_condEmpty.notify_one();
-    return true;
-  }
-
-  bool push(T value, std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lock(m_mutex);
-
-    if(!m_condFull.wait_for(lock, timeout, [this] { return m_queue.size() < m_maxSize || m_stop; })) {
-      return false;
-    }
-
-    if (m_stop) {
-      return false;
-    }
-
-    m_queue.push(std::move(value));
-    m_condEmpty.notify_one();
-    return true;
-  }
-
+  bool push(T value, std::chrono::milliseconds timeout, bool& wasEmpty) { return pushInternal(std::move(value), &timeout, &wasEmpty); }
 
   bool pop(T& value) {
     std::unique_lock<std::mutex> lock(m_mutex);
@@ -49,7 +30,7 @@ public:
     }
 
     value = std::move(m_queue.front());
-    m_queue.pop();
+    m_queue.pop_front();
 
     m_condFull.notify_one();
 
@@ -63,11 +44,26 @@ public:
     }
 
     value = std::move(m_queue.front());
-    m_queue.pop();
+    m_queue.pop_front();
 
     m_condFull.notify_one();
 
     return true;
+  }
+
+  // Hand over everything currently queued in one lock acquisition - cheaper
+  // than a try_pop per element under producer contention. `out` is cleared
+  // first; returns the number of items handed over.
+  size_t drainTo(std::deque<T>& out) {
+    out.clear();
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      out.swap(m_queue);
+    }
+    if (!out.empty()) {
+      m_condFull.notify_all();  // many slots freed at once
+    }
+    return out.size();
   }
 
   void stop() {
@@ -78,7 +74,31 @@ public:
   }
 
 private:
-  std::queue<T> m_queue;
+  bool pushInternal(T&& value, const std::chrono::milliseconds* timeout, bool* wasEmpty) {
+    std::unique_lock<std::mutex> lock(m_mutex);
+
+    const auto hasRoom = [this] { return m_queue.size() < m_maxSize || m_stop; };
+    if (timeout) {
+      if (!m_condFull.wait_for(lock, *timeout, hasRoom)) {
+        return false;
+      }
+    } else {
+      m_condFull.wait(lock, hasRoom);
+    }
+
+    if (m_stop) {
+      return false;
+    }
+
+    if (wasEmpty) {
+      *wasEmpty = m_queue.empty();
+    }
+    m_queue.push_back(std::move(value));
+    m_condEmpty.notify_one();
+    return true;
+  }
+
+  std::deque<T> m_queue;
   std::mutex m_mutex;
   std::condition_variable m_condEmpty;
   std::condition_variable m_condFull;
