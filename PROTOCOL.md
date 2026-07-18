@@ -166,9 +166,12 @@ swap.
 
 The broker republishes every message it processes — control traffic included —
 on a PUB socket at `ipc:///tmp/broker_inspector.sock`, as the same
-header + payload frames (no identity frame). Subscribe with an empty
-subscription to see everything. The tap is lossy by design: a slow inspector
-drops messages rather than slowing the broker.
+header + payload frames (no identity frame). This is plain ZeroMQ PUB/SUB,
+not a Wisp session: attach a SUB socket and set an **empty ZeroMQ
+subscription** (`ZMQ_SUBSCRIBE`, ""), which is ZeroMQ's own match-everything
+prefix filter — Wisp's `*` wildcard topic plays no role here. The tap is
+lossy by design: a slow inspector drops messages rather than slowing the
+broker.
 
 ## Compatibility rules
 
