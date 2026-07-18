@@ -219,7 +219,10 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
         {socket.handle(), 0, ZMQ_POLLIN, 0},
         {peerWakeSocket.handle(), 0, ZMQ_POLLIN, 0},
     };
-    zmq::poll(items, 2, std::chrono::milliseconds(20));
+    // Idle tick only: client traffic and peer pings wake the poll via the
+    // sockets above, so this just paces the stats (1 s) and cleanup (2 s)
+    // schedules below.
+    zmq::poll(items, 2, std::chrono::milliseconds(100));
 
     if (items[0].revents & ZMQ_POLLIN) {
       // Drain the socket rather than taking one message per poll wakeup; the

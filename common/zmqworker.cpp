@@ -20,17 +20,24 @@ ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboun
       m_running(false),
       m_context(1),
       m_wakePush(m_context, ZMQ_PUSH),
-      m_isOnline(false) {
-  m_wakePush.set(zmq::sockopt::linger, 0);
-  // Connect-before-bind is fine on inproc (zmq >= 4.2); run() binds the PULL end.
-  m_wakePush.connect(WAKE_ENDPOINT);
-}
+      m_isOnline(false) {}
 
 ZmqWorker::~ZmqWorker() {
   stop();
 }
 
 void ZmqWorker::start() {
+  {
+    // (Re)create the wake pipe on every start: an inproc pipe does not survive
+    // its bound peer, so after a stop() the previous PUSH would ping into the
+    // void and sends would silently regress to poll-timeout latency. run()
+    // binds the PULL end; connect-before-bind is fine on inproc (zmq >= 4.2).
+    std::lock_guard<std::mutex> lock(m_wakeMutex);
+    m_wakePush = zmq::socket_t(m_context, ZMQ_PUSH);
+    m_wakePush.set(zmq::sockopt::linger, 0);
+    m_wakePush.connect(WAKE_ENDPOINT);
+  }
+
   m_running = true;
   m_workerThread = std::thread(&ZmqWorker::run, this);
 }
@@ -103,7 +110,10 @@ void ZmqWorker::run() {
     Logger::Log(Logger::WARNING, "keepAliveTimeout <= keepAliveTime; raising the timeout to " + std::to_string(serverTimeout.count()) + " ms");
   }
 
-  auto pollTimeout = std::chrono::milliseconds(20);
+  // Idle tick only: sends and receives wake the poll via sockets, so this
+  // just paces heartbeat/timeout checks. Keep it well under the heartbeat
+  // interval; raising it further mostly saves idle wakeups.
+  auto pollTimeout = std::chrono::milliseconds(100);
   auto lastHeartbeat = std::chrono::steady_clock::now() - heartbeatInterval;
   m_isOnline = false;
   m_lastRxTime = std::chrono::steady_clock::now();

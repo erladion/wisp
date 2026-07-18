@@ -94,3 +94,57 @@ TEST(ShutdownTest, BrokerWithPeerLinkStopsPromptly) {
   EXPECT_TRUE(stopWithin(local, 5s)) << "ZmqBroker::stop() hung with a live peer link";
   EXPECT_TRUE(stopWithin(remote, 5s)) << "ZmqBroker::stop() hung on the remote broker";
 }
+
+// A stopped worker must come back fully on a second start(): in particular
+// its wake pipe has to be re-established (inproc pipes die with the bound
+// peer), or sends from the restarted worker silently lose their wakeups.
+TEST(ShutdownTest, RestartedWorkerStillDeliversMessages) {
+  auto broker = std::make_unique<ZmqBroker>();
+  broker->start({testBrokerAddress()});
+
+  SafeQueue<Envelope> inbound;
+  ConnectionConfig subConfig;
+  subConfig.address = testBrokerAddress();
+  subConfig.clientId = "restart-subscriber";
+  auto subscriber = std::make_unique<ZmqWorker>(subConfig, &inbound, nullptr);
+  subscriber->start();
+  TestSupport::completeHandshake(*subscriber, subConfig.clientId);
+  TestSupport::subscribe(*subscriber, subConfig.clientId, "restart-topic");
+
+  ConnectionConfig pubConfig;
+  pubConfig.address = testBrokerAddress();
+  pubConfig.clientId = "restart-publisher";
+  auto publisher = std::make_unique<ZmqWorker>(pubConfig, nullptr, nullptr);
+  publisher->start();
+  TestSupport::completeHandshake(*publisher, pubConfig.clientId);
+  std::this_thread::sleep_for(300ms);
+
+  // Restart the publisher; the broker sees a reconnect of the same identity.
+  publisher->stop();
+  publisher->start();
+  TestSupport::completeHandshake(*publisher, pubConfig.clientId);
+
+  Envelope received;
+  bool got = false;
+  for (int attempt = 0; attempt < 30 && !got; ++attempt) {
+    Envelope msg;
+    msg.header.set_handler_key("restart-data");
+    msg.header.set_sender_id(pubConfig.clientId);
+    msg.header.set_topic("restart-topic");
+    msg.payload = "after-restart";
+    publisher->writeMessage(msg);
+
+    while (TestSupport::popWithTimeout(inbound, received, 300ms)) {
+      if (received.header.handler_key() == "restart-data") {
+        got = true;
+        break;
+      }
+    }
+  }
+  ASSERT_TRUE(got) << "A restarted worker never delivered a message";
+  EXPECT_EQ(received.payload, "after-restart");
+
+  publisher->stop();
+  subscriber->stop();
+  broker->stop();
+}
