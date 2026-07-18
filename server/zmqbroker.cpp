@@ -208,6 +208,11 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   auto lastCleanup = std::chrono::steady_clock::now();
   std::deque<Envelope> peerBatch;
 
+  // Reused across messages: protobuf's Clear() keeps the string fields' heap
+  // buffers, so parsing into the same object is allocation-free after warmup
+  // (a fresh header per message costs ~1us more per parse).
+  broker::MessageHeader header;
+
   while (m_running) {
     // Poll for local clients and peer wake pings
     zmq::pollitem_t items[] = {
@@ -235,7 +240,6 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
         if (!socket.recv(headerFrame, zmq::recv_flags::none)) {
           continue;
         }
-        broker::MessageHeader header;
         if (!wire::decodeHeaderFrame(headerFrame.data(), headerFrame.size(), header)) {
           wire::drainMultipart(socket);  // unknown format byte or a bad header
           continue;

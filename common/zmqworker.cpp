@@ -113,6 +113,10 @@ void ZmqWorker::run() {
   }
 
   std::deque<Envelope> batch;
+  // Reused across receives; when the envelope is moved into the inbound queue
+  // its buffers are stolen anyway, but on the callback path (peer links) the
+  // reuse makes repeated parses allocation-free.
+  Envelope inbound;
   bool didWork = false;
   while (m_running) {
     zmq::pollitem_t items[] = {
@@ -133,7 +137,6 @@ void ZmqWorker::run() {
     if (items[0].revents & ZMQ_POLLIN) {
       // DEALER never carries the routing-id frame, so the first frame is the
       // header - wire::recv reads it plus any payload continuation frame.
-      Envelope inbound;
       if (wire::recv(socket, inbound, zmq::recv_flags::none)) {
         didWork = true;
         m_lastRxTime = std::chrono::steady_clock::now();

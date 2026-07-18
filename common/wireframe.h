@@ -28,18 +28,33 @@ enum class Format : std::uint8_t {
 
 // The codec seam: header (de)serialization isolated behind one interface, so the
 // wire format is a single pluggable unit. Today only Protobuf is registered.
+// encode() appends to `out`, so the frame is built into one buffer without an
+// intermediate string.
 class HeaderCodec {
 public:
   virtual ~HeaderCodec() = default;
   virtual Format format() const = 0;
-  virtual std::string encode(const broker::MessageHeader& header) const = 0;
+  virtual void encode(const broker::MessageHeader& header, std::string& out) const = 0;
   virtual bool decode(const char* data, std::size_t size, broker::MessageHeader& out) const = 0;
 };
 
 class ProtobufHeaderCodec final : public HeaderCodec {
 public:
   Format format() const override { return Format::Protobuf; }
-  std::string encode(const broker::MessageHeader& header) const override { return header.SerializeAsString(); }
+
+  void encode(const broker::MessageHeader& header, std::string& out) const override {
+    // ByteSizeLong() caches per-field sizes and SerializeWithCachedSizesToArray
+    // reuses them: one size pass, one write pass, straight into `out`.
+    // SerializeAsString would build a separate string only to be copied.
+    const std::size_t headerSize = header.ByteSizeLong();
+    if (headerSize == 0) {
+      return;
+    }
+    const std::size_t offset = out.size();
+    out.resize(offset + headerSize);
+    header.SerializeWithCachedSizesToArray(reinterpret_cast<std::uint8_t*>(&out[offset]));
+  }
+
   bool decode(const char* data, std::size_t size, broker::MessageHeader& out) const override { return out.ParseFromArray(data, static_cast<int>(size)); }
 };
 
@@ -63,7 +78,7 @@ inline const HeaderCodec* codecFor(Format format) {
 inline std::string encodeHeader(const broker::MessageHeader& header) {
   const HeaderCodec* codec = codecFor(defaultFormat());
   std::string out(1, static_cast<char>(static_cast<std::uint8_t>(codec->format())));
-  out += codec->encode(header);
+  codec->encode(header, out);
   return out;
 }
 
