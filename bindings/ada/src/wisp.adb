@@ -38,26 +38,20 @@ package body Wisp is
 
    procedure Connect
      (Address              : String;
-      Client_Id            : String      := "";
-      Keepalive_Time_Ms    : Positive    := 10_000;
-      Keepalive_Timeout_Ms : Positive    := 5_000;
-      Compress             : Compression := GZip;
-      Connect_Timeout_Ms   : Natural     := 5_000)
+      Client_Id            : String   := "";
+      Keepalive_Time_Ms    : Positive := 3_000;
+      Keepalive_Timeout_Ms : Positive := 10_000;
+      Connect_Timeout_Ms   : Natural  := 5_000)
    is
       C_Address : chars_ptr := New_String (Address);
       C_Client  : chars_ptr :=
         (if Client_Id = "" then Null_Ptr else New_String (Client_Id));
       Config    : aliased constant C_API.Connection_Config :=
-        (Address               => C_Address,
-         Client_Id             => C_Client,
-         Protocol              => C_API.PROTOCOL_ZMQ,
-         Keepalive_Time_Ms     => int (Keepalive_Time_Ms),
-         Keepalive_Timeout_Ms  => int (Keepalive_Timeout_Ms),
-         Compression_Algorithm =>
-           (case Compress is
-               when None    => C_API.COMPRESS_NONE,
-               when Deflate => C_API.COMPRESS_DEFLATE,
-               when GZip    => C_API.COMPRESS_GZIP));
+        (Address              => C_Address,
+         Client_Id            => C_Client,
+         Protocol             => C_API.PROTOCOL_ZMQ,
+         Keepalive_Time_Ms    => int (Keepalive_Time_Ms),
+         Keepalive_Timeout_Ms => int (Keepalive_Timeout_Ms));
       Code : constant int := C_API.Init_Connection (Config'Access);
    begin
       Free (C_Address);

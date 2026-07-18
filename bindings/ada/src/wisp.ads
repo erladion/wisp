@@ -14,15 +14,12 @@ package Wisp is
    --  Raised when the underlying library reports failure. The exception
    --  message names the operation and the C error code.
 
-   type Compression is (None, Deflate, GZip);
-
    procedure Connect
-     (Address              : String;              --  e.g. "tcp://127.0.0.1:5555"
-      Client_Id            : String      := "";   --  "" lets the library choose
-      Keepalive_Time_Ms    : Positive    := 10_000;
-      Keepalive_Timeout_Ms : Positive    := 5_000;
-      Compress             : Compression := GZip;
-      Connect_Timeout_Ms   : Natural     := 5_000);
+     (Address              : String;            --  e.g. "tcp://127.0.0.1:5555"
+      Client_Id            : String   := "";    --  "" lets the library choose
+      Keepalive_Time_Ms    : Positive := 3_000;   --  heartbeat interval; keep below the broker's 10 s zombie timeout
+      Keepalive_Timeout_Ms : Positive := 10_000;  --  offline after this much broker silence
+      Connect_Timeout_Ms   : Natural  := 5_000);
    --  Connect and block until the connection is up, raising Wisp_Error if
    --  the broker cannot be reached within Connect_Timeout_Ms. Zero skips
    --  the wait (the connection then comes up in the background; see
