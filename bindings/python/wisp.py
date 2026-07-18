@@ -13,8 +13,6 @@ import ctypes
 import os
 import traceback
 
-NONE, DEFLATE, GZIP = 0, 1, 2  # Compression_Algorithm
-
 LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERROR = 0, 1, 2, 3  # Wisp_Log_Level
 
 
@@ -53,7 +51,6 @@ class _Config(ctypes.Structure):
         ("protocol", ctypes.c_int),
         ("keepalive_time_ms", ctypes.c_int),
         ("keepalive_timeout_ms", ctypes.c_int),
-        ("compression_algorithm", ctypes.c_int),
     ]
 
 
@@ -119,17 +116,21 @@ def _as_bytes(data):
     return data.encode() if isinstance(data, str) else bytes(data)
 
 
-def connect(address, client_id=None, keepalive_time_ms=10000,
-            keepalive_timeout_ms=5000, compression=GZIP, timeout_ms=5000):
+def connect(address, client_id=None, keepalive_time_ms=3000,
+            keepalive_timeout_ms=10000, timeout_ms=5000):
     """Connect to a broker, e.g. connect("tcp://127.0.0.1:5555").
 
     Blocks until the connection is up, raising WispError if the broker
     cannot be reached within timeout_ms. timeout_ms=0 skips the wait (the
-    connection then comes up in the background; see is_connected())."""
+    connection then comes up in the background; see is_connected()).
+
+    keepalive_time_ms is the heartbeat interval (keep it below the broker's
+    10 s zombie timeout); keepalive_timeout_ms is how long broker silence is
+    tolerated before the connection reports offline."""
     cfg = _Config(address.encode(),
                   client_id.encode() if client_id else None,
                   0,  # PROTOCOL_ZMQ
-                  keepalive_time_ms, keepalive_timeout_ms, compression)
+                  keepalive_time_ms, keepalive_timeout_ms)
     _check(_lib.initConnection(ctypes.byref(cfg)), "connect")
     if timeout_ms:
         _check(_lib.waitForConnection(timeout_ms), "connect")

@@ -22,11 +22,6 @@ package Wisp.C_API is
    ERROR_BUFFER_TOO_SMALL : constant := -5;
    ERROR_TIMEOUT          : constant := -6;
 
-   --  Compression_Algorithm
-   COMPRESS_NONE    : constant := 0;
-   COMPRESS_DEFLATE : constant := 1;
-   COMPRESS_GZIP    : constant := 2;
-
    --  Wisp_Log_Level
    WISP_LOG_DEBUG   : constant := 0;
    WISP_LOG_INFO    : constant := 1;
@@ -34,12 +29,11 @@ package Wisp.C_API is
    WISP_LOG_ERROR   : constant := 3;
 
    type Connection_Config is record
-      Address               : chars_ptr;  --  e.g. "tcp://127.0.0.1:5555"
-      Client_Id             : chars_ptr;  --  Null_Ptr for a default name
-      Protocol              : int;
-      Keepalive_Time_Ms     : int;
-      Keepalive_Timeout_Ms  : int;
-      Compression_Algorithm : int;
+      Address              : chars_ptr;  --  e.g. "tcp://127.0.0.1:5555"
+      Client_Id            : chars_ptr;  --  Null_Ptr for a default name
+      Protocol             : int;
+      Keepalive_Time_Ms    : int;       --  heartbeat interval (default 3000)
+      Keepalive_Timeout_Ms : int;       --  offline after this much silence (default 10000)
    end record
      with Convention => C;
 
