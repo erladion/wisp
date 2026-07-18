@@ -18,9 +18,12 @@ struct ConnectionConfig {
   std::string clientId;
   ProtocolType protocol = ProtocolType::ZMQ;
 
-  int keepAliveTime = 10000;
-  int keepAliveTimeout = 5000;
-  int compressionAlgorithm = 2;  // GZIP
+  // Heartbeat interval, ms. Keep it below the broker's 10 s zombie timeout or
+  // the broker will drop the client between heartbeats.
+  int keepAliveTime = 3000;
+  // Silence window, ms: with no traffic from the broker for this long the
+  // connection is reported offline (and recovers on the next reply).
+  int keepAliveTimeout = 10000;
 };
 
 #endif  // CONFIG_H

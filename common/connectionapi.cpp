@@ -43,7 +43,6 @@ int initConnection(const Connection_Config* config) {
     cfg.protocol = ProtocolType::ZMQ;
     cfg.keepAliveTime = config->keepalive_time_ms;
     cfg.keepAliveTimeout = config->keepalive_timeout_ms;
-    cfg.compressionAlgorithm = config->compression_algorithm;
 
     ConnectionManager::init(cfg);
     return ok();

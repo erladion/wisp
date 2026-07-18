@@ -27,21 +27,23 @@ typedef enum {
   ERROR_TIMEOUT = -6
 } Connection_Error_Code;
 
-typedef enum { COMPRESS_NONE = 0, COMPRESS_DEFLATE = 1, COMPRESS_GZIP = 2 } Compression_Algorithm;
-
 typedef struct {
   const char* address;    // e.g. "tcp://127.0.0.1:5555"
   const char* client_id;  // e.g. "Camera-1"
 
   Connection_Protocol protocol;
 
-  int keepalive_time_ms;     // Default: 10000
-  int keepalive_timeout_ms;  // Default: 5000
-  Compression_Algorithm compression_algorithm;
+  // Heartbeat interval, ms (default 3000). Keep it below the broker's 10 s
+  // zombie timeout or the broker drops the client between heartbeats.
+  int keepalive_time_ms;
+  // Silence window, ms (default 10000): with no traffic from the broker for
+  // this long the connection is reported offline. Values <= keepalive_time_ms
+  // are corrected upward (a heartbeat round trip must fit inside the window).
+  int keepalive_timeout_ms;
 } Connection_Config;
 
 #define CONNECTION_CONFIG_DEFAULT \
-  { NULL, NULL, PROTOCOL_ZMQ, 10000, 5000, COMPRESS_GZIP }
+  { NULL, NULL, PROTOCOL_ZMQ, 3000, 10000 }
 
 typedef void (*Message_Callback)(const char* topic, const char* data, int len, void* userData);
 

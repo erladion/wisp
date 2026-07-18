@@ -83,10 +83,19 @@ void ZmqWorker::run() {
   wakePull.set(zmq::sockopt::linger, 0);
   wakePull.bind(WAKE_ENDPOINT);
 
-  const auto HEARTBEAT_INTERVAL = std::chrono::seconds(3);
-  const auto SERVER_TIMEOUT = std::chrono::seconds(10);
+  // Heartbeat cadence and offline detection come from the connection config;
+  // non-positive values fall back to the defaults. The silence window must
+  // exceed the heartbeat interval or the connection would flap offline
+  // between heartbeats - correct such configs upward rather than honor them.
+  const auto heartbeatInterval = std::chrono::milliseconds(m_config.keepAliveTime > 0 ? m_config.keepAliveTime : 3000);
+  auto serverTimeout = std::chrono::milliseconds(m_config.keepAliveTimeout > 0 ? m_config.keepAliveTimeout : 10000);
+  if (serverTimeout <= heartbeatInterval) {
+    serverTimeout = heartbeatInterval * 3;
+    Logger::Log(Logger::WARNING, "keepAliveTimeout <= keepAliveTime; raising the timeout to " + std::to_string(serverTimeout.count()) + " ms");
+  }
+
   auto pollTimeout = std::chrono::milliseconds(20);
-  auto lastHeartbeat = std::chrono::steady_clock::now() - HEARTBEAT_INTERVAL;
+  auto lastHeartbeat = std::chrono::steady_clock::now() - heartbeatInterval;
   m_isOnline = false;
   m_lastRxTime = std::chrono::steady_clock::now();
 
@@ -159,12 +168,12 @@ void ZmqWorker::run() {
     }
 
     auto now = std::chrono::steady_clock::now();
-    if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+    if (now - lastHeartbeat > heartbeatInterval) {
       sendHeartbeat(socket);
       lastHeartbeat = now;
     }
 
-    if (m_isOnline && (now - m_lastRxTime > SERVER_TIMEOUT)) {
+    if (m_isOnline && (now - m_lastRxTime > serverTimeout)) {
       Logger::Log(Logger::ERROR, "Server timed out! Switching to OFFLINE.");
       m_isOnline = false;
       if (m_statusCallback) {
