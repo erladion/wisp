@@ -42,10 +42,10 @@ protected:
   std::vector<std::unique_ptr<ZmqBroker>> m_brokers;
 };
 
-// An empty-topic subscription is the broker's wildcard: the subscriber must
-// receive messages published on topics it never explicitly subscribed to.
-// This is the contract peer links are built on.
-TEST_F(WildcardSubscriptionTest, EmptyTopicSubscriberReceivesEveryTopic) {
+// A "*" subscription is the broker's wildcard: the subscriber must receive
+// messages published on topics it never explicitly subscribed to. This is the
+// contract peer links are built on.
+TEST_F(WildcardSubscriptionTest, WildcardSubscriberReceivesEveryTopic) {
   startBroker(testBrokerAddress());
 
   SafeQueue<Envelope> inbound;
@@ -55,7 +55,7 @@ TEST_F(WildcardSubscriptionTest, EmptyTopicSubscriberReceivesEveryTopic) {
   ZmqWorker subscriberWorker(subConfig, &inbound, nullptr);
   subscriberWorker.start();
   completeHandshake(subscriberWorker, subConfig.clientId);
-  subscribe(subscriberWorker, subConfig.clientId, "");
+  subscribe(subscriberWorker, subConfig.clientId, std::string(Keys::WILDCARD_TOPIC));
 
   ConnectionConfig pubConfig;
   pubConfig.address = testBrokerAddress();
@@ -84,8 +84,110 @@ TEST_F(WildcardSubscriptionTest, EmptyTopicSubscriberReceivesEveryTopic) {
     }
   }
 
-  ASSERT_TRUE(got) << "Wildcard (\"\") subscriber never received a message published on another topic";
+  ASSERT_TRUE(got) << "Wildcard (\"*\") subscriber never received a message published on another topic";
   EXPECT_EQ(received.payload, "hello");
+
+  publisher.stop();
+  subscriberWorker.stop();
+}
+
+// The pre-"*" wildcard convention (an empty SUBSCRIBE topic) is rejected: it
+// must not subscribe to anything, wildcard or otherwise.
+TEST_F(WildcardSubscriptionTest, EmptyTopicSubscribeIsRejected) {
+  startBroker(testBrokerAddress());
+
+  SafeQueue<Envelope> inbound;
+  ConnectionConfig subConfig;
+  subConfig.address = testBrokerAddress();
+  subConfig.clientId = "empty-topic-subscriber";
+  ZmqWorker subscriberWorker(subConfig, &inbound, nullptr);
+  subscriberWorker.start();
+  completeHandshake(subscriberWorker, subConfig.clientId);
+  subscribe(subscriberWorker, subConfig.clientId, "");
+
+  ConnectionConfig pubConfig;
+  pubConfig.address = testBrokerAddress();
+  pubConfig.clientId = "empty-topic-publisher";
+  ZmqWorker publisher(pubConfig, nullptr, nullptr);
+  publisher.start();
+  completeHandshake(publisher, pubConfig.clientId);
+
+  // Publish repeatedly; nothing may ever arrive on the rejected subscription.
+  for (int attempt = 0; attempt < 5; ++attempt) {
+    Envelope msg;
+    msg.header.set_handler_key("empty-topic-data");
+    msg.header.set_sender_id(pubConfig.clientId);
+    msg.header.set_topic("some-arbitrary-topic");
+    msg.payload = "should-not-arrive";
+    publisher.writeMessage(msg);
+    std::this_thread::sleep_for(100ms);
+  }
+
+  Envelope received;
+  while (popWithTimeout(inbound, received, 300ms)) {
+    EXPECT_NE(received.header.handler_key(), "empty-topic-data") << "An empty-topic SUBSCRIBE acted as a wildcard";
+  }
+
+  publisher.stop();
+  subscriberWorker.stop();
+}
+
+// Handler keys in the reserved __KEY__ namespace that the broker does not
+// recognize are control traffic from some newer node - they must be dropped,
+// never routed to subscribers (not even wildcard ones).
+TEST_F(WildcardSubscriptionTest, UnknownReservedKeyIsNotRouted) {
+  startBroker(testBrokerAddress());
+
+  SafeQueue<Envelope> inbound;
+  ConnectionConfig subConfig;
+  subConfig.address = testBrokerAddress();
+  subConfig.clientId = "reserved-key-subscriber";
+  ZmqWorker subscriberWorker(subConfig, &inbound, nullptr);
+  subscriberWorker.start();
+  completeHandshake(subscriberWorker, subConfig.clientId);
+  subscribe(subscriberWorker, subConfig.clientId, std::string(Keys::WILDCARD_TOPIC));
+  subscribe(subscriberWorker, subConfig.clientId, "reserved-key-topic");
+
+  ConnectionConfig pubConfig;
+  pubConfig.address = testBrokerAddress();
+  pubConfig.clientId = "reserved-key-publisher";
+  ZmqWorker publisher(pubConfig, nullptr, nullptr);
+  publisher.start();
+  completeHandshake(publisher, pubConfig.clientId);
+
+  // Interleave reserved-key messages with normal ones; only the normal ones
+  // may arrive (their delivery also proves the reserved ones had every chance).
+  bool gotNormal = false;
+  Envelope received;
+  for (int attempt = 0; attempt < 30 && !gotNormal; ++attempt) {
+    Envelope reserved;
+    reserved.header.set_handler_key("__FROM_THE_FUTURE__");
+    reserved.header.set_sender_id(pubConfig.clientId);
+    reserved.header.set_topic("reserved-key-topic");
+    reserved.payload = "must-not-arrive";
+    publisher.writeMessage(reserved);
+
+    Envelope normal;
+    normal.header.set_handler_key("normal-data");
+    normal.header.set_sender_id(pubConfig.clientId);
+    normal.header.set_topic("reserved-key-topic");
+    normal.payload = "normal";
+    publisher.writeMessage(normal);
+
+    while (popWithTimeout(inbound, received, 300ms)) {
+      EXPECT_NE(received.header.handler_key(), "__FROM_THE_FUTURE__") << "An unrecognized reserved key was routed to a subscriber";
+      if (received.header.handler_key() == "normal-data") {
+        gotNormal = true;
+        break;
+      }
+    }
+  }
+  ASSERT_TRUE(gotNormal) << "The normal message never arrived, so the drop assertion proved nothing";
+
+  // One last drain for stragglers sent alongside the delivered normal message.
+  while (popWithTimeout(inbound, received, 300ms)) {
+    EXPECT_NE(received.header.handler_key(), "__FROM_THE_FUTURE__") << "An unrecognized reserved key was routed to a subscriber";
+  }
 
   publisher.stop();
   subscriberWorker.stop();
@@ -105,7 +207,7 @@ TEST_F(WildcardSubscriptionTest, OverlappingExactAndWildcardSubscriptionsDeliver
   ZmqWorker subscriberWorker(subConfig, &inbound, nullptr);
   subscriberWorker.start();
   completeHandshake(subscriberWorker, subConfig.clientId);
-  subscribe(subscriberWorker, subConfig.clientId, "");
+  subscribe(subscriberWorker, subConfig.clientId, std::string(Keys::WILDCARD_TOPIC));
   subscribe(subscriberWorker, subConfig.clientId, topic);
 
   ConnectionConfig pubConfig;

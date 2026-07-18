@@ -21,6 +21,17 @@ constexpr std::string_view SYS_STATS = "__SYS_STATS__";
 // only, never forwarded.
 constexpr std::string_view SET_CLUSTER = "__SET_CLUSTER__";
 
+// Subscribing to this topic delivers every topic. Peer links are built on it.
+constexpr std::string_view WILDCARD_TOPIC = "*";
+
+// The double-underscore handler-key namespace is reserved for the protocol:
+// a broker drops a __KEY__ it does not recognize instead of routing it, so
+// new control keys can be introduced without leaking into subscribers on
+// older brokers. Applications must not use handler keys starting with "__".
+constexpr bool isReservedKey(std::string_view key) {
+  return key.size() >= 2 && key[0] == '_' && key[1] == '_';
+}
+
 constexpr bool isSystemPacket(std::string_view key) {
   return key == HEARTBEAT || key == HEARTBEAT_ACK || key == CONNECT || key == DISCONNECT || key == RESET;
 }

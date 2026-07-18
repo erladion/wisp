@@ -336,35 +336,52 @@ void ConnectionManager::processingLoop() {
 
 void ConnectionManager::handleMessage(const Envelope& env) {
   const std::string& topic = env.header.topic();
+  static const std::string wildcardTopic{Keys::WILDCARD_TOPIC};
 
-  // Snapshot, not copy: the shared_ptr keeps the list alive while dispatching
-  // even if a concurrent unregistration replaces it.
+  // Snapshots, not copies: the shared_ptrs keep the lists alive while
+  // dispatching even if a concurrent unregistration replaces them. Handlers
+  // registered under the wildcard topic receive every delivered message.
   std::shared_ptr<const CallbackList> callbacks;
+  std::shared_ptr<const CallbackList> wildcardCallbacks;
   {
     std::lock_guard<std::mutex> lock(m_mapMutex);
     auto it = m_msgHandlers.find(topic);
     if (it != m_msgHandlers.end()) {
       callbacks = it->second;
     }
+    if (topic != wildcardTopic) {
+      it = m_msgHandlers.find(wildcardTopic);
+      if (it != m_msgHandlers.end()) {
+        wildcardCallbacks = it->second;
+      }
+    }
   }
-  if (!callbacks) {
+  if (!callbacks && !wildcardCallbacks) {
     return;
   }
 
   const std::string& data = env.payload;
 
-  t_currentReplyTopic = env.header.reply_topic();
-  for (const auto& entry : *callbacks) {
-    try {
-      if (entry.func) {
-        entry.func(data);
-      }
-    } catch (const std::exception& e) {
-      Logger::Log(Logger::ERROR, std::string("User Callback Exception: ") + e.what());
-    } catch (...) {
-      Logger::Log(Logger::ERROR, "Unknown User Exception");
+  const auto dispatch = [&data](const std::shared_ptr<const CallbackList>& list) {
+    if (!list) {
+      return;
     }
-  }
+    for (const auto& entry : *list) {
+      try {
+        if (entry.func) {
+          entry.func(data);
+        }
+      } catch (const std::exception& e) {
+        Logger::Log(Logger::ERROR, std::string("User Callback Exception: ") + e.what());
+      } catch (...) {
+        Logger::Log(Logger::ERROR, "Unknown User Exception");
+      }
+    }
+  };
+
+  t_currentReplyTopic = env.header.reply_topic();
+  dispatch(callbacks);
+  dispatch(wildcardCallbacks);
   t_currentReplyTopic.clear();
 }
 

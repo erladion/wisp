@@ -365,7 +365,13 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
     }
 
     if (key == Keys::SUBSCRIBE) {
-      if (m_subscriptions.subscribe(senderId, header.topic())) {
+      if (header.topic().empty()) {
+        // "" was the wildcard before Keys::WILDCARD_TOPIC ("*") replaced it;
+        // reject it loudly so a stale client fails visibly instead of
+        // subscribing to nothing.
+        Logger::Log(Logger::WARNING, "Client " + senderId + " sent SUBSCRIBE with an empty topic - use \"" + std::string(Keys::WILDCARD_TOPIC) +
+                                         "\" for the wildcard");
+      } else if (m_subscriptions.subscribe(senderId, header.topic())) {
         Logger::Log(Logger::INFO, "Client " + senderId + " Subscribed to " + header.topic());
       }
       return;
@@ -394,12 +400,14 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
       }
       return;  // Never broadcast; the swap is local to this broker
     }
-  } else {
-    // Ignore internal control messages from peers to prevent loops/confusion
-    // (SET_CLUSTER included: a remote broker must not re-cluster this one)
-    if (key == Keys::RESET || key == Keys::HEARTBEAT_ACK || key == Keys::HEARTBEAT || key == Keys::SET_CLUSTER) {
-      return;
-    }
+  }
+
+  // The __KEY__ namespace is reserved for control messages. Reaching this
+  // point means the dispatch above did not recognize the key - a message from
+  // a newer (or misbehaving) node - so drop it rather than route it into
+  // subscribers and peers as application traffic.
+  if (Keys::isReservedKey(key)) {
+    return;
   }
 
   // Loop protection: drop a UUID we've already routed.
@@ -411,9 +419,10 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   {
     const std::vector<std::string>* exactSubs = m_subscriptions.subscribersOf(header.topic());
 
-    // An empty-topic subscription is a wildcard: it receives every topic.
-    // Peer links rely on this (connectToPeer subscribes to "").
-    const std::vector<std::string>* wildcardSubs = header.topic().empty() ? nullptr : m_subscriptions.subscribersOf("");
+    // A "*" subscription is the wildcard: it receives every topic. Peer links
+    // rely on this (connectToPeer subscribes to "*").
+    static const std::string wildcardTopic{Keys::WILDCARD_TOPIC};
+    const std::vector<std::string>* wildcardSubs = header.topic() == wildcardTopic ? nullptr : m_subscriptions.subscribersOf(wildcardTopic);
 
     if (exactSubs || wildcardSubs) {
       auto deliver = [&](const std::string& id) {
@@ -576,7 +585,7 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
       Envelope sub;
       sub.header.set_handler_key(Keys::SUBSCRIBE);
       sub.header.set_sender_id(linkId);
-      sub.header.set_topic("");  // Empty topic = wildcard, see processMessage
+      sub.header.set_topic(std::string(Keys::WILDCARD_TOPIC));  // Everything routes over the link
       link->writeControlMessage(std::move(sub));
       return;
     }

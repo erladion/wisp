@@ -41,7 +41,7 @@ output. A receiver that does not recognize the format byte drops the message.
 message MessageHeader {
   string handler_key = 1;      // control key or application handler name
   string sender_id = 2;        // client id of the original sender
-  string topic = 3;            // routing topic; "" in a SUBSCRIBE = wildcard
+  string topic = 3;            // routing topic; "*" in a SUBSCRIBE = wildcard
   string origin_broker_id = 4; // stamped by the first broker; loop detection
   bytes  message_uuid = 5;     // stamped by the first broker; 16 raw UUIDv4 bytes
   string reply_topic = 6;      // request/reply: where to publish the answer
@@ -87,8 +87,11 @@ otherwise the zombie timeout cleans up.
 
 ## Control keys
 
-Control messages use reserved `handler_key` values; the broker acts on them
-and never routes them to subscribers. Sent by the client unless noted:
+The `__KEY__` handler-key namespace (any key starting with `__`) is
+**reserved for the protocol**: the broker acts on the keys it knows and
+**drops** any `__`-prefixed key it does not recognize, so control traffic can
+never leak into subscribers. Applications must not use handler keys starting
+with `__`. Sent by the client unless noted:
 
 | Key | Meaning |
 |---|---|
@@ -97,7 +100,7 @@ and never routes them to subscribers. Sent by the client unless noted:
 | `__HEARTBEAT__` | liveness probe; broker answers `__HEARTBEAT_ACK__` |
 | `__HEARTBEAT_ACK__` | broker → client answer |
 | `__RESET__` | broker → client: your state is gone; send `__CONNECT__` and every `__SUBSCRIBE__` again |
-| `__SUBSCRIBE__` | subscribe to `topic`; `topic = ""` is the wildcard (every topic) |
+| `__SUBSCRIBE__` | subscribe to `topic`; `topic = "*"` is the wildcard (every topic). An empty topic is rejected |
 | `__UNSUBSCRIBE__` | remove one subscription |
 | `__SET_CLUSTER__` | payload = new discovery cluster name (1–64 bytes, no `\|`); handled by the receiving broker only |
 | `__SYS_STATS__` | broker → subscribers, every 1 s: payload is an Any-packed `broker.SystemStats` |
@@ -109,7 +112,7 @@ stats off the peer mesh).
 ## Routing
 
 A non-control message is delivered, one copy per client, to every subscriber
-of its exact `topic` plus every wildcard (`""`) subscriber — but never echoed
+of its exact `topic` plus every wildcard (`"*"`) subscriber — but never echoed
 back to its local sender. Delivery is **best-effort**: there are no acks, no
 retries, and a receiver that falls far enough behind loses messages. Ordering
 is ZeroMQ's per-connection FIFO; there is no cross-client ordering guarantee.
@@ -123,8 +126,8 @@ involved beyond normal routing.
 
 Brokers link to each other over the same DEALER/ROUTER protocol: a peer link
 is a client whose identity starts with `BrokerLink-` and whose only
-subscription is the wildcard. Each broker floods every routed message to all
-of its peer links.
+subscription is the wildcard (`"*"`). Each broker floods every routed message
+to all of its peer links.
 
 Loop protection: the stamped `message_uuid` is remembered by each broker
 (roughly the last 10–20K ids) and repeats are dropped, so a message crosses
@@ -169,7 +172,7 @@ drops messages rather than slowing the broker.
   is a breaking change.
 - New header encodings take a fresh format byte; every previously shipped
   encoding stays decodable.
-- New control keys follow the `__NAME__` shape — but beware: a broker that
-  does not recognize a handler key treats the message as application traffic
-  and routes it by topic. Introducing a new control key is only safe once
-  every broker in the mesh understands it.
+- New control keys follow the `__NAME__` shape. Brokers drop `__`-prefixed
+  keys they do not recognize, so introducing a new control key is forward-safe
+  on a mixed mesh: older brokers ignore it (the feature simply does not work
+  there until they upgrade).
