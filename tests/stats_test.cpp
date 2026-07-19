@@ -28,11 +28,16 @@ TEST(StatsTest, DroppedDeliveriesAreCounted) {
   auto broker = std::make_unique<ZmqBroker>();
   broker->start({testBrokerAddress()});
 
-  // The slow consumer: subscribes, then never reads a single message.
+  // The slow consumer: subscribes, then never reads a single message. Small
+  // receive buffers cap how much it can absorb, so the broker's forced drops
+  // happen quickly and regardless of the host's default socket-buffer sizes
+  // (CI runners autotune these into the tens of MB).
   zmq::context_t ctx(1);
   zmq::socket_t slow(ctx, ZMQ_DEALER);
   slow.set(zmq::sockopt::linger, 0);
   slow.set(zmq::sockopt::routing_id, "slow-consumer");
+  slow.set(zmq::sockopt::rcvhwm, 10);
+  slow.set(zmq::sockopt::rcvbuf, 8192);
   slow.connect(testBrokerAddress());
 
   broker::MessageHeader hello;
@@ -57,34 +62,32 @@ TEST(StatsTest, DroppedDeliveriesAreCounted) {
 
   std::this_thread::sleep_for(300ms);  // let the subscriptions land
 
-  // Flood past what the zmq pipes and TCP buffers can absorb (the 4 KiB
-  // payload keeps the byte volume high so the kernel buffers fill quickly);
-  // everything beyond that is dropped at the slow consumer's pipe.
   ConnectionConfig pubConfig;
   pubConfig.address = testBrokerAddress();
   pubConfig.clientId = "flood-publisher";
   ZmqWorker publisher(pubConfig, nullptr, nullptr);
   publisher.start();
 
+  // Publish continuously until drops appear. A never-reading consumer's
+  // buffers are bounded, so sustained flooding overflows them whatever their
+  // size - a fixed burst can be swallowed whole by a host with large buffers.
+  // The slow consumer is kept heartbeating meanwhile: it is slow, not dead,
+  // so the broker must not zombie it (which would erase its drop counter).
   const std::string payload(4096, 'x');
-  for (int i = 0; i < 4000; ++i) {
-    Envelope msg;
-    msg.header.set_handler_key("FLOOD");
-    msg.header.set_sender_id(pubConfig.clientId);
-    msg.header.set_topic("flood-topic");
-    msg.payload = payload;
-    (void)publisher.writeMessage(msg);
-  }
-
-  // Stats broadcast every second; wait for one that shows the drops. The
-  // slow consumer keeps heartbeating meanwhile - it is slow, not dead - so
-  // the broker cannot zombie it (which would erase its per-client counter)
-  // before a stats broadcast lands.
   bool sawDrops = false;
-  const auto deadline = std::chrono::steady_clock::now() + 15s;
+  const auto deadline = std::chrono::steady_clock::now() + 20s;
   auto lastKeepalive = std::chrono::steady_clock::now();
   Envelope env;
   while (std::chrono::steady_clock::now() < deadline && !sawDrops) {
+    for (int i = 0; i < 500; ++i) {
+      Envelope msg;
+      msg.header.set_handler_key("FLOOD");
+      msg.header.set_sender_id(pubConfig.clientId);
+      msg.header.set_topic("flood-topic");
+      msg.payload = payload;
+      (void)publisher.writeMessage(msg);
+    }
+
     if (std::chrono::steady_clock::now() - lastKeepalive > 1s) {
       broker::MessageHeader heartbeat;
       heartbeat.set_handler_key(Keys::HEARTBEAT);
@@ -92,7 +95,7 @@ TEST(StatsTest, DroppedDeliveriesAreCounted) {
       (void)wire::send(slow, heartbeat, std::string());
       lastKeepalive = std::chrono::steady_clock::now();
     }
-    if (!popWithTimeout(statsInbound, env, 250ms) || env.header.handler_key() != Keys::SYS_STATS) {
+    if (!popWithTimeout(statsInbound, env, 50ms) || env.header.handler_key() != Keys::SYS_STATS) {
       continue;
     }
     google::protobuf::Any any;
