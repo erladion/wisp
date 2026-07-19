@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 #include "connectionmanager.h"
@@ -80,13 +81,17 @@ public:
     using ArgType = typename CallableTraits<Callable>::ArgType;
     using BaseT = typename std::decay<ArgType>::type;
 
+    const std::string stdKey = key.toStdString();
     ConnectionManager::registerCallback(
-        key.toStdString(),
-        [context, func](const BaseT& payload) {
-          QMetaObject::invokeMethod(
-              context, [func, payload]() { func(payload); }, Qt::QueuedConnection);
+        stdKey,
+        [guard = QPointer<QObject>(context), func](const BaseT& payload) {
+          if (QObject* target = guard.data()) {
+            QMetaObject::invokeMethod(
+                target, [func, payload]() { func(payload); }, Qt::QueuedConnection);
+          }
         },
         context);
+    unregisterWhenDestroyed(stdKey, context);
   }
 
   // Class Member Functions (1 Argument)
@@ -96,13 +101,17 @@ public:
 
     using BaseT = typename std::decay<ArgType>::type;
 
+    const std::string stdKey = key.toStdString();
     ConnectionManager::registerCallback(
-        key.toStdString(),
-        [context, method](const BaseT& payload) {
-          QMetaObject::invokeMethod(
-              context, [context, method, payload]() { (context->*method)(payload); }, Qt::QueuedConnection);
+        stdKey,
+        [guard = QPointer<ClassType>(context), method](const BaseT& payload) {
+          if (ClassType* target = guard.data()) {
+            QMetaObject::invokeMethod(
+                target, [target, method, payload]() { (target->*method)(payload); }, Qt::QueuedConnection);
+          }
         },
         context);
+    unregisterWhenDestroyed(stdKey, context);
   }
 
   // Class Member Functions (0 Arguments)
@@ -110,13 +119,29 @@ public:
   static void registerCallback(const QString& key, ClassType* context, void (ClassType::*method)()) {
     static_assert(std::is_base_of<QObject, ClassType>::value, "Context must inherit from QObject!");
 
+    const std::string stdKey = key.toStdString();
     ConnectionManager::registerCallback(
-        key.toStdString(),
-        [context, method]() {
-          QMetaObject::invokeMethod(
-              context, [context, method]() { (context->*method)(); }, Qt::QueuedConnection);
+        stdKey,
+        [guard = QPointer<ClassType>(context), method]() {
+          if (ClassType* target = guard.data()) {
+            QMetaObject::invokeMethod(
+                target, [target, method]() { (target->*method)(); }, Qt::QueuedConnection);
+          }
         },
         context);
+    unregisterWhenDestroyed(stdKey, context);
+  }
+
+private:
+  /* A context that dies without unregisterCallback() must not leave its
+     registration behind: the QPointer guards above catch most of it, but the
+     registration itself (and its broker-side subscription) would leak, and a
+     QPointer read from the dispatch thread is only best-effort. Dropping the
+     registration when the context is destroyed closes both. A dispatch already
+     in flight when the destructor runs may still complete - same caveat as the
+     underlying C++ API. */
+  static void unregisterWhenDestroyed(const std::string& key, QObject* context) {
+    QObject::connect(context, &QObject::destroyed, [key, context]() { ConnectionManager::unregisterCallback(key, context); });
   }
 };
 
