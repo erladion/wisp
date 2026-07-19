@@ -70,6 +70,10 @@ struct BenchConfig {
   std::vector<int> payloadSizes = {256};
   std::chrono::seconds warmup{1};
   std::chrono::seconds duration{5};
+  // 0 = publish flat out (saturation: find the ceiling). Otherwise each
+  // publisher is paced to this many messages per second, which is how you ask
+  // "is delivery lossless at the load I actually run?".
+  int ratePerPublisher = 0;
 };
 
 void printUsage() {
@@ -80,7 +84,11 @@ void printUsage() {
             << "                      a comma-separated list (e.g. 256,1024,4096) sweeps the\n"
             << "                      sizes in one invocation and prints a comparison table\n"
             << "  --warmup-secs N     unmeasured warmup duration    (default 1)\n"
-            << "  --duration-secs N   measured run duration         (default 5, per size)\n";
+            << "  --duration-secs N   measured run duration         (default 5, per size)\n"
+            << "  --rate N            messages/sec per publisher; omit (or 0) to publish\n"
+            << "                      flat out. Unpaced runs deliberately offer far more\n"
+            << "                      load than the mesh can carry, so most of it is shed -\n"
+            << "                      use --rate to measure delivery at a realistic load.\n";
 }
 
 std::vector<int> parsePayloadSizes(const std::string& spec) {
@@ -123,6 +131,11 @@ BenchConfig parseArgs(int argc, char** argv) {
         throw std::runtime_error("missing value for --payload-bytes");
       }
       config.payloadSizes = parsePayloadSizes(argv[++i]);
+    } else if (flag == "--rate") {
+      config.ratePerPublisher = intArg(i);
+      if (config.ratePerPublisher < 0) {
+        throw std::runtime_error("--rate must be >= 0");
+      }
     } else if (flag == "--warmup-secs") {
       config.warmup = std::chrono::seconds(intArg(i));
     } else if (flag == "--duration-secs") {
@@ -230,10 +243,25 @@ struct PublisherResult {
 // SafeQueue backpressure paces this naturally - for as long as `running` stays
 // true, counting only what happens while `recording` is true so warmup/drain
 // traffic doesn't skew the reported numbers.
-PublisherResult runPublisher(ZmqWorker& worker, std::string senderId, int payloadBytes, const std::atomic<bool>& running, const std::atomic<bool>& recording) {
+PublisherResult runPublisher(ZmqWorker& worker, std::string senderId, int payloadBytes, int ratePerSec, const std::atomic<bool>& running,
+                             const std::atomic<bool>& recording) {
   PublisherResult result;
 
+  // Paced mode: hold a fixed send cadence instead of racing. `nextSend` walks
+  // forward by a fixed step so a slow iteration is caught up rather than
+  // permanently skewing the rate.
+  const bool paced = ratePerSec > 0;
+  const auto interval = paced ? std::chrono::nanoseconds(1000000000LL / ratePerSec) : std::chrono::nanoseconds(0);
+  auto nextSend = std::chrono::steady_clock::now();
+
   while (running.load(std::memory_order_relaxed)) {
+    if (paced) {
+      nextSend += interval;
+      std::this_thread::sleep_until(nextSend);
+      if (!running.load(std::memory_order_relaxed)) {
+        break;
+      }
+    }
     // Read once and reuse for both the tag and the counters, so a message is
     // never tagged "measure" without also being counted as sent (or vice versa).
     const bool measuring = recording.load(std::memory_order_relaxed);
@@ -302,6 +330,7 @@ struct RunSummary {
   uint64_t inWindowBytes = 0;
   uint64_t eventuallyReceived = 0;
   uint64_t expectedReceived = 0;
+  uint64_t totalSendDrops = 0;  // shed by the publishers' own send pipes
   std::vector<int64_t> latencyNanos;  // sorted ascending
 
   double publishRate() const { return seconds > 0 ? static_cast<double>(totalSent) / seconds : 0.0; }
@@ -315,10 +344,11 @@ struct RunSummary {
 
 RunSummary summarize(const BenchConfig& config, int payloadBytes, std::chrono::steady_clock::time_point measureStart,
                      std::chrono::steady_clock::time_point measureEnd, const std::vector<PublisherResult>& publisherResults,
-                     const std::vector<SubscriberResult>& subscriberResults) {
+                     const std::vector<SubscriberResult>& subscriberResults, uint64_t totalSendDrops) {
   RunSummary summary;
   summary.payloadBytes = payloadBytes;
   summary.seconds = std::chrono::duration<double>(measureEnd - measureStart).count();
+  summary.totalSendDrops = totalSendDrops;
 
   for (const auto& r : publisherResults) {
     summary.totalSent += r.messagesSent;
@@ -353,18 +383,26 @@ void printReport(const BenchConfig& config, const RunSummary& s) {
   std::cout << std::fixed << std::setprecision(2);
   std::cout << "\n===== Throughput benchmark report =====\n";
   std::cout << config.publisherCount << " publisher(s), " << config.subscriberCount << " subscriber(s), ~" << s.payloadBytes << " B payload, " << s.seconds
-            << " s measured (after " << config.warmup.count() << " s warmup, plus a " << kDrainGrace.count() << " s drain grace before tallying delivery)\n\n";
+            << " s measured (after " << config.warmup.count() << " s warmup, plus a " << kDrainGrace.count() << " s drain grace before tallying delivery)\n";
+  if (config.ratePerPublisher > 0) {
+    std::cout << "paced at " << config.ratePerPublisher << " msgs/sec per publisher\n\n";
+  } else {
+    std::cout << "publishing flat out (saturation: the offered load deliberately exceeds capacity, so most of it is shed - use --rate for a realistic load)\n\n";
+  }
 
   std::cout << "Publish side:\n";
-  std::cout << "  enqueued:           " << s.totalSent << " messages (" << s.totalEnqueueFailures << " backpressure drops)\n";
+  std::cout << "  offered:            " << s.totalSent << " messages (" << s.totalEnqueueFailures << " rejected by backpressure, " << s.totalSendDrops
+            << " dropped by the send pipe)\n";
   std::cout << "  throughput:         " << s.publishRate() << " msgs/sec\n\n";
 
   std::cout << "Delivery side (fan-out to " << config.subscriberCount << " subscriber(s)):\n";
   std::cout << "  in-window:          " << s.inWindowReceived << " messages, " << s.deliveryRate() << " msgs/sec, " << s.deliveryMbPerSec() << " MB/sec\n";
   std::cout << "                      (arrived while publishers were still sending - directly comparable to the publish-side rate above;\n"
             << "                       lower than it means the mesh is falling behind and queueing a backlog)\n";
-  std::cout << "  delivered overall:  " << s.eventuallyReceived << " / " << s.expectedReceived << " expected (" << s.deliveredRatio()
+  std::cout << "  of offered load:    " << s.eventuallyReceived << " / " << s.expectedReceived << " (" << s.deliveredRatio()
             << "%, including the post-window drain)\n";
+  std::cout << "                      (share of what publishers offered that reached a subscriber; well below 100% is\n"
+            << "                       expected without --rate, since the offered load exceeds what the mesh can carry)\n";
   std::cout << "  latency (ms):       p50=" << percentileMs(s.latencyNanos, 0.50) << "  p95=" << percentileMs(s.latencyNanos, 0.95)
             << "  p99=" << percentileMs(s.latencyNanos, 0.99) << "  max=" << s.maxLatencyMs() << "\n";
   std::cout << "========================================\n";
@@ -374,7 +412,7 @@ void printSweepTable(const BenchConfig& config, const std::vector<RunSummary>& r
   std::cout << std::fixed << std::setprecision(2);
   std::cout << "\n===== Payload sweep (" << config.publisherCount << " publisher(s), " << config.subscriberCount << " subscriber(s)) =====\n";
   std::cout << std::setw(9) << "payload" << std::setw(12) << "publish/s" << std::setw(13) << "delivered/s" << std::setw(10) << "MB/s" << std::setw(12)
-            << "delivered%" << std::setw(10) << "p50 ms" << std::setw(10) << "p95 ms" << std::setw(10) << "max ms" << "\n";
+            << "of offered" << std::setw(10) << "p50 ms" << std::setw(10) << "p95 ms" << std::setw(10) << "max ms" << "\n";
   for (const auto& s : runs) {
     std::cout << std::setw(7) << s.payloadBytes << " B" << std::setw(12) << static_cast<uint64_t>(s.publishRate()) << std::setw(13)
               << static_cast<uint64_t>(s.deliveryRate()) << std::setw(10) << s.deliveryMbPerSec() << std::setw(12) << s.deliveredRatio() << std::setw(10)
@@ -437,8 +475,8 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
 
   std::vector<std::future<PublisherResult>> publisherFutures;
   for (int i = 0; i < config.publisherCount; ++i) {
-    publisherFutures.push_back(
-        std::async(std::launch::async, runPublisher, std::ref(*publishers[i]), publisherIds[i], payloadBytes, std::cref(running), std::cref(recording)));
+    publisherFutures.push_back(std::async(std::launch::async, runPublisher, std::ref(*publishers[i]), publisherIds[i], payloadBytes,
+                                          config.ratePerPublisher, std::cref(running), std::cref(recording)));
   }
 
   std::vector<std::future<SubscriberResult>> subscriberFutures;
@@ -474,7 +512,12 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
     subscriberResults.push_back(f.get());
   }
 
+  // Read the workers' own drop counters before tearing them down: these are
+  // messages accepted from the publisher but never put on the wire, which is
+  // where most of an over-offered load actually disappears.
+  uint64_t totalSendDrops = 0;
   for (auto& w : publishers) {
+    totalSendDrops += w->droppedSends();
     w->stop();
   }
   for (auto& w : subscribers) {
@@ -482,7 +525,7 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
   }
   broker.stop();
 
-  return summarize(config, payloadBytes, measureStart, measureEnd, publisherResults, subscriberResults);
+  return summarize(config, payloadBytes, measureStart, measureEnd, publisherResults, subscriberResults, totalSendDrops);
 }
 
 }  // namespace
