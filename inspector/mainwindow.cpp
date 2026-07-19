@@ -253,7 +253,12 @@ void MainWindow::onSelectionChanged() {
     return;
   }
 
-  int row = m_pProxyModel->mapToSource(selected.first()).row();
+  // Bounds-checked: the history is trimmed from the front as it grows, so a
+  // selection can outlive the row it pointed at.
+  const int row = m_pProxyModel->mapToSource(selected.first()).row();
+  if (row < 0 || static_cast<std::size_t>(row) >= m_packetHistory.size()) {
+    return;
+  }
 
   const InspectorPacket& packet = m_packetHistory[row];
   m_pHexDump->setPlainText(QString::fromStdString(HexUtils::generateHexDump(packet.payload)));
@@ -419,9 +424,8 @@ void MainWindow::replaySelectedMessage() {
     return;
   }
 
-  int row = m_pProxyModel->mapToSource(selectedRows.first()).row();
-
-  if (row >= m_packetHistory.size() || row < 0) {
+  const int row = m_pProxyModel->mapToSource(selectedRows.first()).row();
+  if (row < 0 || static_cast<std::size_t>(row) >= m_packetHistory.size()) {
     return;
   }
 

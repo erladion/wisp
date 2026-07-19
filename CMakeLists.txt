@@ -13,6 +13,16 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Warnings on by default: the whole tree - the generated protobuf sources and
+# the Qt moc output included - builds clean under these, so anything they
+# report is new. Deliberately not -Werror: a compiler the maintainers have not
+# tried must not be able to break someone's build, so CI is what makes these
+# count. Set WISP_WARNINGS=OFF to opt out.
+option(WISP_WARNINGS "Build with the project's warning set" ON)
+if (WISP_WARNINGS AND (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
+    add_compile_options(-Wall -Wextra -Wshadow)
+endif()
+
 # Needed while the subdirectories are configured, since they attach their own
 # install rules to CMAKE_INSTALL_{LIB,INCLUDE}DIR.
 include(GNUInstallDirs)

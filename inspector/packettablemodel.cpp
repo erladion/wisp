@@ -47,7 +47,7 @@ QVariant PacketTableModel::headerData(int section, Qt::Orientation orientation, 
 }
 
 QVariant PacketTableModel::data(const QModelIndex& index, int role) const {
-  if (!index.isValid() || index.row() >= m_history.size()) {
+  if (!index.isValid() || index.row() < 0 || static_cast<std::size_t>(index.row()) >= m_history.size()) {
     return QVariant();
   }
 
@@ -97,7 +97,14 @@ PacketFilterProxyModel::PacketFilterProxyModel(QObject* parent) : QSortFilterPro
 void PacketFilterProxyModel::updateFilters(const QString& text, const QSet<QString>& topics) {
   searchText = text.toLower();
   allowedTopics = topics;
+  // invalidateFilter() is deprecated from Qt 6.9; the replacement pair does not
+  // exist before it, so both spellings have to be kept while either Qt is supported.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+  beginFilterChange();
+  endFilterChange();
+#else
   invalidateFilter();
+#endif
 }
 
 bool PacketFilterProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const {
