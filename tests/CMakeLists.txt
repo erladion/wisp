@@ -25,6 +25,8 @@ set(BROKER_TEST_SOURCES
   reply_to_sender_context_test.cpp
   request_reply_test.cpp
   safequeue_test.cpp
+  session_recovery_test.cpp
+  stats_test.cpp
   shutdown_test.cpp
   subscriptionregistry_test.cpp
   wildcard_subscription_test.cpp

@@ -70,6 +70,7 @@ private:
   QLabel* m_pMsgsSecLabel;
   QLabel* m_pKbSecLabel;
   QLabel* m_pTotalMsgsLabel;
+  QLabel* m_pDroppedLabel;
 
   QLineEdit* m_pFilterBar;
 

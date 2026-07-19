@@ -29,36 +29,40 @@ constexpr const char* PEER_WAKE_ENDPOINT = "inproc://peer_wake";
 // gates the send - once it is accepted zmq never rejects the continuation
 // frames, so the group can't be torn apart. The header is pre-serialized by the
 // caller and the payload forwarded verbatim, so the broker never re-encodes it.
-void sendToClient(zmq::socket_t& socket, const std::string& clientId, const std::string& headerBytes, const std::string& payload) {
+// False when the delivery was refused (full pipe or unroutable client) so
+// callers can count the drop; delivery stays best-effort either way.
+bool sendToClient(zmq::socket_t& socket, const std::string& clientId, const std::string& headerBytes, const std::string& payload) {
   zmq::message_t outId(clientId.data(), clientId.size());
   zmq::message_t headerFrame(headerBytes.data(), headerBytes.size());
   const bool hasPayload = !payload.empty();
 
   try {
     if (!socket.send(outId, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
-      return;
+      return false;
     }
     socket.send(headerFrame, (hasPayload ? zmq::send_flags::sndmore : zmq::send_flags::none) | zmq::send_flags::dontwait);
     if (hasPayload) {
       zmq::message_t payloadFrame(payload.data(), payload.size());
       socket.send(payloadFrame, zmq::send_flags::dontwait);
     }
+    return true;
   } catch (const zmq::error_t&) {
     // Unroutable client (router_mandatory) - the zombie cleanup handles it.
+    return false;
   }
 }
 
 // Fan-out variant: the payload frame shares `payload`'s bytes via zmq
 // reference counting, so delivering one message to N subscribers copies the
 // (potentially large) payload zero times instead of N.
-void sendToClient(zmq::socket_t& socket, const std::string& clientId, const std::string& headerBytes, zmq::message_t& payload) {
+bool sendToClient(zmq::socket_t& socket, const std::string& clientId, const std::string& headerBytes, zmq::message_t& payload) {
   zmq::message_t outId(clientId.data(), clientId.size());
   zmq::message_t headerFrame(headerBytes.data(), headerBytes.size());
   const bool hasPayload = payload.size() > 0;
 
   try {
     if (!socket.send(outId, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
-      return;
+      return false;
     }
     socket.send(headerFrame, (hasPayload ? zmq::send_flags::sndmore : zmq::send_flags::none) | zmq::send_flags::dontwait);
     if (hasPayload) {
@@ -66,8 +70,10 @@ void sendToClient(zmq::socket_t& socket, const std::string& clientId, const std:
       payloadFrame.copy(payload);
       socket.send(payloadFrame, zmq::send_flags::dontwait);
     }
+    return true;
   } catch (const zmq::error_t&) {
     // Unroutable client (router_mandatory) - the zombie cleanup handles it.
+    return false;
   }
 }
 
@@ -93,6 +99,17 @@ MessageId messageIdFrom(const std::string& uuid) {
   return id;
 }
 
+// Queue a DISCONNECT through a peer link before stopping it, so the remote
+// broker forgets the link immediately instead of waiting out its zombie
+// timeout. The worker's shutdown drain sends it as the socket closes.
+void disconnectPeerLink(ZmqWorker& link, const std::string& brokerId) {
+  Envelope bye;
+  bye.header.set_handler_key(Keys::DISCONNECT);
+  bye.header.set_sender_id(brokerId);
+  bye.header.set_topic("");
+  link.writeControlMessage(std::move(bye));
+}
+
 // Best-effort extraction of the TCP port a broker binds, to advertise in beacons.
 std::uint16_t parseTcpPort(const std::vector<std::string>& addresses) {
   for (const auto& addr : addresses) {
@@ -116,8 +133,14 @@ std::uint16_t parseTcpPort(const std::vector<std::string>& addresses) {
 
 }  // namespace
 
-ZmqBroker::ZmqBroker()
-    : m_running(false), m_context(1), m_brokerId(generateUUID()), m_seenCurrent(DedupSetCapacity), m_seenPrevious(DedupSetCapacity) {}
+ZmqBroker::ZmqBroker(std::chrono::milliseconds clientTimeout)
+    : m_running(false),
+      m_context(1),
+      m_clientTimeout(clientTimeout),
+      m_cleanupInterval(std::min<std::chrono::milliseconds>(std::chrono::seconds(2), clientTimeout / 2)),
+      m_brokerId(generateUUID()),
+      m_seenCurrent(DedupSetCapacity),
+      m_seenPrevious(DedupSetCapacity) {}
 
 ZmqBroker::~ZmqBroker() {
   stop();
@@ -170,6 +193,7 @@ void ZmqBroker::stop() {
     peers.swap(m_peers);
   }
   for (auto& [key, peer] : peers) {
+    disconnectPeerLink(*peer, m_brokerId);
     peer->stop();
   }
 }
@@ -300,11 +324,11 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
     auto now = std::chrono::steady_clock::now();
 
     // Cleanup zombies
-    if (now - lastCleanup > std::chrono::seconds(2)) {
+    if (now - lastCleanup > m_cleanupInterval) {
       for (auto it = m_clients.begin(); it != m_clients.end();) {
         auto elapsed = now - it->second.lastSeen;
 
-        if (elapsed > ClientTimeout) {
+        if (elapsed > m_clientTimeout) {
           auto nextIt = std::next(it);
           removeClient(it->first, "Timeout / Zombie");
           it = nextIt;  // Reset iterator safely after erasing
@@ -413,10 +437,8 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
 
     if (key == Keys::SET_CLUSTER) {
       // The payload carries the new cluster name (see Keys::SET_CLUSTER).
-      // The 64-byte cap keeps beacons well inside the discovery loop's
-      // 512-byte datagram buffer; '|' is the beacon field separator.
       const std::string newCluster(payload.data<char>(), payload.size());
-      if (newCluster.empty() || newCluster.size() > 64 || newCluster.find('|') != std::string::npos) {
+      if (!BrokerDiscovery::isValidClusterName(newCluster)) {
         Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " rejected: name must be 1-64 chars without '|'");
       } else if (!m_discovery) {
         Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " ignored: discovery is not active");
@@ -459,11 +481,15 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
         }
 
         // Verify client is still connected (safety check)
-        if (m_clients.find(id) == m_clients.end()) {
+        auto clientIt = m_clients.find(id);
+        if (clientIt == m_clients.end()) {
           return;
         }
 
-        sendToClient(socket, id, headerBytes, payload);
+        if (!sendToClient(socket, id, headerBytes, payload)) {
+          clientIt->second.droppedMessages++;
+          m_totalDropped++;
+        }
       };
 
       if (exactSubs) {
@@ -539,10 +565,12 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   stats.set_total_msgs(m_totalMessages);
   stats.set_uptime_sec(uptime);
   stats.set_cluster(m_clusterName);  // empty when discovery is disabled
+  stats.set_total_dropped(m_totalDropped);
 
   for (const auto& entry : m_clients) {
     broker::ClientInfo* clientInfo = stats.add_connected_clients();
     clientInfo->set_id(entry.first);
+    clientInfo->set_dropped_messages(entry.second.droppedMessages);
 
     if (const auto* topics = m_subscriptions.subscriptionsOf(entry.first)) {
       for (const auto& topic : *topics) {
@@ -573,7 +601,13 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   // subscriber misses stats too - subscribe to SYS_STATS explicitly to get them.
   if (const auto* subs = m_subscriptions.subscribersOf(sysStatsKey)) {
     for (const auto& id : *subs) {
-      sendToClient(socket, id, headerBytes, payload);
+      if (!sendToClient(socket, id, headerBytes, payload)) {
+        auto clientIt = m_clients.find(id);
+        if (clientIt != m_clients.end()) {
+          clientIt->second.droppedMessages++;
+        }
+        m_totalDropped++;
+      }
     }
   }
 }
@@ -584,6 +618,12 @@ void ZmqBroker::connectToPeer(const std::string& peerAddress) {
 }
 
 void ZmqBroker::enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort) {
+  // Same rule SET_CLUSTER enforces; an invalid name here (e.g. from the
+  // WISP_CLUSTER environment) would silently break this broker's own beacons.
+  if (!BrokerDiscovery::isValidClusterName(clusterName)) {
+    Logger::Log(Logger::WARNING, "Discovery not enabled: cluster name must be 1-64 chars without '|'");
+    return;
+  }
   m_discoveryEnabled = true;
   m_clusterName = clusterName;
   m_discoveryPort = discoveryPort;
@@ -660,6 +700,7 @@ void ZmqBroker::removePeer(const std::string& key) {
     m_peers.erase(it);
   }
   // Join the worker thread outside the lock so the flood loop isn't stalled.
+  disconnectPeerLink(*worker, m_brokerId);
   worker->stop();
   Logger::Log(Logger::INFO, "Dropped peer: " + key);
 }

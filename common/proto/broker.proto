@@ -22,6 +22,10 @@ message MessageHeader {
 message ClientInfo {
     string id = 1;
     repeated string subscriptions = 2;
+    // Messages the broker tried to deliver to this client but had to drop
+    // (full pipe or unroutable), since the client connected. A growing value
+    // means the client is not keeping up.
+    uint64 dropped_messages = 3;
 }
 
 message SystemStats {
@@ -36,4 +40,6 @@ message SystemStats {
     // Discovery cluster this broker currently meshes in; empty when discovery
     // is disabled. Changes at runtime via a SET_CLUSTER message.
     string cluster = 9;
+    // Deliveries dropped across all clients since the broker started.
+    uint64 total_dropped = 10;
 }

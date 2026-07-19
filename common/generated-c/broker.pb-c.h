@@ -57,10 +57,16 @@ struct  _Broker__ClientInfo
   char *id;
   size_t n_subscriptions;
   char **subscriptions;
+  /*
+   * Messages the broker tried to deliver to this client but had to drop
+   * (full pipe or unroutable), since the client connected. A growing value
+   * means the client is not keeping up.
+   */
+  uint64_t dropped_messages;
 };
 #define BROKER__CLIENT_INFO__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&broker__client_info__descriptor) \
-    , (char *)protobuf_c_empty_string, 0,NULL }
+    , (char *)protobuf_c_empty_string, 0,NULL, 0 }
 
 
 struct  _Broker__SystemStats
@@ -80,10 +86,14 @@ struct  _Broker__SystemStats
    * is disabled. Changes at runtime via a SET_CLUSTER message.
    */
   char *cluster;
+  /*
+   * Deliveries dropped across all clients since the broker started.
+   */
+  uint64_t total_dropped;
 };
 #define BROKER__SYSTEM_STATS__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&broker__system_stats__descriptor) \
-    , (char *)protobuf_c_empty_string, 0, 0, 0, 0, 0, 0, 0,NULL, (char *)protobuf_c_empty_string }
+    , (char *)protobuf_c_empty_string, 0, 0, 0, 0, 0, 0, 0,NULL, (char *)protobuf_c_empty_string, 0 }
 
 
 /* Broker__MessageHeader methods */

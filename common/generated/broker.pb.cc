@@ -74,7 +74,8 @@ inline constexpr ClientInfo::Impl_::Impl_(
         subscriptions_{},
         id_(
             &::google::protobuf::internal::fixed_address_empty_string,
-            ::_pbi::ConstantInitialized()) {}
+            ::_pbi::ConstantInitialized()),
+        dropped_messages_{::uint64_t{0u}} {}
 
 template <typename>
 PROTOBUF_CONSTEXPR ClientInfo::ClientInfo(::_pbi::ConstantInitialized)
@@ -111,6 +112,7 @@ inline constexpr SystemStats::Impl_::Impl_(
         kb_per_sec_{0},
         total_msgs_{::int64_t{0}},
         uptime_sec_{::int64_t{0}},
+        total_dropped_{::uint64_t{0u}},
         msgs_per_sec_{0} {}
 
 template <typename>
@@ -157,14 +159,16 @@ const ::uint32_t
         5,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::broker::ClientInfo, _impl_._has_bits_),
-        5, // hasbit index offset
+        6, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::broker::ClientInfo, _impl_.id_),
         PROTOBUF_FIELD_OFFSET(::broker::ClientInfo, _impl_.subscriptions_),
+        PROTOBUF_FIELD_OFFSET(::broker::ClientInfo, _impl_.dropped_messages_),
         0,
         ~0u,
+        1,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_._has_bits_),
-        12, // hasbit index offset
+        13, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.broker_id_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.clients_count_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.peers_count_),
@@ -174,22 +178,24 @@ const ::uint32_t
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.uptime_sec_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.connected_clients_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.cluster_),
+        PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.total_dropped_),
         0,
         2,
         3,
-        7,
+        8,
         4,
         5,
         6,
         ~0u,
         1,
+        7,
 };
 
 static const ::_pbi::MigrationSchema
     schemas[] ABSL_ATTRIBUTE_SECTION_VARIABLE(protodesc_cold) = {
         {0, sizeof(::broker::MessageHeader)},
         {15, sizeof(::broker::ClientInfo)},
-        {22, sizeof(::broker::SystemStats)},
+        {24, sizeof(::broker::SystemStats)},
 };
 static const ::_pb::Message* PROTOBUF_NONNULL const file_default_instances[] = {
     &::broker::_MessageHeader_default_instance_._instance,
@@ -202,20 +208,21 @@ const char descriptor_table_protodef_broker_2eproto[] ABSL_ATTRIBUTE_SECTION_VAR
     "\022\023\n\013handler_key\030\001 \001(\t\022\021\n\tsender_id\030\002 \001(\t"
     "\022\r\n\005topic\030\003 \001(\t\022\030\n\020origin_broker_id\030\004 \001("
     "\t\022\024\n\014message_uuid\030\005 \001(\014\022\023\n\013reply_topic\030\006"
-    " \001(\t\"/\n\nClientInfo\022\n\n\002id\030\001 \001(\t\022\025\n\rsubscr"
-    "iptions\030\002 \003(\t\"\336\001\n\013SystemStats\022\021\n\tbroker_"
-    "id\030\001 \001(\t\022\025\n\rclients_count\030\002 \001(\005\022\023\n\013peers"
-    "_count\030\003 \001(\005\022\024\n\014msgs_per_sec\030\004 \001(\005\022\022\n\nkb"
-    "_per_sec\030\005 \001(\001\022\022\n\ntotal_msgs\030\006 \001(\003\022\022\n\nup"
-    "time_sec\030\007 \001(\003\022-\n\021connected_clients\030\010 \003("
-    "\0132\022.broker.ClientInfo\022\017\n\007cluster\030\t \001(\tB\003"
-    "\370\001\001b\006proto3"
+    " \001(\t\"I\n\nClientInfo\022\n\n\002id\030\001 \001(\t\022\025\n\rsubscr"
+    "iptions\030\002 \003(\t\022\030\n\020dropped_messages\030\003 \001(\004\""
+    "\365\001\n\013SystemStats\022\021\n\tbroker_id\030\001 \001(\t\022\025\n\rcl"
+    "ients_count\030\002 \001(\005\022\023\n\013peers_count\030\003 \001(\005\022\024"
+    "\n\014msgs_per_sec\030\004 \001(\005\022\022\n\nkb_per_sec\030\005 \001(\001"
+    "\022\022\n\ntotal_msgs\030\006 \001(\003\022\022\n\nuptime_sec\030\007 \001(\003"
+    "\022-\n\021connected_clients\030\010 \003(\0132\022.broker.Cli"
+    "entInfo\022\017\n\007cluster\030\t \001(\t\022\025\n\rtotal_droppe"
+    "d\030\n \001(\004B\003\370\001\001b\006proto3"
 };
 static ::absl::once_flag descriptor_table_broker_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_broker_2eproto = {
     false,
     false,
-    451,
+    500,
     descriptor_table_protodef_broker_2eproto,
     "broker.proto",
     &descriptor_table_broker_2eproto_once,
@@ -736,6 +743,7 @@ ClientInfo::ClientInfo(
   _internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(
       from._internal_metadata_);
   new (&_impl_) Impl_(internal_visibility(), arena, from._impl_, from);
+  _impl_.dropped_messages_ = from._impl_.dropped_messages_;
 
   // @@protoc_insertion_point(copy_constructor:broker.ClientInfo)
 }
@@ -748,6 +756,7 @@ PROTOBUF_NDEBUG_INLINE ClientInfo::Impl_::Impl_(
 
 inline void ClientInfo::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
+  _impl_.dropped_messages_ = {};
 }
 ClientInfo::~ClientInfo() {
   // @@protoc_insertion_point(destructor:broker.ClientInfo)
@@ -816,16 +825,16 @@ ClientInfo::GetClassData() const {
   return ClientInfo_class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<1, 2, 0, 41, 2>
+const ::_pbi::TcParseTable<2, 3, 0, 41, 2>
 ClientInfo::_table_ = {
   {
     PROTOBUF_FIELD_OFFSET(ClientInfo, _impl_._has_bits_),
     0, // no _extensions_
-    2, 8,  // max_field_number, fast_idx_mask
+    3, 24,  // max_field_number, fast_idx_mask
     offsetof(decltype(_table_), field_lookup_table),
-    4294967292,  // skipmap
+    4294967288,  // skipmap
     offsetof(decltype(_table_), field_entries),
-    2,  // num_field_entries
+    3,  // num_field_entries
     0,  // num_aux_entries
     offsetof(decltype(_table_), field_names),  // no aux_entries
     ClientInfo_class_data_.base(),
@@ -835,12 +844,16 @@ ClientInfo::_table_ = {
     ::_pbi::TcParser::GetTable<::broker::ClientInfo>(),  // to_prefetch
     #endif  // PROTOBUF_PREFETCH_PARSE_TABLE
   }, {{
-    // repeated string subscriptions = 2;
-    {::_pbi::TcParser::FastUR1,
-     {18, 63, 0, PROTOBUF_FIELD_OFFSET(ClientInfo, _impl_.subscriptions_)}},
+    {::_pbi::TcParser::MiniParse, {}},
     // string id = 1;
     {::_pbi::TcParser::FastUS1,
      {10, 0, 0, PROTOBUF_FIELD_OFFSET(ClientInfo, _impl_.id_)}},
+    // repeated string subscriptions = 2;
+    {::_pbi::TcParser::FastUR1,
+     {18, 63, 0, PROTOBUF_FIELD_OFFSET(ClientInfo, _impl_.subscriptions_)}},
+    // uint64 dropped_messages = 3;
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(ClientInfo, _impl_.dropped_messages_), 1>(),
+     {24, 1, 0, PROTOBUF_FIELD_OFFSET(ClientInfo, _impl_.dropped_messages_)}},
   }}, {{
     65535, 65535
   }}, {{
@@ -850,6 +863,9 @@ ClientInfo::_table_ = {
     // repeated string subscriptions = 2;
     {PROTOBUF_FIELD_OFFSET(ClientInfo, _impl_.subscriptions_), -1, 0,
     (0 | ::_fl::kFcRepeated | ::_fl::kUtf8String | ::_fl::kRepSString)},
+    // uint64 dropped_messages = 3;
+    {PROTOBUF_FIELD_OFFSET(ClientInfo, _impl_.dropped_messages_), _Internal::kHasBitsOffset + 1, 0,
+    (0 | ::_fl::kFcOptional | ::_fl::kUInt64)},
   }},
   // no aux_entries
   {{
@@ -871,6 +887,7 @@ PROTOBUF_NOINLINE void ClientInfo::Clear() {
   if ((cached_has_bits & 0x00000001u) != 0) {
     _impl_.id_.ClearNonDefaultToEmpty();
   }
+  _impl_.dropped_messages_ = ::uint64_t{0u};
   _impl_._has_bits_.Clear();
   _internal_metadata_.Clear<::google::protobuf::UnknownFieldSet>();
 }
@@ -908,6 +925,15 @@ PROTOBUF_NOINLINE void ClientInfo::Clear() {
     target = stream->WriteString(2, s, target);
   }
 
+  // uint64 dropped_messages = 3;
+  if ((this_._impl_._has_bits_[0] & 0x00000002u) != 0) {
+    if (this_._internal_dropped_messages() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteUInt64ToArray(
+          3, this_._internal_dropped_messages(), target);
+    }
+  }
+
   if (ABSL_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
     target =
         ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
@@ -943,13 +969,20 @@ PROTOBUF_NOINLINE void ClientInfo::Clear() {
       }
     }
   }
-   {
+  cached_has_bits = this_._impl_._has_bits_[0];
+  if ((cached_has_bits & 0x00000003u) != 0) {
     // string id = 1;
-    cached_has_bits = this_._impl_._has_bits_[0];
     if ((cached_has_bits & 0x00000001u) != 0) {
       if (!this_._internal_id().empty()) {
         total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
                                         this_._internal_id());
+      }
+    }
+    // uint64 dropped_messages = 3;
+    if ((cached_has_bits & 0x00000002u) != 0) {
+      if (this_._internal_dropped_messages() != 0) {
+        total_size += ::_pbi::WireFormatLite::UInt64SizePlusOne(
+            this_._internal_dropped_messages());
       }
     }
   }
@@ -967,12 +1000,19 @@ void ClientInfo::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
 
   _this->_internal_mutable_subscriptions()->MergeFrom(from._internal_subscriptions());
   cached_has_bits = from._impl_._has_bits_[0];
-  if ((cached_has_bits & 0x00000001u) != 0) {
-    if (!from._internal_id().empty()) {
-      _this->_internal_set_id(from._internal_id());
-    } else {
-      if (_this->_impl_.id_.IsDefault()) {
-        _this->_internal_set_id("");
+  if ((cached_has_bits & 0x00000003u) != 0) {
+    if ((cached_has_bits & 0x00000001u) != 0) {
+      if (!from._internal_id().empty()) {
+        _this->_internal_set_id(from._internal_id());
+      } else {
+        if (_this->_impl_.id_.IsDefault()) {
+          _this->_internal_set_id("");
+        }
+      }
+    }
+    if ((cached_has_bits & 0x00000002u) != 0) {
+      if (from._internal_dropped_messages() != 0) {
+        _this->_impl_.dropped_messages_ = from._impl_.dropped_messages_;
       }
     }
   }
@@ -996,6 +1036,7 @@ void ClientInfo::InternalSwap(ClientInfo* PROTOBUF_RESTRICT PROTOBUF_NONNULL oth
   swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
   _impl_.subscriptions_.InternalSwap(&other->_impl_.subscriptions_);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.id_, &other->_impl_.id_, arena);
+  swap(_impl_.dropped_messages_, other->_impl_.dropped_messages_);
 }
 
 ::google::protobuf::Metadata ClientInfo::GetMetadata() const {
@@ -1138,16 +1179,16 @@ SystemStats::GetClassData() const {
   return SystemStats_class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<4, 9, 1, 51, 2>
+const ::_pbi::TcParseTable<4, 10, 1, 51, 2>
 SystemStats::_table_ = {
   {
     PROTOBUF_FIELD_OFFSET(SystemStats, _impl_._has_bits_),
     0, // no _extensions_
-    9, 120,  // max_field_number, fast_idx_mask
+    10, 120,  // max_field_number, fast_idx_mask
     offsetof(decltype(_table_), field_lookup_table),
-    4294966784,  // skipmap
+    4294966272,  // skipmap
     offsetof(decltype(_table_), field_entries),
-    9,  // num_field_entries
+    10,  // num_field_entries
     1,  // num_aux_entries
     offsetof(decltype(_table_), aux_entries),
     SystemStats_class_data_.base(),
@@ -1168,8 +1209,8 @@ SystemStats::_table_ = {
     {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.peers_count_), 3>(),
      {24, 3, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_)}},
     // int32 msgs_per_sec = 4;
-    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.msgs_per_sec_), 7>(),
-     {32, 7, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.msgs_per_sec_), 8>(),
+     {32, 8, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_)}},
     // double kb_per_sec = 5;
     {::_pbi::TcParser::FastF64S1,
      {41, 4, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_)}},
@@ -1185,7 +1226,9 @@ SystemStats::_table_ = {
     // string cluster = 9;
     {::_pbi::TcParser::FastUS1,
      {74, 1, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.cluster_)}},
-    {::_pbi::TcParser::MiniParse, {}},
+    // uint64 total_dropped = 10;
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(SystemStats, _impl_.total_dropped_), 7>(),
+     {80, 7, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_dropped_)}},
     {::_pbi::TcParser::MiniParse, {}},
     {::_pbi::TcParser::MiniParse, {}},
     {::_pbi::TcParser::MiniParse, {}},
@@ -1204,7 +1247,7 @@ SystemStats::_table_ = {
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_), _Internal::kHasBitsOffset + 3, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
     // int32 msgs_per_sec = 4;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_), _Internal::kHasBitsOffset + 7, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_), _Internal::kHasBitsOffset + 8, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
     // double kb_per_sec = 5;
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_), _Internal::kHasBitsOffset + 4, 0,
@@ -1221,6 +1264,9 @@ SystemStats::_table_ = {
     // string cluster = 9;
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.cluster_), _Internal::kHasBitsOffset + 1, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+    // uint64 total_dropped = 10;
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_dropped_), _Internal::kHasBitsOffset + 7, 0,
+    (0 | ::_fl::kFcOptional | ::_fl::kUInt64)},
   }},
   {{
       {::_pbi::TcParser::GetTable<::broker::ClientInfo>()},
@@ -1251,9 +1297,10 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
   if ((cached_has_bits & 0x000000fcu) != 0) {
     ::memset(&_impl_.clients_count_, 0, static_cast<::size_t>(
-        reinterpret_cast<char*>(&_impl_.msgs_per_sec_) -
-        reinterpret_cast<char*>(&_impl_.clients_count_)) + sizeof(_impl_.msgs_per_sec_));
+        reinterpret_cast<char*>(&_impl_.total_dropped_) -
+        reinterpret_cast<char*>(&_impl_.clients_count_)) + sizeof(_impl_.total_dropped_));
   }
+  _impl_.msgs_per_sec_ = 0;
   _impl_._has_bits_.Clear();
   _internal_metadata_.Clear<::google::protobuf::UnknownFieldSet>();
 }
@@ -1302,7 +1349,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // int32 msgs_per_sec = 4;
-  if ((this_._impl_._has_bits_[0] & 0x00000080u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000100u) != 0) {
     if (this_._internal_msgs_per_sec() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<4>(
@@ -1355,6 +1402,15 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
       ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
           _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "broker.SystemStats.cluster");
       target = stream->WriteStringMaybeAliased(9, _s, target);
+    }
+  }
+
+  // uint64 total_dropped = 10;
+  if ((this_._impl_._has_bits_[0] & 0x00000080u) != 0) {
+    if (this_._internal_total_dropped() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteUInt64ToArray(
+          10, this_._internal_total_dropped(), target);
     }
   }
 
@@ -1441,8 +1497,17 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
             this_._internal_uptime_sec());
       }
     }
-    // int32 msgs_per_sec = 4;
+    // uint64 total_dropped = 10;
     if ((cached_has_bits & 0x00000080u) != 0) {
+      if (this_._internal_total_dropped() != 0) {
+        total_size += ::_pbi::WireFormatLite::UInt64SizePlusOne(
+            this_._internal_total_dropped());
+      }
+    }
+  }
+   {
+    // int32 msgs_per_sec = 4;
+    if ((cached_has_bits & 0x00000100u) != 0) {
       if (this_._internal_msgs_per_sec() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_msgs_per_sec());
@@ -1509,9 +1574,14 @@ void SystemStats::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goo
       }
     }
     if ((cached_has_bits & 0x00000080u) != 0) {
-      if (from._internal_msgs_per_sec() != 0) {
-        _this->_impl_.msgs_per_sec_ = from._impl_.msgs_per_sec_;
+      if (from._internal_total_dropped() != 0) {
+        _this->_impl_.total_dropped_ = from._impl_.total_dropped_;
       }
+    }
+  }
+  if ((cached_has_bits & 0x00000100u) != 0) {
+    if (from._internal_msgs_per_sec() != 0) {
+      _this->_impl_.msgs_per_sec_ = from._impl_.msgs_per_sec_;
     }
   }
   _this->_impl_._has_bits_[0] |= cached_has_bits;

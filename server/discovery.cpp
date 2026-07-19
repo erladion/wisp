@@ -28,6 +28,10 @@ BrokerDiscovery::~BrokerDiscovery() {
   stop();
 }
 
+bool BrokerDiscovery::isValidClusterName(const std::string& cluster) {
+  return !cluster.empty() && cluster.size() <= 64 && cluster.find('|') == std::string::npos;
+}
+
 std::string BrokerDiscovery::encodeBeacon(const std::string& cluster, const std::string& uuid, std::uint16_t routerPort) {
   return std::string(kMagic) + "|" + kVersion + "|" + cluster + "|" + uuid + "|" + std::to_string(routerPort);
 }

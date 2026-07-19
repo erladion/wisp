@@ -52,6 +52,10 @@ public:
     std::uint16_t routerPort = 0;
   };
 
+  // A usable cluster name: 1-64 bytes without '|' (the beacon field
+  // separator); the cap keeps beacons well inside the 512-byte read buffer.
+  static bool isValidClusterName(const std::string& cluster);
+
   // Wire form: "WISP|1|<cluster>|<uuid>|<port>" (cluster must not contain '|').
   static std::string encodeBeacon(const std::string& cluster, const std::string& uuid, std::uint16_t routerPort);
   static bool decodeBeacon(const char* data, std::size_t size, Beacon& out);

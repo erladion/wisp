@@ -22,6 +22,9 @@
 struct ClientState {
   std::string identity; // ZMQ Routing ID
   std::chrono::steady_clock::time_point lastSeen;
+  // Deliveries this client refused (full pipe / unroutable) since it
+  // connected; surfaced in SystemStats so a lagging client is visible.
+  uint64_t droppedMessages = 0;
 };
 
 // A message uuid reduced to 128 bits for dedup: binary uuids are used as-is,
@@ -86,7 +89,6 @@ private:
 };
 
 class ZmqBroker {
-  const std::chrono::seconds ClientTimeout{10};
   const size_t MaxHistorySize{10000};
   // Max envelopes drained from the client socket per poll wakeup, so a
   // sustained burst can't starve zombie cleanup and stats.
@@ -96,7 +98,10 @@ class ZmqBroker {
   static constexpr size_t DedupSetCapacity = 32768;
 
 public:
-  ZmqBroker();
+  // clientTimeout: silence after which a client is forgotten (its next message
+  // is then treated as an unknown session). Injectable so tests can run the
+  // zombie/recovery cycle in milliseconds instead of the 10 s default.
+  explicit ZmqBroker(std::chrono::milliseconds clientTimeout = std::chrono::seconds(10));
   ~ZmqBroker();
 
   void start(const std::vector<std::string> &bindAddresses);
@@ -128,6 +133,11 @@ private:
   std::atomic<bool> m_running;
   std::thread m_brokerThread;
   zmq::context_t m_context;
+
+  // Zombie detection: clients silent longer than m_clientTimeout are dropped,
+  // checked every m_cleanupInterval (derived from the timeout in the ctor).
+  const std::chrono::milliseconds m_clientTimeout;
+  const std::chrono::milliseconds m_cleanupInterval;
 
   std::string m_brokerId;
 
@@ -166,6 +176,7 @@ private:
 
   uint64_t m_totalMessages = 0;
   uint64_t m_totalBytes = 0;
+  uint64_t m_totalDropped = 0;
 
   // Interval counters (reset every second)
   uint64_t m_msgsInterval = 0;

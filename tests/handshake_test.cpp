@@ -116,6 +116,15 @@ TEST(HandshakeTest, UnknownSessionPublishIsRoutedAndDrawsReset) {
   }
 
   ASSERT_TRUE(got) << "A publish from an unknown session was not routed - the first envelope is still being sacrificed";
+
+  // The publish can round-trip faster than the RESET reply under load; the
+  // RESET is guaranteed sent, so give it a bounded grace to arrive.
+  for (int attempt = 0; attempt < 20 && !gotReset; ++attempt) {
+    Envelope fromBroker;
+    if (wire::recv(dealer, fromBroker, zmq::recv_flags::none) && fromBroker.header.handler_key() == Keys::RESET) {
+      gotReset = true;
+    }
+  }
   EXPECT_TRUE(gotReset) << "The unknown session was never told to rebuild via __RESET__";
 
   subscriber.stop();

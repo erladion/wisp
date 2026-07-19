@@ -90,6 +90,8 @@ void MainWindow::onNewPacket(const InspectorPacket& packet) {
       m_pMsgsSecLabel->setText(QString("Msgs/sec: %1").arg(statsMsg.msgs_per_sec()));
       m_pKbSecLabel->setText(QString("KB/sec: %1").arg(statsMsg.kb_per_sec(), 0, 'f', 2));
       m_pTotalMsgsLabel->setText(QString("Total Msgs: %1").arg(statsMsg.total_msgs()));
+      m_pDroppedLabel->setText(QString("Dropped: %1").arg(statsMsg.total_dropped()));
+      m_pDroppedLabel->setStyleSheet(statsMsg.total_dropped() > 0 ? "color: #e74c3c; font-weight: bold;" : "");
     }
   }
 }
@@ -191,6 +193,7 @@ void MainWindow::setupSysStatsView() {
   m_pMsgsSecLabel = new QLabel("Msgs/sec: 0");
   m_pKbSecLabel = new QLabel("KB/sec: 0.00");
   m_pTotalMsgsLabel = new QLabel("Total Msgs: 0");
+  m_pDroppedLabel = new QLabel("Dropped: 0");
 
   QFont boldFont("Monospace", 10, QFont::Bold);
   m_pBrokerIdLabel->setFont(boldFont);
@@ -215,6 +218,7 @@ void MainWindow::setupSysStatsView() {
   layout->addWidget(m_pMsgsSecLabel);
   layout->addWidget(m_pKbSecLabel);
   layout->addWidget(m_pTotalMsgsLabel);
+  layout->addWidget(m_pDroppedLabel);
 
   layout->addStretch();
 

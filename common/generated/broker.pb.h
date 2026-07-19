@@ -504,6 +504,7 @@ class ClientInfo final : public ::google::protobuf::Message
   enum : int {
     kSubscriptionsFieldNumber = 2,
     kIdFieldNumber = 1,
+    kDroppedMessagesFieldNumber = 3,
   };
   // repeated string subscriptions = 2;
   int subscriptions_size() const;
@@ -542,11 +543,21 @@ class ClientInfo final : public ::google::protobuf::Message
   ::std::string* PROTOBUF_NONNULL _internal_mutable_id();
 
   public:
+  // uint64 dropped_messages = 3;
+  void clear_dropped_messages() ;
+  ::uint64_t dropped_messages() const;
+  void set_dropped_messages(::uint64_t value);
+
+  private:
+  ::uint64_t _internal_dropped_messages() const;
+  void _internal_set_dropped_messages(::uint64_t value);
+
+  public:
   // @@protoc_insertion_point(class_scope:broker.ClientInfo)
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
-  static const ::google::protobuf::internal::TcParseTable<1, 2,
+  static const ::google::protobuf::internal::TcParseTable<2, 3,
                                    0, 41,
                                    2>
       _table_;
@@ -570,6 +581,7 @@ class ClientInfo final : public ::google::protobuf::Message
     ::google::protobuf::internal::CachedSize _cached_size_;
     ::google::protobuf::RepeatedPtrField<::std::string> subscriptions_;
     ::google::protobuf::internal::ArenaStringPtr id_;
+    ::uint64_t dropped_messages_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -730,6 +742,7 @@ class SystemStats final : public ::google::protobuf::Message
     kKbPerSecFieldNumber = 5,
     kTotalMsgsFieldNumber = 6,
     kUptimeSecFieldNumber = 7,
+    kTotalDroppedFieldNumber = 10,
     kMsgsPerSecFieldNumber = 4,
   };
   // repeated .broker.ClientInfo connected_clients = 8;
@@ -829,6 +842,16 @@ class SystemStats final : public ::google::protobuf::Message
   void _internal_set_uptime_sec(::int64_t value);
 
   public:
+  // uint64 total_dropped = 10;
+  void clear_total_dropped() ;
+  ::uint64_t total_dropped() const;
+  void set_total_dropped(::uint64_t value);
+
+  private:
+  ::uint64_t _internal_total_dropped() const;
+  void _internal_set_total_dropped(::uint64_t value);
+
+  public:
   // int32 msgs_per_sec = 4;
   void clear_msgs_per_sec() ;
   ::int32_t msgs_per_sec() const;
@@ -843,7 +866,7 @@ class SystemStats final : public ::google::protobuf::Message
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
-  static const ::google::protobuf::internal::TcParseTable<4, 9,
+  static const ::google::protobuf::internal::TcParseTable<4, 10,
                                    1, 51,
                                    2>
       _table_;
@@ -873,6 +896,7 @@ class SystemStats final : public ::google::protobuf::Message
     double kb_per_sec_;
     ::int64_t total_msgs_;
     ::int64_t uptime_sec_;
+    ::uint64_t total_dropped_;
     ::int32_t msgs_per_sec_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
@@ -1421,6 +1445,30 @@ ClientInfo::_internal_mutable_subscriptions() {
   return &_impl_.subscriptions_;
 }
 
+// uint64 dropped_messages = 3;
+inline void ClientInfo::clear_dropped_messages() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.dropped_messages_ = ::uint64_t{0u};
+  _impl_._has_bits_[0] &= ~0x00000002u;
+}
+inline ::uint64_t ClientInfo::dropped_messages() const {
+  // @@protoc_insertion_point(field_get:broker.ClientInfo.dropped_messages)
+  return _internal_dropped_messages();
+}
+inline void ClientInfo::set_dropped_messages(::uint64_t value) {
+  _internal_set_dropped_messages(value);
+  _impl_._has_bits_[0] |= 0x00000002u;
+  // @@protoc_insertion_point(field_set:broker.ClientInfo.dropped_messages)
+}
+inline ::uint64_t ClientInfo::_internal_dropped_messages() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.dropped_messages_;
+}
+inline void ClientInfo::_internal_set_dropped_messages(::uint64_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.dropped_messages_ = value;
+}
+
 // -------------------------------------------------------------------
 
 // SystemStats
@@ -1542,7 +1590,7 @@ inline void SystemStats::_internal_set_peers_count(::int32_t value) {
 inline void SystemStats::clear_msgs_per_sec() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.msgs_per_sec_ = 0;
-  _impl_._has_bits_[0] &= ~0x00000080u;
+  _impl_._has_bits_[0] &= ~0x00000100u;
 }
 inline ::int32_t SystemStats::msgs_per_sec() const {
   // @@protoc_insertion_point(field_get:broker.SystemStats.msgs_per_sec)
@@ -1550,7 +1598,7 @@ inline ::int32_t SystemStats::msgs_per_sec() const {
 }
 inline void SystemStats::set_msgs_per_sec(::int32_t value) {
   _internal_set_msgs_per_sec(value);
-  _impl_._has_bits_[0] |= 0x00000080u;
+  _impl_._has_bits_[0] |= 0x00000100u;
   // @@protoc_insertion_point(field_set:broker.SystemStats.msgs_per_sec)
 }
 inline ::int32_t SystemStats::_internal_msgs_per_sec() const {
@@ -1747,6 +1795,30 @@ inline void SystemStats::set_allocated_cluster(::std::string* PROTOBUF_NULLABLE 
     _impl_.cluster_.Set("", GetArena());
   }
   // @@protoc_insertion_point(field_set_allocated:broker.SystemStats.cluster)
+}
+
+// uint64 total_dropped = 10;
+inline void SystemStats::clear_total_dropped() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.total_dropped_ = ::uint64_t{0u};
+  _impl_._has_bits_[0] &= ~0x00000080u;
+}
+inline ::uint64_t SystemStats::total_dropped() const {
+  // @@protoc_insertion_point(field_get:broker.SystemStats.total_dropped)
+  return _internal_total_dropped();
+}
+inline void SystemStats::set_total_dropped(::uint64_t value) {
+  _internal_set_total_dropped(value);
+  _impl_._has_bits_[0] |= 0x00000080u;
+  // @@protoc_insertion_point(field_set:broker.SystemStats.total_dropped)
+}
+inline ::uint64_t SystemStats::_internal_total_dropped() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.total_dropped_;
+}
+inline void SystemStats::_internal_set_total_dropped(::uint64_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.total_dropped_ = value;
 }
 
 #ifdef __GNUC__
