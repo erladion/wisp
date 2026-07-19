@@ -395,7 +395,7 @@ private:
 
   void performRegistration(const std::string& key, MessageCallback callback, void* instance);
   void performUnregistration(const std::string& key, void* instance);
-  Envelope createControlEnvelope(const std::string_view& controlKey, const std::string& topic);
+  Envelope createControlEnvelope(const std::string& controlKey, const std::string& topic);
 
 private:
   static std::shared_ptr<ConnectionManager> m_instance;

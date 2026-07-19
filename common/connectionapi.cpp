@@ -194,7 +194,8 @@ void registerCallback(const char* topic, Message_Callback callback, void* userDa
   }
 }
 
-static_assert(WISP_LOG_DEBUG == Logger::DEBUG && WISP_LOG_INFO == Logger::INFO && WISP_LOG_WARNING == Logger::WARNING && WISP_LOG_ERROR == Logger::ERROR,
+static_assert(int(WISP_LOG_DEBUG) == int(Logger::DEBUG) && int(WISP_LOG_INFO) == int(Logger::INFO) && int(WISP_LOG_WARNING) == int(Logger::WARNING) &&
+                  int(WISP_LOG_ERROR) == int(Logger::ERROR),
               "Wisp_Log_Level must mirror Logger::Level - setLogLevel and the handler pass values through numerically");
 
 void setLogLevel(int level) {

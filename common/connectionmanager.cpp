@@ -429,7 +429,7 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
   }
 }
 
-Envelope ConnectionManager::createControlEnvelope(const std::string_view& controlKey, const std::string& topic) {
+Envelope ConnectionManager::createControlEnvelope(const std::string& controlKey, const std::string& topic) {
   Envelope msg;
   msg.header.set_handler_key(controlKey);
   msg.header.set_sender_id(m_clientId);
