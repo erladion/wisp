@@ -27,6 +27,7 @@ set(BROKER_TEST_SOURCES
   reply_to_sender_context_test.cpp
   request_reply_test.cpp
   safequeue_test.cpp
+  polling_adapter_test.cpp
   session_recovery_test.cpp
   stats_test.cpp
   shutdown_test.cpp
@@ -46,6 +47,7 @@ target_include_directories(broker_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(broker_tests PRIVATE
   GTest::gtest_main
   WispBroker
+  WispPolling
   WispCore
   zmq
 )
@@ -88,6 +90,7 @@ target_include_directories(throughput_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(throughput_bench PRIVATE
   WispBroker
+  WispPolling
   WispCore
   zmq
 )

@@ -47,6 +47,7 @@ include_directories(common)
 
 add_subdirectory(common)
 add_subdirectory(server)
+add_subdirectory(bindings/polling)
 
 # Everything below needs Qt; the broker and client library do not. A Qt-less
 # machine still builds and installs the full server-side deliverables.

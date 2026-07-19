@@ -24,6 +24,7 @@ Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. E
 | `server/` | The broker — topic routing, pub/sub, request/reply, auto-meshing |
 | `common/` | Client library: `ConnectionManager` (C++) plus a C ABI (`connectionapi.h`) |
 | `bindings/qt/` | Optional Qt binding (`QtConnectionAdapter`) |
+| `bindings/polling/` | Frame-loop adapter (`wisp::MessagePoller`) for immediate-mode UIs and game loops |
 | `inspector/` | Qt GUI that taps and displays live broker traffic |
 | `examples/` | Small demo clients exercising the C++ API |
 
