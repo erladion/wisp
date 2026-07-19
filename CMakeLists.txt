@@ -29,6 +29,20 @@ if (NOT ZeroMQ_FOUND)
     pkg_check_modules(ZeroMQ REQUIRED libzmq)
 endif()
 
+# cppzmq is header-only and vendored in third_party/cppzmq, so every machine
+# compiles against the same version rather than whatever the distro ships
+# (which differs: Ubuntu's libzmq3-dev carries 4.8.1, we vendor 4.11.0).
+# libzmq itself still comes from the system. Anything linking wisp_cppzmq gets
+# the vendored headers ahead of /usr/include.
+option(WISP_USE_SYSTEM_CPPZMQ "Use the system cppzmq headers instead of the vendored copy" OFF)
+add_library(wisp_cppzmq INTERFACE)
+if (WISP_USE_SYSTEM_CPPZMQ)
+    message(STATUS "cppzmq: using the system headers")
+else()
+    target_include_directories(wisp_cppzmq INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cppzmq)
+    message(STATUS "cppzmq: using the vendored copy in third_party/cppzmq")
+endif()
+
 include_directories(common)
 
 add_subdirectory(common)
@@ -61,7 +75,7 @@ endif()
 # header (what the language bindings build against). client1/client2 are
 # throwaway test apps and deliberately not installed.
 include(GNUInstallDirs)
-install(TARGETS server wisp
+install(TARGETS wisp-broker wisp
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

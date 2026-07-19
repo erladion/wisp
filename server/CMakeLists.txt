@@ -12,11 +12,11 @@ target_link_libraries(WispBroker PUBLIC
     zmq
 )
 
-add_executable(server
+add_executable(wisp-broker
   main.cpp
 )
 
-target_link_libraries(server
+target_link_libraries(wisp-broker
     zmq
     WispBroker
 )

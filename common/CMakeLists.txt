@@ -60,8 +60,11 @@ add_library(WispCore STATIC
 
 target_include_directories(WispCore PUBLIC ${PROTO_GEN_DIR})
 
+# wisp_cppzmq is PUBLIC so the vendored zmq.hpp reaches everything that
+# includes wireframe.h through this library (broker, inspector, tests).
 target_link_libraries(WispCore PUBLIC
     zmq
+    wisp_cppzmq
     protobuf::libprotobuf
 )
 

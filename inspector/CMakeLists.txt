@@ -1,4 +1,4 @@
-add_executable(inspector
+add_executable(wisp-inspector
   main.cpp
   datamodel.h
   inspectorworker.h
@@ -13,7 +13,7 @@ add_executable(inspector
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Gui)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Gui)
 
-target_link_libraries(inspector
+target_link_libraries(wisp-inspector
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Widgets
