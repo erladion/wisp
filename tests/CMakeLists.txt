@@ -34,7 +34,7 @@ set(BROKER_TEST_SOURCES
 )
 
 # Only exercise the C bindings when they were actually built (libprotobuf-c present).
-if (TARGET ZmqLibC)
+if (TARGET WispCoreC)
   list(APPEND BROKER_TEST_SOURCES c_bindings_test.cpp)
 endif()
 
@@ -44,13 +44,13 @@ target_include_directories(broker_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(broker_tests PRIVATE
   GTest::gtest_main
-  BrokerLib
-  ZmqLib
+  WispBroker
+  WispCore
   zmq
 )
 
-if (TARGET ZmqLibC)
-  target_link_libraries(broker_tests PRIVATE ZmqLibC)
+if (TARGET WispCoreC)
+  target_link_libraries(broker_tests PRIVATE WispCoreC)
 endif()
 
 include(GoogleTest)
@@ -69,8 +69,8 @@ if (TARGET QtConnectionAdapter)
   target_link_libraries(qt_adapter_test PRIVATE
     GTest::gtest
     QtConnectionAdapter
-    BrokerLib
-    ZmqLib
+    WispBroker
+    WispCore
     zmq
   )
   gtest_discover_tests(qt_adapter_test)
@@ -86,7 +86,7 @@ add_executable(throughput_bench
 target_include_directories(throughput_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(throughput_bench PRIVATE
-  BrokerLib
-  ZmqLib
+  WispBroker
+  WispCore
   zmq
 )

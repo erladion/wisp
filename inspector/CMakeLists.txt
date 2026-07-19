@@ -1,7 +1,5 @@
 add_executable(inspector
   main.cpp
-  ../zmq.hpp
-  ../zmq_addon.hpp
   datamodel.h
   inspectorworker.h
   inspectorworker.cpp
@@ -19,6 +17,6 @@ target_link_libraries(inspector
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Widgets
-    ZmqLib
+    WispCore
     zmq
 )

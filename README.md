@@ -25,16 +25,17 @@ Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. E
 | `common/` | Client library: `ConnectionManager` (C++) plus a C ABI (`connectionapi.h`) |
 | `bindings/qt/` | Optional Qt binding (`QtConnectionAdapter`) |
 | `inspector/` | Qt GUI that taps and displays live broker traffic |
+| `examples/` | Small demo clients exercising the C++ API |
 
 ## Build
 
 ```sh
 cmake -S . -B build
 cmake --build build
-./build/tests/broker_tests      # run the test suite
+ctest --test-dir build          # run the test suite
 ```
 
-Requires a C++17 compiler, ZeroMQ, and Protocol Buffers. Qt is optional — it enables the inspector, the Qt binding, and the demo clients; the broker and client library build without it. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given; `make install` ships the broker, `libwisp.so`, and `connectionapi.h`.
+Requires a C++17 compiler, ZeroMQ with the cppzmq headers (Debian/Ubuntu ship them in `libzmq3-dev`), and Protocol Buffers. Qt is optional — it enables the inspector, the Qt binding, and the demo clients; the broker and client library build without it. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given; `make install` ships the broker, `libwisp.so`, and `connectionapi.h`.
 
 ## Configuration
 

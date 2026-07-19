@@ -39,7 +39,7 @@ else()
     message(STATUS "protoc NOT found - using committed protobuf sources in ${PROTO_GEN_DIR}")
 endif()
 
-add_library(ZmqLib STATIC
+add_library(WispCore STATIC
     ${PROTO_GENERATED_SOURCES}
     ${PROTO_GENERATED_HEADERS}
     zmqworker.h
@@ -58,22 +58,22 @@ add_library(ZmqLib STATIC
     wireframe.h
 )
 
-target_include_directories(ZmqLib PUBLIC ${PROTO_GEN_DIR})
+target_include_directories(WispCore PUBLIC ${PROTO_GEN_DIR})
 
-target_link_libraries(ZmqLib PUBLIC
+target_link_libraries(WispCore PUBLIC
     zmq
     protobuf::libprotobuf
 )
 
-# PIC so ZmqLib's objects can be folded into the shared C ABI below.
-set_target_properties(ZmqLib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# PIC so WispCore's objects can be folded into the shared C ABI below.
+set_target_properties(WispCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # --- Shared C ABI (libwisp.so) -----------------------------------------------
 # The connectionapi.h ABI as a standalone shared library, for FFI consumers
 # (Python ctypes, Rust, C#, ...). Compiles connectionapi.cpp itself so the
-# ABI symbols are exported, and resolves the rest from ZmqLib.
+# ABI symbols are exported, and resolves the rest from WispCore.
 add_library(wisp SHARED connectionapi.cpp)
-target_link_libraries(wisp PRIVATE ZmqLib)
+target_link_libraries(wisp PRIVATE WispCore)
 target_compile_definitions(wisp PRIVATE BUILDING_DLL)
 
 # Export only the C ABI symbols; see libwisp.map. (On Windows the CONN_API
@@ -118,12 +118,12 @@ if (PROTOBUF_C_LIBRARY AND PROTOBUF_C_INCLUDE_DIR)
         message(STATUS "protoc-c NOT found - using committed C bindings in ${PROTO_C_GEN_DIR}")
     endif()
 
-    add_library(ZmqLibC STATIC
+    add_library(WispCoreC STATIC
         ${PROTO_C_SOURCES}
         ${PROTO_C_HEADERS}
     )
-    target_include_directories(ZmqLibC PUBLIC ${PROTO_C_GEN_DIR} ${PROTOBUF_C_INCLUDE_DIR})
-    target_link_libraries(ZmqLibC PUBLIC ${PROTOBUF_C_LIBRARY})
+    target_include_directories(WispCoreC PUBLIC ${PROTO_C_GEN_DIR} ${PROTOBUF_C_INCLUDE_DIR})
+    target_link_libraries(WispCoreC PUBLIC ${PROTOBUF_C_LIBRARY})
 else()
-    message(WARNING "libprotobuf-c not found - C bindings (ZmqLibC) will not be built")
+    message(WARNING "libprotobuf-c not found - C bindings (WispCoreC) will not be built")
 endif()
