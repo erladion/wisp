@@ -393,8 +393,18 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   }
   const std::string headerBytes = wire::encodeHeader(header);
 
-  // The inspector sees every message, control included. Forward the header and
-  // payload frames verbatim - the broker never parses the payload itself.
+  // Loop protection, checked before the tap: a message flooded into the mesh
+  // comes back from every peer link, and those echoes are dropped here - so
+  // the inspector shows each message once, as routed, not once per echo.
+  // Reserved keys skip the check so heartbeat/control chatter can't churn the
+  // dedup windows.
+  const bool isReserved = Keys::isReservedKey(header.handler_key());
+  if (!isReserved && isDuplicate(header.message_uuid())) {
+    return;
+  }
+
+  // The inspector sees every routed message, control included. Forward the
+  // header and payload frames verbatim - the broker never parses the payload.
   wire::sendFrames(inspectorSocket, headerBytes, payload);
 
   // Session bookkeeping and control keys apply to local clients only; a peer's
@@ -407,13 +417,8 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   // point means the dispatch above did not recognize the key - a message from
   // a newer (or misbehaving) node - so drop it rather than route it into
   // subscribers and peers as application traffic.
-  if (Keys::isReservedKey(header.handler_key())) {
+  if (isReserved) {
     return;
-  }
-
-  // Loop protection: drop a UUID we've already routed.
-  if (isDuplicate(header.message_uuid())) {
-    return;  // Drop it, we've seen it.
   }
 
   deliverToSubscribers(socket, header, headerBytes, payload, senderId, isFromPeer);
