@@ -105,6 +105,24 @@ std::uint16_t parseTcpPort(const std::vector<std::string>& addresses) {
 
 }  // namespace
 
+namespace BrokerInternal {
+
+std::string peerLinkId(const std::string& brokerId, const std::string& key) {
+  std::uint64_t hash = 14695981039346656037ULL;
+  for (const unsigned char c : key) {
+    hash = (hash ^ c) * 1099511628211ULL;
+  }
+
+  static const char hexChars[] = "0123456789abcdef";
+  std::string suffix(8, '0');
+  for (int i = 0; i < 8; ++i) {
+    suffix[i] = hexChars[(hash >> (60 - i * 4)) & 0xf];
+  }
+  return "BrokerLink-" + brokerId.substr(0, 8) + "-" + suffix;
+}
+
+}  // namespace BrokerInternal
+
 ZmqBroker::ZmqBroker(std::chrono::milliseconds clientTimeout)
     : m_running(false),
       m_context(1),
@@ -159,14 +177,14 @@ void ZmqBroker::stop() {
     m_brokerThread.join();
   }
 
-  std::unordered_map<std::string, std::unique_ptr<ZmqWorker>> peers;
+  std::unordered_map<std::string, PeerLink> peers;
   {
     std::lock_guard<std::mutex> lock(m_peersMutex);
     peers.swap(m_peers);
   }
   for (auto& [key, peer] : peers) {
-    disconnectPeerLink(*peer, m_brokerId);
-    peer->stop();
+    disconnectPeerLink(*peer.worker, m_brokerId);
+    peer.worker->stop();
   }
 }
 
@@ -509,7 +527,7 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
       // `header` is not touched after it was encoded above.
       const wire::WireMessagePtr fwd = wire::makeWireMessage(headerBytes, std::string(payload.data<char>(), payload.size()));
       for (auto& [key, peer] : m_peers) {
-        peer->writeEncoded(fwd);
+        peer.worker->writeEncoded(fwd);
       }
     }
   }
@@ -628,7 +646,7 @@ void ZmqBroker::setInspectorEndpoint(const std::string& endpoint) {
 void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) {
   ConnectionConfig config;
   config.address = peerAddress;
-  config.clientId = "BrokerLink-" + m_brokerId.substr(0, 8);
+  config.clientId = BrokerInternal::peerLinkId(m_brokerId, key);
 
   auto worker = std::make_unique<ZmqWorker>(config, nullptr, nullptr);
   ZmqWorker* link = worker.get();
@@ -671,8 +689,17 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
     if (m_peers.count(key)) {
       return;  // already linked; the unstarted worker is discarded here
     }
+    // The same broker can be reached under two keys - dialed manually by
+    // address, then discovered by uuid. Both would deliver the same traffic,
+    // which the remote's dedup would discard, so keep only the first link.
+    for (const auto& [existingKey, existing] : m_peers) {
+      if (existing.address == peerAddress) {
+        Logger::Log(Logger::INFO, "Already linked to " + peerAddress + " under key " + existingKey + "; ignoring the duplicate link");
+        return;
+      }
+    }
     worker->start();
-    m_peers.emplace(key, std::move(worker));
+    m_peers.emplace(key, PeerLink{peerAddress, std::move(worker)});
   }
   Logger::Log(Logger::INFO, "Connected to Peer: " + peerAddress);
 }
@@ -685,7 +712,7 @@ void ZmqBroker::removePeer(const std::string& key) {
     if (it == m_peers.end()) {
       return;
     }
-    worker = std::move(it->second);
+    worker = std::move(it->second.worker);
     m_peers.erase(it);
   }
   // Join the worker thread outside the lock so the flood loop isn't stalled.

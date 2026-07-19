@@ -88,6 +88,28 @@ private:
   size_t m_count;
 };
 
+// One link to a peer broker: the dialing worker plus the address it dialed.
+struct PeerLink {
+  std::string address;
+  std::unique_ptr<ZmqWorker> worker;
+};
+
+namespace BrokerInternal {
+
+/* The ZMQ routing id a peer link presents on the remote's ROUTER.
+
+   Derived from the peer key, not just this broker's id: the same remote can be
+   linked under two keys (dialed manually by address, then discovered by uuid),
+   and two links claiming one identity make the remote's ROUTER drop one of the
+   colliding sessions. Deriving it per link also means a redialed peer reclaims
+   its own session rather than adding a second one.
+
+   Declared here so it can be tested directly; it is not part of the broker's
+   public surface. */
+std::string peerLinkId(const std::string& brokerId, const std::string& key);
+
+}  // namespace BrokerInternal
+
 class ZmqBroker {
   const size_t MaxHistorySize{10000};
   // Max envelopes drained from the client socket per poll wakeup, so a
@@ -166,9 +188,10 @@ private:
   // Exception: peers can be added/removed by the owning thread (connectToPeer)
   // or the discovery thread while the broker thread floods messages to them,
   // hence the dedicated mutex. Keyed by peer uuid (discovered) or address
-  // (manual) so a link can be torn down individually.
+  // (manual) so a link can be torn down individually; the address is kept
+  // alongside so the same remote reached under two keys is only linked once.
   std::mutex m_peersMutex;
-  std::unordered_map<std::string, std::unique_ptr<ZmqWorker>> m_peers;
+  std::unordered_map<std::string, PeerLink> m_peers;
 
   SafeQueue<Envelope> m_peerInboundQueue;
 
