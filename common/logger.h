@@ -9,7 +9,54 @@
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 #include <string>
+
+namespace TimeFormat {
+
+// Wall-clock time as "HH:MM:SS.mmm", local time. Used for log lines and for
+// the inspector's per-packet timestamps.
+inline std::string hhmmssMillis(std::chrono::system_clock::time_point when) {
+  const auto time = std::chrono::system_clock::to_time_t(when);
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch()) % 1000;
+
+  std::ostringstream out;
+  out << std::put_time(std::localtime(&time), "%H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << ms.count();
+  return out.str();
+}
+
+inline std::string hhmmssMillisNow() {
+  return hhmmssMillis(std::chrono::system_clock::now());
+}
+
+}  // namespace TimeFormat
+
+/* Lets an event through at most once per interval.
+
+   Warning on every occurrence of a recurring condition would make logging the
+   bottleneck: each Log() call takes the logger mutex and flushes, so a peer
+   sending garbage (or a client outrunning its send pipe) could throttle the
+   whole loop. Callers keep their own counters and report the tally when a line
+   is due. Not thread-safe - one instance per thread.  */
+class LogThrottle {
+public:
+  explicit LogThrottle(std::chrono::seconds interval = std::chrono::seconds(5))
+      : m_interval(interval), m_lastFired(std::chrono::steady_clock::now() - interval) {}
+
+  // True at most once per interval; starts a fresh window when it returns true.
+  bool ready() {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - m_lastFired < m_interval) {
+      return false;
+    }
+    m_lastFired = now;
+    return true;
+  }
+
+private:
+  std::chrono::seconds m_interval;
+  std::chrono::steady_clock::time_point m_lastFired;
+};
 
 class Logger {
 public:
@@ -89,17 +136,12 @@ private:
 
   // Caller holds m_mutex.
   void writeDefault(Level level, const std::string& msg) {
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-
     std::ostream& out = (level == ERROR) ? std::cerr : std::cout;
 
-    // Save and restore the fill character - leaking a '0' fill into a shared
-    // stream corrupts any setw-formatted output the host program prints later.
-    const char previousFill = out.fill('0');
-    out << "[" << std::put_time(std::localtime(&time), "%H:%M:%S") << "." << std::setw(3) << ms.count() << "] ";
-    out.fill(previousFill);
+    // Formatted separately so no fill/width state leaks into the shared
+    // stream, which would corrupt setw-formatted output the host program
+    // prints later.
+    out << "[" << TimeFormat::hhmmssMillisNow() << "] ";
 
     switch (level) {
       case DEBUG:

@@ -54,11 +54,7 @@ void ConnectionManager::shutdown() {
       m_instance->m_statusCv.notify_all();
 
       if (m_instance->m_connected && m_instance->m_pWorker) {
-        Envelope byeMsg;
-        byeMsg.header.set_handler_key(Keys::DISCONNECT);
-        byeMsg.header.set_sender_id(m_instance->m_clientId);
-        byeMsg.header.set_topic("");
-        m_instance->m_pWorker->writeControlMessage(std::move(byeMsg));
+        m_instance->m_pWorker->writeControlMessage(m_instance->createControlEnvelope(Keys::DISCONNECT, ""));
       }
 
       tmp = m_instance;
@@ -418,11 +414,7 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
     m_msgHandlers.erase(it);
 
     if (m_connected) {
-      Envelope unsubMsg;
-      unsubMsg.header.set_handler_key(Keys::UNSUBSCRIBE);
-      unsubMsg.header.set_sender_id(m_clientId);
-      unsubMsg.header.set_topic(key);
-      sendRawEnvelope(std::move(unsubMsg));
+      sendRawEnvelope(createControlEnvelope(Keys::UNSUBSCRIBE, key));
     }
   } else {
     it->second = std::move(next);
@@ -430,9 +422,5 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
 }
 
 Envelope ConnectionManager::createControlEnvelope(const std::string& controlKey, const std::string& topic) {
-  Envelope msg;
-  msg.header.set_handler_key(controlKey);
-  msg.header.set_sender_id(m_clientId);
-  msg.header.set_topic(topic);
-  return msg;
+  return wire::makeControl(controlKey, m_clientId, topic);
 }

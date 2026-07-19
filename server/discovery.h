@@ -80,7 +80,6 @@ private:
 
   std::atomic<bool> m_running{false};
   std::thread m_thread;
-  int m_socket{-1};
 
   std::mutex m_mutex;
   std::unordered_map<std::string, PeerEntry> m_dialed;  // uuid -> link we initiated

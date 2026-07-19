@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include <zmq.hpp>
 
@@ -18,6 +19,23 @@ struct Envelope {
 };
 
 namespace wire {
+
+// Build a control message header (CONNECT, SUBSCRIBE, RESET, ...). Control
+// messages carry no payload, and the topic is only meaningful for the
+// (un)subscribe pair - the rest name it empty.
+inline broker::MessageHeader makeControlHeader(const std::string& handlerKey, const std::string& senderId, const std::string& topic = std::string()) {
+  broker::MessageHeader header;
+  header.set_handler_key(handlerKey);
+  header.set_sender_id(senderId);
+  header.set_topic(topic);
+  return header;
+}
+
+inline Envelope makeControl(const std::string& handlerKey, const std::string& senderId, const std::string& topic = std::string()) {
+  Envelope env;
+  env.header = makeControlHeader(handlerKey, senderId, topic);
+  return env;
+}
 
 // Wire-format id, carried as the first byte of the header frame so a receiver
 // knows how to decode the rest. Lets the header format be swapped - or two
@@ -99,41 +117,85 @@ inline void drainMultipart(zmq::socket_t& sock) {
   }
 }
 
-// Send an already-encoded header frame (+ payload frame if non-empty) on a socket
-// that does NOT prepend a routing-id frame (DEALER, PUB). Non-blocking. Returns
-// false if the header frame was refused (pipe full); once it is accepted ZMQ
-// guarantees the payload continuation frame, so the pair can't be torn apart.
-inline bool sendFrames(zmq::socket_t& sock, const std::string& headerFrame, const std::string& payload) {
-  zmq::message_t header(headerFrame.data(), headerFrame.size());
+namespace detail {
 
-  if (payload.empty()) {
-    return bool(sock.send(header, zmq::send_flags::dontwait));
-  }
-
-  if (!sock.send(header, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
-    return false;
-  }
-  zmq::message_t payloadFrame(payload.data(), payload.size());
-  return bool(sock.send(payloadFrame, zmq::send_flags::dontwait));
+// A payload frame may come from raw bytes (copied) or from an existing zmq
+// message (shared via reference counting, so fanning one payload out to N
+// recipients copies it zero times). The source is never consumed.
+inline std::size_t payloadSize(const std::string& payload) {
+  return payload.size();
 }
 
-// Same as above, but the payload frame shares `payload`'s bytes via zmq
-// reference counting instead of copying them. `payload` is not consumed; it
-// stays valid for further sends. Non-const because zmq_msg_copy updates the
-// source's shared-refcount bookkeeping.
-inline bool sendFrames(zmq::socket_t& sock, const std::string& headerFrame, zmq::message_t& payload) {
-  zmq::message_t header(headerFrame.data(), headerFrame.size());
+inline std::size_t payloadSize(const zmq::message_t& payload) {
+  return payload.size();
+}
 
-  if (payload.size() == 0) {
-    return bool(sock.send(header, zmq::send_flags::dontwait));
-  }
+inline zmq::message_t payloadFrame(const std::string& payload) {
+  return zmq::message_t(payload.data(), payload.size());
+}
 
-  if (!sock.send(header, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
+// Non-const because zmq_msg_copy updates the source's refcount bookkeeping.
+inline zmq::message_t payloadFrame(zmq::message_t& payload) {
+  zmq::message_t frame;
+  frame.copy(payload);
+  return frame;
+}
+
+}  // namespace detail
+
+/* Send an already-encoded header frame, plus a payload frame when non-empty,
+   as one multipart group.
+
+   `identity` prepends a routing-id frame for ROUTER sockets; pass nullptr for
+   sockets that carry none (DEALER, PUB). `payload` is either raw bytes or a
+   zmq::message_t whose bytes are shared rather than copied - see
+   detail::payloadFrame.
+
+   Non-blocking: a slow client with a full pipe must stall its own messages,
+   not the sending loop. False when the group was refused - a full pipe, or an
+   unroutable client under router_mandatory - so callers can count the drop;
+   delivery stays best-effort either way. The leading frame gates the send:
+   once zmq accepts it the continuation frames are guaranteed, so the group
+   can never be torn apart.  */
+template <typename Payload>
+bool sendFrames(zmq::socket_t& sock, const std::string* identity, const std::string& headerFrame, Payload&& payload) {
+  const bool hasPayload = detail::payloadSize(payload) > 0;
+
+  try {
+    if (identity) {
+      zmq::message_t identityFrame(identity->data(), identity->size());
+      if (!sock.send(identityFrame, zmq::send_flags::sndmore | zmq::send_flags::dontwait)) {
+        return false;
+      }
+    }
+
+    zmq::message_t header(headerFrame.data(), headerFrame.size());
+    const auto headerFlags = (hasPayload ? zmq::send_flags::sndmore : zmq::send_flags::none) | zmq::send_flags::dontwait;
+    if (!sock.send(header, headerFlags) && !identity) {
+      return false;
+    }
+
+    if (hasPayload) {
+      zmq::message_t frame = detail::payloadFrame(payload);
+      (void)sock.send(frame, zmq::send_flags::dontwait);
+    }
+    return true;
+  } catch (const zmq::error_t&) {
+    // Unroutable client under router_mandatory - the zombie cleanup handles it.
     return false;
   }
-  zmq::message_t payloadFrame;
-  payloadFrame.copy(payload);
-  return bool(sock.send(payloadFrame, zmq::send_flags::dontwait));
+}
+
+// Sockets that carry no routing-id frame (DEALER, PUB).
+template <typename Payload>
+bool sendFrames(zmq::socket_t& sock, const std::string& headerFrame, Payload&& payload) {
+  return sendFrames(sock, nullptr, headerFrame, std::forward<Payload>(payload));
+}
+
+// ROUTER sockets, which address the recipient with a leading identity frame.
+template <typename Payload>
+bool sendTo(zmq::socket_t& sock, const std::string& identity, const std::string& headerFrame, Payload&& payload) {
+  return sendFrames(sock, &identity, headerFrame, std::forward<Payload>(payload));
 }
 
 inline bool send(zmq::socket_t& sock, const broker::MessageHeader& header, const std::string& payload) {

@@ -22,7 +22,7 @@ ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboun
       m_wakePush(m_context, ZMQ_PUSH),
       m_isOnline(false),
       m_droppedSends(0),
-      m_lastDropLog(std::chrono::steady_clock::now() - std::chrono::seconds(5)) {}
+      m_dropLogThrottle() {}
 
 ZmqWorker::~ZmqWorker() {
   stop();
@@ -78,16 +78,13 @@ bool ZmqWorker::writeControlMessage(Envelope msg) {
 // A refused send means the pipe to the broker is full: the client is
 // publishing faster than the broker drains, or the broker is gone. Best-effort
 // delivery drops the message, but silence would leave the publisher with no
-// way to notice, so count every one and report periodically (per message would
-// let a flood turn logging into the bottleneck).
+// way to notice, so count every one and report periodically (see LogThrottle).
 void ZmqWorker::noteDroppedSend() {
   const std::uint64_t total = m_droppedSends.fetch_add(1, std::memory_order_relaxed) + 1;
 
-  const auto now = std::chrono::steady_clock::now();
-  if (now - m_lastDropLog < std::chrono::seconds(5)) {
+  if (!m_dropLogThrottle.ready()) {
     return;
   }
-  m_lastDropLog = now;
   Logger::Log(Logger::WARNING, "Client '" + m_config.clientId + "' dropped " + std::to_string(total) +
                                    " message(s) so far: the send pipe to the broker is full (publishing faster than it can be delivered)");
 }
@@ -121,11 +118,7 @@ void ZmqWorker::run() {
   // Lead with CONNECT before anything else on the socket: a session that
   // announces itself is registered silently, while any other first message
   // from an unknown identity draws a __RESET__ (see PROTOCOL.md, Sessions).
-  broker::MessageHeader hello;
-  hello.set_handler_key(Keys::CONNECT);
-  hello.set_sender_id(m_config.clientId);
-  hello.set_topic("");
-  (void)wire::send(socket, hello, std::string());
+  (void)wire::send(socket, wire::makeControlHeader(Keys::CONNECT, m_config.clientId), std::string());
 
   // Heartbeat cadence and offline detection come from the connection config;
   // non-positive values fall back to the defaults. The silence window must
@@ -253,10 +246,5 @@ void ZmqWorker::run() {
 }
 
 void ZmqWorker::sendHeartbeat(zmq::socket_t& socket) {
-  broker::MessageHeader hb;
-  hb.set_handler_key(Keys::HEARTBEAT);
-  hb.set_sender_id(m_config.clientId);
-  hb.set_topic("");
-
-  (void)wire::send(socket, hb, std::string());
+  (void)wire::send(socket, wire::makeControlHeader(Keys::HEARTBEAT, m_config.clientId), std::string());
 }

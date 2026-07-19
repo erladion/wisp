@@ -38,19 +38,11 @@ bool popWithTimeout(SafeQueue<T>& queue, T& out, std::chrono::milliseconds timeo
 // is required anymore. Kept because an extra CONNECT is a harmless keep-alive
 // and many tests still call it.
 inline void completeHandshake(ZmqWorker& worker, const std::string& clientId) {
-  Envelope connect;
-  connect.header.set_handler_key(Keys::CONNECT);
-  connect.header.set_sender_id(clientId);
-  connect.header.set_topic("");
-  worker.writeControlMessage(connect);
+  worker.writeControlMessage(wire::makeControl(Keys::CONNECT, clientId));
 }
 
 inline void subscribe(ZmqWorker& worker, const std::string& clientId, const std::string& topic) {
-  Envelope sub;
-  sub.header.set_handler_key(Keys::SUBSCRIBE);
-  sub.header.set_sender_id(clientId);
-  sub.header.set_topic(topic);
-  worker.writeControlMessage(sub);
+  worker.writeControlMessage(wire::makeControl(Keys::SUBSCRIBE, clientId, topic));
 }
 
 }  // namespace TestSupport

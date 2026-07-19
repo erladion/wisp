@@ -1,25 +1,8 @@
 #include "inspectorworker.h"
 
-#include <chrono>
-#include <iomanip>
-#include <sstream>
-
 #include "config.h"
 #include "logger.h"
 #include "wireframe.h"
-
-std::string getCurrentTimestamp() {
-  auto now = std::chrono::system_clock::now();
-  auto in_time_t = std::chrono::system_clock::to_time_t(now);
-
-  // Extract the millisecond fraction
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-
-  std::stringstream ss;
-  ss << std::put_time(std::localtime(&in_time_t), "%H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << ms.count();
-
-  return ss.str();
-}
 
 void InspectorWorker::run() {
   m_running = true;
@@ -49,7 +32,7 @@ void InspectorWorker::run() {
     std::size_t wireBytes = 0;
     if (wire::recv(inspector, env, zmq::recv_flags::none, &wireBytes)) {
       InspectorPacket p;
-      p.timestamp = getCurrentTimestamp();
+      p.timestamp = TimeFormat::hhmmssMillisNow();
       p.senderId = env.header.sender_id();
       p.key = env.header.handler_key();
       p.topic = env.header.topic();

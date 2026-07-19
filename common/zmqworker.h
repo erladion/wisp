@@ -9,6 +9,7 @@
 #include <zmq.hpp>
 
 #include "config.h"
+#include "logger.h"
 #include "safequeue.h"
 #include "wireframe.h"
 #include "workerinterface.h"
@@ -29,7 +30,7 @@ private:
   void run();
   void sendHeartbeat(zmq::socket_t& socket);
   void wake();
-  // Worker thread only (m_lastDropLog is unsynchronized).
+  // Worker thread only (m_dropLogThrottle is unsynchronized).
   void noteDroppedSend();
 
 private:
@@ -56,7 +57,7 @@ private:
 
   // Written by the worker thread, read by anyone (see droppedSends()).
   std::atomic<std::uint64_t> m_droppedSends;
-  std::chrono::steady_clock::time_point m_lastDropLog;
+  LogThrottle m_dropLogThrottle;
 };
 
 #endif  // ZMQWORKER_H

@@ -2,13 +2,6 @@
 
 #include "logger.h"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <cstring>
 #include <vector>
 
 BrokerDiscovery::BrokerDiscovery(std::string cluster, std::string selfUuid, std::uint16_t routerPort, std::uint16_t tapPort, std::uint16_t discoveryPort,
@@ -122,34 +115,11 @@ void BrokerDiscovery::stop() {
 }
 
 void BrokerDiscovery::run() {
-  m_socket = ::socket(AF_INET, SOCK_DGRAM, 0);
-  if (m_socket < 0) {
-    Logger::Log(Logger::ERROR, "Discovery: socket() failed; auto-mesh disabled");
+  beacon::UdpSocket socket;
+  if (!socket.open(m_discoveryPort, "Discovery")) {
+    Logger::Log(Logger::ERROR, "Discovery: auto-mesh disabled");
     return;
   }
-
-  const int one = 1;
-  ::setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-#ifdef SO_REUSEPORT
-  ::setsockopt(m_socket, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-#endif
-  ::setsockopt(m_socket, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
-
-  sockaddr_in bindAddr{};
-  bindAddr.sin_family = AF_INET;
-  bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-  bindAddr.sin_port = htons(m_discoveryPort);
-  if (::bind(m_socket, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) < 0) {
-    Logger::Log(Logger::ERROR, "Discovery: bind() failed on UDP port " + std::to_string(m_discoveryPort) + "; auto-mesh disabled");
-    ::close(m_socket);
-    m_socket = -1;
-    return;
-  }
-
-  sockaddr_in broadcastAddr{};
-  broadcastAddr.sin_family = AF_INET;
-  broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-  broadcastAddr.sin_port = htons(m_discoveryPort);
 
   {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -166,26 +136,16 @@ void BrokerDiscovery::run() {
         std::lock_guard<std::mutex> lock(m_mutex);
         wire = beacon::encode(m_cluster, m_selfUuid, m_routerPort, m_tapPort);
       }
-      ::sendto(m_socket, wire.data(), wire.size(), 0, reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
+      socket.broadcast(wire, m_discoveryPort);
       expireStale(now);
       nextBeacon = now + m_beaconInterval;
     }
 
-    pollfd pfd{m_socket, POLLIN, 0};
-    if (::poll(&pfd, 1, 200) > 0 && (pfd.revents & POLLIN)) {
-      char buf[512];
-      sockaddr_in src{};
-      socklen_t srcLen = sizeof(src);
-      const ssize_t n = ::recvfrom(m_socket, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&src), &srcLen);
-      if (n > 0) {
-        char ip[INET_ADDRSTRLEN];
-        if (::inet_ntop(AF_INET, &src.sin_addr, ip, sizeof(ip))) {
-          onDatagram(ip, buf, static_cast<std::size_t>(n), std::chrono::steady_clock::now());
-        }
-      }
+    char buf[beacon::kMaxDatagramSize];
+    std::string senderIp;
+    const std::size_t n = socket.receive(buf, sizeof(buf), 200, senderIp);
+    if (n > 0) {
+      onDatagram(senderIp, buf, n, std::chrono::steady_clock::now());
     }
   }
-
-  ::close(m_socket);
-  m_socket = -1;
 }

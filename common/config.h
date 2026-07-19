@@ -2,7 +2,24 @@
 #define CONFIG_H
 
 #include <cstdint>
+#include <exception>
 #include <string>
+
+// Parse a decimal port number. False when the text is not a number or falls
+// outside 1-65535; `zeroAllowed` additionally accepts 0, which beacons use to
+// mean "no inspector tap".
+inline bool parsePort(const std::string& text, bool zeroAllowed, std::uint16_t& outPort) {
+  try {
+    const int value = std::stoi(text);
+    if (value < (zeroAllowed ? 0 : 1) || value > 65535) {
+      return false;
+    }
+    outPort = static_cast<std::uint16_t>(value);
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
 
 // Incoming frames larger than this are rejected at the transport layer and
 // the sending peer is disconnected (ZMQ_MAXMSGSIZE). ZMTP declares the frame

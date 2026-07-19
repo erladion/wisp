@@ -31,6 +31,37 @@ bool isValidClusterName(const std::string& cluster);
 std::string encode(const std::string& cluster, const std::string& uuid, std::uint16_t routerPort, std::uint16_t tapPort);
 bool decode(const char* data, std::size_t size, Beacon& out);
 
+// Beacons are far smaller than this; the cluster-name cap keeps them so.
+constexpr std::size_t kMaxDatagramSize = 512;
+
+/* The UDP socket beacon traffic runs on, owned RAII-style.
+
+   Bound to INADDR_ANY with the address/port reuse a shared discovery port
+   needs, so several brokers (and any number of listen-only tools) can sit on
+   one host. Broadcast-enabled, since senders and listeners share this type.  */
+class UdpSocket {
+public:
+  UdpSocket();
+  ~UdpSocket();
+
+  UdpSocket(const UdpSocket&) = delete;
+  UdpSocket& operator=(const UdpSocket&) = delete;
+
+  // False when the socket could not be opened or bound; the reason is logged
+  // attributed to `who`, and the caller should abandon its loop.
+  bool open(std::uint16_t port, const char* who);
+
+  // Waits up to timeoutMs for a datagram. Returns the byte count and fills
+  // `senderIp`, or 0 when nothing arrived in time.
+  std::size_t receive(char* buffer, std::size_t capacity, int timeoutMs, std::string& senderIp);
+
+  // Best-effort broadcast to the local network on `port`.
+  void broadcast(const std::string& payload, std::uint16_t port);
+
+private:
+  int m_socket;
+};
+
 /* Listen-only beacon receiver: reports every beacon it hears, from every
    cluster, and never transmits.
 
@@ -60,7 +91,6 @@ private:
 
   std::atomic<bool> m_running{false};
   std::thread m_thread;
-  int m_socket{-1};
 };
 
 }  // namespace beacon

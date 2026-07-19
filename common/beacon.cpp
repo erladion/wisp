@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "config.h"
 #include "logger.h"
 
 namespace beacon {
@@ -45,20 +46,7 @@ bool decode(const char* data, std::size_t size, Beacon& out) {
     return false;
   }
 
-  // Ports: the router port must be usable, the tap port may be 0 ("no tap").
-  const auto parsePort = [](const std::string& field, bool zeroAllowed, std::uint16_t& port) {
-    try {
-      const int value = std::stoi(field);
-      if (value < (zeroAllowed ? 0 : 1) || value > 65535) {
-        return false;
-      }
-      port = static_cast<std::uint16_t>(value);
-      return true;
-    } catch (const std::exception&) {
-      return false;
-    }
-  };
-
+  // The router port must be usable; the tap port may be 0 ("no tap").
   Beacon parsed;
   parsed.cluster = fields[2];
   parsed.uuid = fields[3];
@@ -68,6 +56,73 @@ bool decode(const char* data, std::size_t size, Beacon& out) {
 
   out = std::move(parsed);
   return true;
+}
+
+UdpSocket::UdpSocket() : m_socket(-1) {}
+
+UdpSocket::~UdpSocket() {
+  if (m_socket >= 0) {
+    ::close(m_socket);
+    m_socket = -1;
+  }
+}
+
+bool UdpSocket::open(std::uint16_t port, const char* who) {
+  m_socket = ::socket(AF_INET, SOCK_DGRAM, 0);
+  if (m_socket < 0) {
+    Logger::Log(Logger::ERROR, std::string(who) + ": socket() failed");
+    return false;
+  }
+
+  // Reuse so brokers and listen-only tools can share the discovery port on one
+  // host; broadcast so senders can reach the local network.
+  const int one = 1;
+  ::setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+#ifdef SO_REUSEPORT
+  ::setsockopt(m_socket, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+#endif
+  ::setsockopt(m_socket, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
+
+  sockaddr_in bindAddr{};
+  bindAddr.sin_family = AF_INET;
+  bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+  bindAddr.sin_port = htons(port);
+  if (::bind(m_socket, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) < 0) {
+    Logger::Log(Logger::ERROR, std::string(who) + ": bind() failed on UDP port " + std::to_string(port));
+    ::close(m_socket);
+    m_socket = -1;
+    return false;
+  }
+  return true;
+}
+
+std::size_t UdpSocket::receive(char* buffer, std::size_t capacity, int timeoutMs, std::string& senderIp) {
+  pollfd pfd{m_socket, POLLIN, 0};
+  if (::poll(&pfd, 1, timeoutMs) <= 0 || !(pfd.revents & POLLIN)) {
+    return 0;
+  }
+
+  sockaddr_in src{};
+  socklen_t srcLen = sizeof(src);
+  const ssize_t n = ::recvfrom(m_socket, buffer, capacity, 0, reinterpret_cast<sockaddr*>(&src), &srcLen);
+  if (n <= 0) {
+    return 0;
+  }
+
+  char ip[INET_ADDRSTRLEN];
+  if (!::inet_ntop(AF_INET, &src.sin_addr, ip, sizeof(ip))) {
+    return 0;
+  }
+  senderIp = ip;
+  return static_cast<std::size_t>(n);
+}
+
+void UdpSocket::broadcast(const std::string& payload, std::uint16_t port) {
+  sockaddr_in broadcastAddr{};
+  broadcastAddr.sin_family = AF_INET;
+  broadcastAddr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+  broadcastAddr.sin_port = htons(port);
+  ::sendto(m_socket, payload.data(), payload.size(), 0, reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
 }
 
 Listener::Listener(std::uint16_t port, OnBeacon onBeacon) : m_port(port), m_onBeacon(std::move(onBeacon)) {}
@@ -89,57 +144,25 @@ void Listener::stop() {
 }
 
 void Listener::run() {
-  m_socket = ::socket(AF_INET, SOCK_DGRAM, 0);
-  if (m_socket < 0) {
-    Logger::Log(Logger::ERROR, "Beacon listener: socket() failed");
-    return;
-  }
-
-  // Reuse so a broker on this host can hold the same port at the same time.
-  const int one = 1;
-  ::setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-#ifdef SO_REUSEPORT
-  ::setsockopt(m_socket, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-#endif
-
-  sockaddr_in bindAddr{};
-  bindAddr.sin_family = AF_INET;
-  bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-  bindAddr.sin_port = htons(m_port);
-  if (::bind(m_socket, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) < 0) {
-    Logger::Log(Logger::ERROR, "Beacon listener: bind() failed on UDP port " + std::to_string(m_port));
-    ::close(m_socket);
-    m_socket = -1;
+  UdpSocket socket;
+  if (!socket.open(m_port, "Beacon listener")) {
     return;
   }
 
   while (m_running) {
-    pollfd pfd{m_socket, POLLIN, 0};
-    if (::poll(&pfd, 1, 200) <= 0 || !(pfd.revents & POLLIN)) {
-      continue;
-    }
-
-    char buf[512];
-    sockaddr_in src{};
-    socklen_t srcLen = sizeof(src);
-    const ssize_t n = ::recvfrom(m_socket, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&src), &srcLen);
-    if (n <= 0) {
+    char buf[kMaxDatagramSize];
+    std::string senderIp;
+    // The bounded wait keeps the m_running check responsive for a clean exit.
+    const std::size_t n = socket.receive(buf, sizeof(buf), 200, senderIp);
+    if (n == 0) {
       continue;
     }
 
     Beacon heard;
-    if (!decode(buf, static_cast<std::size_t>(n), heard)) {
-      continue;
-    }
-
-    char ip[INET_ADDRSTRLEN];
-    if (::inet_ntop(AF_INET, &src.sin_addr, ip, sizeof(ip)) && m_onBeacon) {
-      m_onBeacon(ip, heard);
+    if (decode(buf, n, heard) && m_onBeacon) {
+      m_onBeacon(senderIp, heard);
     }
   }
-
-  ::close(m_socket);
-  m_socket = -1;
 }
 
 }  // namespace beacon
