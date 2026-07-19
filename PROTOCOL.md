@@ -123,7 +123,7 @@ create:
 | Limit | Value |
 |---|---|
 | topic length in a `__SUBSCRIBE__` | 512 bytes |
-| subscriptions per client | 1000 |
+| subscriptions per client | 10000 |
 
 A `__SUBSCRIBE__` breaching either limit is **dropped silently** — no error is
 returned, and the client will simply never receive that topic. Brokers count

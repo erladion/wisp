@@ -35,12 +35,18 @@ constexpr int64_t MAX_MESSAGE_SIZE_BYTES = 16 * 1024 * 1024;  // 16 MiB
 // MAX_MESSAGE_SIZE_BYTES closes for a single frame.
 //
 // 512 bytes is far above any sensible topic while far below the 16 MiB a
-// header frame would otherwise allow. 1000 subscriptions is roughly an order
-// of magnitude above real use: applications subscribe to tens of topics, and
-// sendRequest's temporary reply topics are bounded by the caller's thread
-// count, since each request blocks its thread.
+// header frame would otherwise allow.
+//
+// A subscription costs the broker roughly 480 bytes with typical topics and
+// 1.7 KB with maximum-length ones (measured at this cap; the marginal cost
+// falls as the registry's fixed overhead amortizes). Budget the retained
+// worst case as subscription cap x connected clients x that figure before
+// raising this much further. Past ~50k, two things need attention first:
+// SubscriptionRegistry::dropSubscriber scans a topic's subscribers linearly
+// while removing a client (inline on the broker thread), and a broker restart
+// makes every client re-send its whole set at once.
 constexpr std::size_t MAX_TOPIC_LENGTH_BYTES = 512;
-constexpr std::size_t MAX_SUBSCRIPTIONS_PER_CLIENT = 1000;
+constexpr std::size_t MAX_SUBSCRIPTIONS_PER_CLIENT = 10000;
 
 enum class ProtocolType { Zmq };
 
