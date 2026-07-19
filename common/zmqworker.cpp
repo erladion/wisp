@@ -118,6 +118,21 @@ void ZmqWorker::setMessageCallback(WorkerMessageCallback callback) {
 }
 
 void ZmqWorker::run() {
+  try {
+    runLoop();
+  } catch (const zmq::error_t& e) {
+    // Nothing here is recoverable from inside the thread (a malformed
+    // address or an invalid routing id stays wrong on retry), so report
+    // offline and exit cleanly; stop() can still join us.
+    Logger::Log(Logger::Error, "Client '" + m_config.clientId + "' connection worker stopped: " + std::string(e.what()) +
+                                   " - check the address and client id in the ConnectionConfig");
+    if (m_statusCallback) {
+      m_statusCallback(false);
+    }
+  }
+}
+
+void ZmqWorker::runLoop() {
   zmq::socket_t socket(m_context, ZMQ_DEALER);
   // Small linger so the shutdown drain below can reach the wire; bounded so
   // a dead broker can't stall close() for long.

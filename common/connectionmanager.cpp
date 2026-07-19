@@ -160,6 +160,16 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
 }
 
 ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientId(config.clientId), m_running(true), m_connected(false) {
+  // ZeroMQ rejects a routing id outside 1-255 bytes, and the worker thread
+  // has no way to recover from that - correct the id here instead.
+  if (m_clientId.empty()) {
+    m_clientId = "wisp-" + generateUUID().substr(0, 8);
+    Logger::Log(Logger::Warning, "ConnectionConfig.clientId is empty; using generated id '" + m_clientId + "'");
+  } else if (m_clientId.size() > 255) {
+    m_clientId.resize(255);
+    Logger::Log(Logger::Warning, "ConnectionConfig.clientId exceeds ZeroMQ's 255-byte routing-id limit; truncated to '" + m_clientId + "'");
+  }
+
   auto statusHandler = [this](bool connected) {
     std::lock_guard<std::mutex> lock(m_mapMutex);
 
@@ -183,7 +193,9 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
   };
 
   if (config.protocol == ProtocolType::Zmq) {
-    m_pWorker = std::make_unique<ZmqWorker>(config, &m_queue, statusHandler);
+    ConnectionConfig workerConfig = config;
+    workerConfig.clientId = m_clientId;
+    m_pWorker = std::make_unique<ZmqWorker>(workerConfig, &m_queue, statusHandler);
   }
 
   if (m_pWorker) {

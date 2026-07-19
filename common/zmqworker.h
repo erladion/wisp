@@ -28,7 +28,12 @@ public:
   std::uint64_t droppedSends() const override { return m_droppedSends.load(std::memory_order_relaxed); }
 
 private:
+  // Thread entry: runs runLoop() behind an exception barrier. A zmq::error_t
+  // from socket setup (malformed address, routing id outside 1-255 bytes)
+  // must be logged and reported offline, not escape the thread and terminate
+  // the process.
   void run();
+  void runLoop();
   void sendHeartbeat(zmq::socket_t& socket);
   void wake();
   // Queue `msg` and wake the run() loop if it may be asleep.

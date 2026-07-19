@@ -47,8 +47,11 @@ const char* lastErrorMessage() {
 }
 
 int initConnection(const Connection_Config* config) {
-  if (!config || !config->address) {
-    return fail(ERROR_INVALID_ARGS, "config and config->address must be non-null");
+  if (!config || !config->address || config->address[0] == '\0') {
+    return fail(ERROR_INVALID_ARGS, "config and config->address must be non-null and non-empty");
+  }
+  if (config->protocol != PROTOCOL_ZMQ) {
+    return fail(ERROR_INVALID_ARGS, "unknown protocol value");
   }
 
   return guard([&] {
