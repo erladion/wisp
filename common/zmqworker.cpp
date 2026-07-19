@@ -37,6 +37,12 @@ ZmqWorker::~ZmqWorker() {
 }
 
 void ZmqWorker::start() {
+  // Starting twice would assign over a joinable std::thread - std::terminate.
+  if (m_workerThread.joinable()) {
+    Logger::Log(Logger::Warning, "ZmqWorker::start() called while already running - ignored");
+    return;
+  }
+
   {
     // (Re)create the wake pipe on every start: an inproc pipe does not survive
     // its bound peer, so after a stop() the previous PUSH would ping into the

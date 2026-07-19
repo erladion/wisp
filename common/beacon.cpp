@@ -132,6 +132,11 @@ Listener::~Listener() {
 }
 
 void Listener::start() {
+  // Starting twice would assign over a joinable std::thread - std::terminate.
+  if (m_thread.joinable()) {
+    Logger::Log(Logger::Warning, "Beacon listener start() called while already running - ignored");
+    return;
+  }
   m_running = true;
   m_thread = std::thread(&Listener::run, this);
 }

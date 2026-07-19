@@ -73,6 +73,13 @@ public:
     m_condEmpty.notify_all();
   }
 
+  // Reopen a stopped queue so it can be reused after a stop()/join cycle.
+  // Only safe while no producer or consumer is touching the queue.
+  void reset() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_stop = false;
+  }
+
 private:
   bool pushInternal(T&& value, const std::chrono::milliseconds* timeout, bool* wasEmpty) {
     std::unique_lock<std::mutex> lock(m_mutex);

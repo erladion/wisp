@@ -141,6 +141,16 @@ ZmqBroker::~ZmqBroker() {
 }
 
 void ZmqBroker::start(const std::vector<std::string>& bindAddresses) {
+  // Starting twice would assign over a joinable std::thread - std::terminate.
+  if (m_brokerThread.joinable()) {
+    Logger::Log(Logger::Warning, "ZmqBroker::start() called while already running - ignored");
+    return;
+  }
+
+  // Reopen the peer queue: stop() closes it to unwedge blocked peer workers,
+  // which would otherwise leave a restarted broker deaf to its peers.
+  m_peerInboundQueue.reset();
+
   m_running = true;
   m_startTime = std::chrono::steady_clock::now();
   m_lastStatsTime = std::chrono::steady_clock::now();
