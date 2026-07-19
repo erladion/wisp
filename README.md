@@ -1,5 +1,7 @@
 <div align="center">
 
+[![CI](https://github.com/erladion/wisp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/erladion/wisp/actions/workflows/ci.yml)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="branding/wisp-mark-dark.svg">
   <img alt="Wisp" src="branding/wisp-mark.svg" width="88">
