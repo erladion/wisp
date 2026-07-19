@@ -90,10 +90,16 @@ struct  _Broker__SystemStats
    * Deliveries dropped across all clients since the broker started.
    */
   uint64_t total_dropped;
+  /*
+   * SUBSCRIBEs refused since startup for exceeding the per-client topic
+   * length or subscription count limits. A rejected subscription is
+   * invisible to the client, so this is how it surfaces.
+   */
+  uint64_t total_rejected_subs;
 };
 #define BROKER__SYSTEM_STATS__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&broker__system_stats__descriptor) \
-    , (char *)protobuf_c_empty_string, 0, 0, 0, 0, 0, 0, 0,NULL, (char *)protobuf_c_empty_string, 0 }
+    , (char *)protobuf_c_empty_string, 0, 0, 0, 0, 0, 0, 0,NULL, (char *)protobuf_c_empty_string, 0, 0 }
 
 
 /* Broker__MessageHeader methods */

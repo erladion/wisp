@@ -11,6 +11,8 @@
 #include <mutex>
 #include <vector>
 
+#include "config.h"
+#include "logger.h"
 #include "zmqworker.h"
 #include "safequeue.h"
 #include "subscriptionregistry.h"
@@ -180,6 +182,17 @@ private:
   // broker-wide total.
   void noteDroppedTo(const std::string& clientId);
 
+  /* Whether `topic` may be added to `clientId`'s subscriptions.
+
+     A topic the client already holds always passes: re-subscribing is
+     idempotent, and a client sitting at the cap must not start losing
+     subscriptions when a RESET makes it re-send them all. Only genuinely new
+     topics are counted against MAX_SUBSCRIPTIONS_PER_CLIENT. */
+  bool canSubscribe(const std::string& clientId, const std::string& topic) const;
+
+  // Count a refused SUBSCRIBE and report periodically (see LogThrottle).
+  void noteRejectedSubscription(const std::string& clientId, const std::string& reason);
+
   bool isDuplicate(const std::string& uuid);
 
   void broadcastStats(zmq::socket_t &socket, zmq::socket_t &inspectorSocket);
@@ -238,6 +251,12 @@ private:
 
   uint64_t m_totalMessages;
   uint64_t m_totalDropped;
+
+  // SUBSCRIBEs refused for exceeding the caps in config.h. Surfaced in
+  // SystemStats: a rejected subscription is otherwise invisible to the
+  // client, which would just stop receiving a topic it thinks it has.
+  uint64_t m_rejectedSubscriptions;
+  LogThrottle m_subRejectThrottle;
 
   // Interval counters (reset every second)
   uint64_t m_msgsInterval;

@@ -42,4 +42,8 @@ message SystemStats {
     string cluster = 9;
     // Deliveries dropped across all clients since the broker started.
     uint64 total_dropped = 10;
+    // SUBSCRIBEs refused since startup for exceeding the per-client topic
+    // length or subscription count limits. A rejected subscription is
+    // invisible to the client, so this is how it surfaces.
+    uint64 total_rejected_subs = 11;
 }

@@ -309,7 +309,7 @@ const ProtobufCMessageDescriptor broker__client_info__descriptor =
   (ProtobufCMessageInit) broker__client_info__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCFieldDescriptor broker__system_stats__field_descriptors[10] =
+static const ProtobufCFieldDescriptor broker__system_stats__field_descriptors[11] =
 {
   {
     "broker_id",
@@ -431,6 +431,18 @@ static const ProtobufCFieldDescriptor broker__system_stats__field_descriptors[10
     0,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
+  {
+    "total_rejected_subs",
+    11,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_UINT64,
+    0,   /* quantifier_offset */
+    offsetof(Broker__SystemStats, total_rejected_subs),
+    NULL,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
 };
 static const unsigned broker__system_stats__field_indices_by_name[] = {
   0,   /* field[0] = broker_id */
@@ -442,12 +454,13 @@ static const unsigned broker__system_stats__field_indices_by_name[] = {
   2,   /* field[2] = peers_count */
   9,   /* field[9] = total_dropped */
   5,   /* field[5] = total_msgs */
+  10,   /* field[10] = total_rejected_subs */
   6,   /* field[6] = uptime_sec */
 };
 static const ProtobufCIntRange broker__system_stats__number_ranges[1 + 1] =
 {
   { 1, 0 },
-  { 0, 10 }
+  { 0, 11 }
 };
 const ProtobufCMessageDescriptor broker__system_stats__descriptor =
 {
@@ -457,7 +470,7 @@ const ProtobufCMessageDescriptor broker__system_stats__descriptor =
   "Broker__SystemStats",
   "broker",
   sizeof(Broker__SystemStats),
-  10,
+  11,
   broker__system_stats__field_descriptors,
   broker__system_stats__field_indices_by_name,
   1,  broker__system_stats__number_ranges,

@@ -1,6 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <string>
@@ -27,6 +28,19 @@ inline bool parsePort(const std::string& text, bool zeroAllowed, std::uint16_t& 
 // any buffer for it is allocated - without this cap, any peer that can reach
 // the port can make the receiver allocate arbitrarily large buffers.
 constexpr int64_t MAX_MESSAGE_SIZE_BYTES = 16 * 1024 * 1024;  // 16 MiB
+
+// Caps on the subscription state one client can make a broker retain. A
+// subscription lives until the client disconnects or times out, so without
+// these any client can grow broker memory without bound - the same exposure
+// MAX_MESSAGE_SIZE_BYTES closes for a single frame.
+//
+// 512 bytes is far above any sensible topic while far below the 16 MiB a
+// header frame would otherwise allow. 1000 subscriptions is roughly an order
+// of magnitude above real use: applications subscribe to tens of topics, and
+// sendRequest's temporary reply topics are bounded by the caller's thread
+// count, since each request blocks its thread.
+constexpr std::size_t MAX_TOPIC_LENGTH_BYTES = 512;
+constexpr std::size_t MAX_SUBSCRIPTIONS_PER_CLIENT = 1000;
 
 enum class ProtocolType { Zmq };
 

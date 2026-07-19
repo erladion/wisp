@@ -133,6 +133,8 @@ ZmqBroker::ZmqBroker(std::chrono::milliseconds clientTimeout)
       m_seenPrevious(DedupSetCapacity),
       m_totalMessages(0),
       m_totalDropped(0),
+      m_rejectedSubscriptions(0),
+      m_subRejectThrottle(),
       m_msgsInterval(0),
       m_bytesInterval(0) {}
 
@@ -475,6 +477,11 @@ bool ZmqBroker::handleClientMessage(zmq::socket_t& socket, const broker::Message
       // subscribing to nothing.
       Logger::Log(Logger::Warning,
                   "Client " + senderId + " sent SUBSCRIBE with an empty topic - use \"" + std::string(Keys::WILDCARD_TOPIC) + "\" for the wildcard");
+    } else if (header.topic().size() > MAX_TOPIC_LENGTH_BYTES) {
+      noteRejectedSubscription(senderId, "topic is " + std::to_string(header.topic().size()) + " bytes, over the " +
+                                             std::to_string(MAX_TOPIC_LENGTH_BYTES) + "-byte limit");
+    } else if (!canSubscribe(senderId, header.topic())) {
+      noteRejectedSubscription(senderId, "already at the " + std::to_string(MAX_SUBSCRIPTIONS_PER_CLIENT) + "-subscription limit");
     } else if (m_subscriptions.subscribe(senderId, header.topic())) {
       Logger::Log(Logger::Info, "Client " + senderId + " Subscribed to " + header.topic());
     }
@@ -567,6 +574,23 @@ void ZmqBroker::floodPeers(const std::string& headerBytes, zmq::message_t& paylo
   }
 }
 
+bool ZmqBroker::canSubscribe(const std::string& clientId, const std::string& topic) const {
+  const std::set<std::string>* topics = m_subscriptions.subscriptionsOf(clientId);
+  if (!topics || topics->count(topic) > 0) {
+    return true;
+  }
+  return topics->size() < MAX_SUBSCRIPTIONS_PER_CLIENT;
+}
+
+void ZmqBroker::noteRejectedSubscription(const std::string& clientId, const std::string& reason) {
+  m_rejectedSubscriptions++;
+  if (!m_subRejectThrottle.ready()) {
+    return;
+  }
+  Logger::Log(Logger::Warning, "Rejected SUBSCRIBE from " + clientId + ": " + reason + " (" + std::to_string(m_rejectedSubscriptions) +
+                                   " rejected since startup)");
+}
+
 void ZmqBroker::noteDroppedTo(const std::string& clientId) {
   auto it = m_clients.find(clientId);
   if (it != m_clients.end()) {
@@ -621,6 +645,7 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   stats.set_uptime_sec(uptime);
   stats.set_cluster(m_clusterName);  // empty when discovery is disabled
   stats.set_total_dropped(m_totalDropped);
+  stats.set_total_rejected_subs(m_rejectedSubscriptions);
 
   for (const auto& entry : m_clients) {
     broker::ClientInfo* clientInfo = stats.add_connected_clients();

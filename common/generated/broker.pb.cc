@@ -113,6 +113,7 @@ inline constexpr SystemStats::Impl_::Impl_(
         total_msgs_{::int64_t{0}},
         uptime_sec_{::int64_t{0}},
         total_dropped_{::uint64_t{0u}},
+        total_rejected_subs_{::uint64_t{0u}},
         msgs_per_sec_{0} {}
 
 template <typename>
@@ -168,7 +169,7 @@ const ::uint32_t
         1,
         0x081, // bitmap
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_._has_bits_),
-        13, // hasbit index offset
+        14, // hasbit index offset
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.broker_id_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.clients_count_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.peers_count_),
@@ -179,16 +180,18 @@ const ::uint32_t
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.connected_clients_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.cluster_),
         PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.total_dropped_),
+        PROTOBUF_FIELD_OFFSET(::broker::SystemStats, _impl_.total_rejected_subs_),
         0,
         2,
         3,
-        8,
+        9,
         4,
         5,
         6,
         ~0u,
         1,
         7,
+        8,
 };
 
 static const ::_pbi::MigrationSchema
@@ -210,19 +213,20 @@ const char descriptor_table_protodef_broker_2eproto[] ABSL_ATTRIBUTE_SECTION_VAR
     "\t\022\024\n\014message_uuid\030\005 \001(\014\022\023\n\013reply_topic\030\006"
     " \001(\t\"I\n\nClientInfo\022\n\n\002id\030\001 \001(\t\022\025\n\rsubscr"
     "iptions\030\002 \003(\t\022\030\n\020dropped_messages\030\003 \001(\004\""
-    "\365\001\n\013SystemStats\022\021\n\tbroker_id\030\001 \001(\t\022\025\n\rcl"
+    "\222\002\n\013SystemStats\022\021\n\tbroker_id\030\001 \001(\t\022\025\n\rcl"
     "ients_count\030\002 \001(\005\022\023\n\013peers_count\030\003 \001(\005\022\024"
     "\n\014msgs_per_sec\030\004 \001(\005\022\022\n\nkb_per_sec\030\005 \001(\001"
     "\022\022\n\ntotal_msgs\030\006 \001(\003\022\022\n\nuptime_sec\030\007 \001(\003"
     "\022-\n\021connected_clients\030\010 \003(\0132\022.broker.Cli"
     "entInfo\022\017\n\007cluster\030\t \001(\t\022\025\n\rtotal_droppe"
-    "d\030\n \001(\004B\003\370\001\001b\006proto3"
+    "d\030\n \001(\004\022\033\n\023total_rejected_subs\030\013 \001(\004B\003\370\001"
+    "\001b\006proto3"
 };
 static ::absl::once_flag descriptor_table_broker_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_broker_2eproto = {
     false,
     false,
-    500,
+    529,
     descriptor_table_protodef_broker_2eproto,
     "broker.proto",
     &descriptor_table_broker_2eproto_once,
@@ -1179,16 +1183,16 @@ SystemStats::GetClassData() const {
   return SystemStats_class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<4, 10, 1, 51, 2>
+const ::_pbi::TcParseTable<4, 11, 1, 51, 2>
 SystemStats::_table_ = {
   {
     PROTOBUF_FIELD_OFFSET(SystemStats, _impl_._has_bits_),
     0, // no _extensions_
-    10, 120,  // max_field_number, fast_idx_mask
+    11, 120,  // max_field_number, fast_idx_mask
     offsetof(decltype(_table_), field_lookup_table),
-    4294966272,  // skipmap
+    4294965248,  // skipmap
     offsetof(decltype(_table_), field_entries),
-    10,  // num_field_entries
+    11,  // num_field_entries
     1,  // num_aux_entries
     offsetof(decltype(_table_), aux_entries),
     SystemStats_class_data_.base(),
@@ -1209,8 +1213,8 @@ SystemStats::_table_ = {
     {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.peers_count_), 3>(),
      {24, 3, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_)}},
     // int32 msgs_per_sec = 4;
-    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.msgs_per_sec_), 8>(),
-     {32, 8, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(SystemStats, _impl_.msgs_per_sec_), 9>(),
+     {32, 9, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_)}},
     // double kb_per_sec = 5;
     {::_pbi::TcParser::FastF64S1,
      {41, 4, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_)}},
@@ -1229,7 +1233,9 @@ SystemStats::_table_ = {
     // uint64 total_dropped = 10;
     {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(SystemStats, _impl_.total_dropped_), 7>(),
      {80, 7, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_dropped_)}},
-    {::_pbi::TcParser::MiniParse, {}},
+    // uint64 total_rejected_subs = 11;
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint64_t, offsetof(SystemStats, _impl_.total_rejected_subs_), 8>(),
+     {88, 8, 0, PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_rejected_subs_)}},
     {::_pbi::TcParser::MiniParse, {}},
     {::_pbi::TcParser::MiniParse, {}},
     {::_pbi::TcParser::MiniParse, {}},
@@ -1247,7 +1253,7 @@ SystemStats::_table_ = {
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.peers_count_), _Internal::kHasBitsOffset + 3, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
     // int32 msgs_per_sec = 4;
-    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_), _Internal::kHasBitsOffset + 8, 0,
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.msgs_per_sec_), _Internal::kHasBitsOffset + 9, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kInt32)},
     // double kb_per_sec = 5;
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.kb_per_sec_), _Internal::kHasBitsOffset + 4, 0,
@@ -1266,6 +1272,9 @@ SystemStats::_table_ = {
     (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
     // uint64 total_dropped = 10;
     {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_dropped_), _Internal::kHasBitsOffset + 7, 0,
+    (0 | ::_fl::kFcOptional | ::_fl::kUInt64)},
+    // uint64 total_rejected_subs = 11;
+    {PROTOBUF_FIELD_OFFSET(SystemStats, _impl_.total_rejected_subs_), _Internal::kHasBitsOffset + 8, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kUInt64)},
   }},
   {{
@@ -1300,7 +1309,11 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
         reinterpret_cast<char*>(&_impl_.total_dropped_) -
         reinterpret_cast<char*>(&_impl_.clients_count_)) + sizeof(_impl_.total_dropped_));
   }
-  _impl_.msgs_per_sec_ = 0;
+  if ((cached_has_bits & 0x00000300u) != 0) {
+    ::memset(&_impl_.total_rejected_subs_, 0, static_cast<::size_t>(
+        reinterpret_cast<char*>(&_impl_.msgs_per_sec_) -
+        reinterpret_cast<char*>(&_impl_.total_rejected_subs_)) + sizeof(_impl_.msgs_per_sec_));
+  }
   _impl_._has_bits_.Clear();
   _internal_metadata_.Clear<::google::protobuf::UnknownFieldSet>();
 }
@@ -1349,7 +1362,7 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
   }
 
   // int32 msgs_per_sec = 4;
-  if ((this_._impl_._has_bits_[0] & 0x00000100u) != 0) {
+  if ((this_._impl_._has_bits_[0] & 0x00000200u) != 0) {
     if (this_._internal_msgs_per_sec() != 0) {
       target =
           ::google::protobuf::internal::WireFormatLite::WriteInt32ToArrayWithField<4>(
@@ -1411,6 +1424,15 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
       target = stream->EnsureSpace(target);
       target = ::_pbi::WireFormatLite::WriteUInt64ToArray(
           10, this_._internal_total_dropped(), target);
+    }
+  }
+
+  // uint64 total_rejected_subs = 11;
+  if ((this_._impl_._has_bits_[0] & 0x00000100u) != 0) {
+    if (this_._internal_total_rejected_subs() != 0) {
+      target = stream->EnsureSpace(target);
+      target = ::_pbi::WireFormatLite::WriteUInt64ToArray(
+          11, this_._internal_total_rejected_subs(), target);
     }
   }
 
@@ -1505,9 +1527,16 @@ PROTOBUF_NOINLINE void SystemStats::Clear() {
       }
     }
   }
-   {
-    // int32 msgs_per_sec = 4;
+  if ((cached_has_bits & 0x00000300u) != 0) {
+    // uint64 total_rejected_subs = 11;
     if ((cached_has_bits & 0x00000100u) != 0) {
+      if (this_._internal_total_rejected_subs() != 0) {
+        total_size += ::_pbi::WireFormatLite::UInt64SizePlusOne(
+            this_._internal_total_rejected_subs());
+      }
+    }
+    // int32 msgs_per_sec = 4;
+    if ((cached_has_bits & 0x00000200u) != 0) {
       if (this_._internal_msgs_per_sec() != 0) {
         total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
             this_._internal_msgs_per_sec());
@@ -1579,9 +1608,16 @@ void SystemStats::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goo
       }
     }
   }
-  if ((cached_has_bits & 0x00000100u) != 0) {
-    if (from._internal_msgs_per_sec() != 0) {
-      _this->_impl_.msgs_per_sec_ = from._impl_.msgs_per_sec_;
+  if ((cached_has_bits & 0x00000300u) != 0) {
+    if ((cached_has_bits & 0x00000100u) != 0) {
+      if (from._internal_total_rejected_subs() != 0) {
+        _this->_impl_.total_rejected_subs_ = from._impl_.total_rejected_subs_;
+      }
+    }
+    if ((cached_has_bits & 0x00000200u) != 0) {
+      if (from._internal_msgs_per_sec() != 0) {
+        _this->_impl_.msgs_per_sec_ = from._impl_.msgs_per_sec_;
+      }
     }
   }
   _this->_impl_._has_bits_[0] |= cached_has_bits;

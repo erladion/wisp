@@ -105,7 +105,7 @@ with `__`. Sent by the client unless noted:
 | `__HEARTBEAT__` | liveness probe; broker answers `__HEARTBEAT_ACK__` |
 | `__HEARTBEAT_ACK__` | broker → client answer |
 | `__RESET__` | broker → client: your state is gone; send `__CONNECT__` and every `__SUBSCRIBE__` again |
-| `__SUBSCRIBE__` | subscribe to `topic`; `topic = "*"` is the wildcard (every topic). An empty topic is rejected |
+| `__SUBSCRIBE__` | subscribe to `topic`; `topic = "*"` is the wildcard (every topic). An empty, over-long, or over-cap topic is rejected — see Subscription limits |
 | `__UNSUBSCRIBE__` | remove one subscription |
 | `__SET_CLUSTER__` | payload = new discovery cluster name (1–64 bytes, no `\|`); handled by the receiving broker only |
 | `__SYS_STATS__` | broker → subscribers, every 1 s: payload is an Any-packed `broker.SystemStats` |
@@ -113,6 +113,23 @@ with `__`. Sent by the client unless noted:
 Stats are delivered only to clients that subscribed to `__SYS_STATS__`
 *exactly* — wildcard subscribers do not receive them (this keeps per-broker
 stats off the peer mesh).
+
+## Subscription limits
+
+A subscription is broker state that lives until the subscribing client
+disconnects or times out, so brokers bound how much of it one client can
+create:
+
+| Limit | Value |
+|---|---|
+| topic length in a `__SUBSCRIBE__` | 512 bytes |
+| subscriptions per client | 1000 |
+
+A `__SUBSCRIBE__` breaching either limit is **dropped silently** — no error is
+returned, and the client will simply never receive that topic. Brokers count
+the refusals in `SystemStats.total_rejected_subs`. Re-subscribing to a topic
+already held is always accepted, so a client sitting at the cap still recovers
+its full subscription set after a `__RESET__`.
 
 ## Routing
 

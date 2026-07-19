@@ -33,6 +33,7 @@ set(BROKER_TEST_SOURCES
   session_recovery_test.cpp
   stats_test.cpp
   shutdown_test.cpp
+  subscription_limits_test.cpp
   subscriptionregistry_test.cpp
   unsubscribe_while_offline_test.cpp
   wildcard_subscription_test.cpp
