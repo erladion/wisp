@@ -20,7 +20,9 @@ ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboun
       m_running(false),
       m_context(1),
       m_wakePush(m_context, ZMQ_PUSH),
-      m_isOnline(false) {}
+      m_isOnline(false),
+      m_droppedSends(0),
+      m_lastDropLog(std::chrono::steady_clock::now() - std::chrono::seconds(5)) {}
 
 ZmqWorker::~ZmqWorker() {
   stop();
@@ -71,6 +73,23 @@ bool ZmqWorker::writeControlMessage(Envelope msg) {
     wake();
   }
   return true;
+}
+
+// A refused send means the pipe to the broker is full: the client is
+// publishing faster than the broker drains, or the broker is gone. Best-effort
+// delivery drops the message, but silence would leave the publisher with no
+// way to notice, so count every one and report periodically (per message would
+// let a flood turn logging into the bottleneck).
+void ZmqWorker::noteDroppedSend() {
+  const std::uint64_t total = m_droppedSends.fetch_add(1, std::memory_order_relaxed) + 1;
+
+  const auto now = std::chrono::steady_clock::now();
+  if (now - m_lastDropLog < std::chrono::seconds(5)) {
+    return;
+  }
+  m_lastDropLog = now;
+  Logger::Log(Logger::WARNING, "Client '" + m_config.clientId + "' dropped " + std::to_string(total) +
+                                   " message(s) so far: the send pipe to the broker is full (publishing faster than it can be delivered)");
 }
 
 void ZmqWorker::wake() {
@@ -185,7 +204,9 @@ void ZmqWorker::run() {
     // is dropped; subscriptions resync via the RESET handshake on reconnect.
     if (m_controlQueue.drainTo(batch) > 0) {
       for (Envelope& queued : batch) {
-        (void)wire::send(socket, queued);
+        if (!wire::send(socket, queued)) {
+          noteDroppedSend();
+        }
       }
       didWork = true;
     }
@@ -196,7 +217,9 @@ void ZmqWorker::run() {
     // reachable. Messages queued while offline are held, not dropped.
     if (m_isOnline && m_outboundQueue.drainTo(batch) > 0) {
       for (Envelope& queued : batch) {
-        (void)wire::send(socket, queued);
+        if (!wire::send(socket, queued)) {
+          noteDroppedSend();
+        }
       }
       didWork = true;
     }
@@ -221,7 +244,9 @@ void ZmqWorker::run() {
   // it the broker only notices the disconnect via its zombie timeout.
   m_controlQueue.drainTo(batch);
   for (Envelope& queued : batch) {
-    (void)wire::send(socket, queued);
+    if (!wire::send(socket, queued)) {
+      noteDroppedSend();
+    }
   }
 
   socket.close();

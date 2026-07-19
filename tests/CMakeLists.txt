@@ -20,6 +20,7 @@ set(BROKER_TEST_SOURCES
   any_payload_roundtrip_test.cpp
   beacon_test.cpp
   cluster_swap_test.cpp
+  delivery_test.cpp
   discovery_test.cpp
   handshake_test.cpp
   message_size_limit_test.cpp

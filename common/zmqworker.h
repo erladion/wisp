@@ -23,11 +23,14 @@ public:
   bool writeMessage(Envelope msg) override;
   bool writeControlMessage(Envelope msg) override;
   void setMessageCallback(WorkerMessageCallback callback) override;
+  std::uint64_t droppedSends() const override { return m_droppedSends.load(std::memory_order_relaxed); }
 
 private:
   void run();
   void sendHeartbeat(zmq::socket_t& socket);
   void wake();
+  // Worker thread only (m_lastDropLog is unsynchronized).
+  void noteDroppedSend();
 
 private:
   ConnectionConfig m_config;
@@ -50,6 +53,10 @@ private:
 
   std::atomic<bool> m_isOnline;
   std::chrono::steady_clock::time_point m_lastRxTime;
+
+  // Written by the worker thread, read by anyone (see droppedSends()).
+  std::atomic<std::uint64_t> m_droppedSends;
+  std::chrono::steady_clock::time_point m_lastDropLog;
 };
 
 #endif  // ZMQWORKER_H
