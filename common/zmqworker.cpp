@@ -11,6 +11,16 @@ namespace {
 // name is per-context (each worker owns its context), so instances don't clash.
 constexpr const char* WAKE_ENDPOINT = "inproc://worker_wake";
 
+/* How many control messages the client can have in flight before any are
+   lost, on the queue and again in the send backlog.
+
+   Answering a __RESET__ means re-sending every subscription held, in one
+   burst, and losing any of them costs a topic silently. So the bound is
+   derived from the broker's per-client subscription cap rather than picked -
+   raising that cap raises this with it - plus headroom for the connect and
+   request/reply control traffic travelling alongside. */
+constexpr std::size_t CONTROL_BACKLOG_LIMIT = MAX_SUBSCRIPTIONS_PER_CLIENT + 1024;
+
 // Lets one send loop serve both the envelope queues and the pre-encoded one.
 const Envelope& deref(const Envelope& env) {
   return env;
@@ -28,6 +38,7 @@ ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboun
       m_running(false),
       m_context(1),
       m_wakePush(m_context, ZMQ_PUSH),
+      m_controlQueue(CONTROL_BACKLOG_LIMIT),
       m_hasEncoded(false),
       m_droppedSends(0),
       m_dropLogThrottle() {}
@@ -181,6 +192,8 @@ void ZmqWorker::runLoop() {
 
   std::deque<Envelope> batch;
   std::deque<wire::WireMessagePtr> encodedBatch;
+  // Control messages waiting for room in the send pipe; see flushControl.
+  std::deque<Envelope> controlBacklog;
 
   // Envelopes are serialized here; pre-encoded messages go straight out.
   const auto sendBatch = [&](auto& queued) {
@@ -192,18 +205,46 @@ void ZmqWorker::runLoop() {
     }
   };
 
+  /* Send as much of the control backlog as the pipe will take, in order.
+     True once it is empty.
+
+     Control messages are state, not data. A dropped data message costs one
+     message and tells the publisher it is outrunning the broker; a dropped
+     __SUBSCRIBE__ costs a topic silently, until something triggers a RESET.
+     So these are held and retried rather than dropped - a client re-sending a
+     full subscription set (RESET recovery) exceeds the socket's send
+     high-water mark long before it exceeds anything else. */
+  const auto flushControl = [&] {
+    while (!controlBacklog.empty()) {
+      if (!wire::send(socket, controlBacklog.front())) {
+        return false;
+      }
+      controlBacklog.pop_front();
+    }
+    return true;
+  };
+
   // Reused across receives; when the envelope is moved into the inbound queue
   // its buffers are stolen anyway, but on the callback path (peer links) the
   // reuse makes repeated parses allocation-free.
   Envelope inbound;
   bool didWork = false;
   while (m_running) {
+    // POLLOUT only while control messages are waiting, so the retry happens
+    // the moment the pipe has room instead of after a poll timeout.
+    short socketEvents = ZMQ_POLLIN;
+    if (!controlBacklog.empty()) {
+      socketEvents |= ZMQ_POLLOUT;
+    }
     zmq::pollitem_t items[] = {
-        {socket.handle(), 0, ZMQ_POLLIN, 0},
+        {socket.handle(), 0, socketEvents, 0},
         {wakePull.handle(), 0, ZMQ_POLLIN, 0},
     };
 
-    zmq::poll(items, 2, didWork ? std::chrono::milliseconds(0) : pollTimeout);
+    // A pending backlog always waits on the poll: spinning at a zero timeout
+    // would burn the CPU until the pipe drains, which is what POLLOUT is for.
+    const bool spin = didWork && controlBacklog.empty();
+    zmq::poll(items, 2, spin ? std::chrono::milliseconds(0) : pollTimeout);
     didWork = false;
 
     // Clear pending wake pings; the queue drains below pick up the data.
@@ -244,8 +285,21 @@ void ZmqWorker::runLoop() {
     // not wedge this thread - stop() needs the loop alive to join it. Overflow
     // is dropped; subscriptions resync via the RESET handshake on reconnect.
     if (m_controlQueue.drainTo(batch) > 0) {
-      sendBatch(batch);
-      didWork = true;
+      for (Envelope& queued : batch) {
+        controlBacklog.push_back(std::move(queued));
+      }
+    }
+    if (!controlBacklog.empty()) {
+      // Bounded so an unreachable broker can't grow this without limit. The
+      // oldest go first, and are counted like any other dropped send; the
+      // RESET handshake rebuilds subscription state once the link is back.
+      while (controlBacklog.size() > CONTROL_BACKLOG_LIMIT) {
+        controlBacklog.pop_front();
+        noteDroppedSend();
+      }
+      if (flushControl()) {
+        didWork = true;
+      }
     }
 
     // Data messages wait for the connection to be online. Not a protocol
@@ -280,9 +334,16 @@ void ZmqWorker::runLoop() {
 
   // Final drain so control messages queued during shutdown (DISCONNECT from
   // ConnectionManager::shutdown()) are sent before the socket closes; without
-  // it the broker only notices the disconnect via its zombie timeout.
+  // it the broker only notices the disconnect via its zombie timeout. Retried
+  // briefly for the same reason the loop retries, then abandoned - shutdown
+  // must not block on a broker that is not reading.
   m_controlQueue.drainTo(batch);
-  sendBatch(batch);
+  for (Envelope& queued : batch) {
+    controlBacklog.push_back(std::move(queued));
+  }
+  for (int attempt = 0; attempt < 100 && !flushControl(); ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 
   socket.close();
 }

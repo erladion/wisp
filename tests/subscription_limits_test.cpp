@@ -67,16 +67,12 @@ protected:
 
   // Fills a client up to the cap with "topic-0".."topic-<count-1>".
   //
-  // Paced deliberately: sends are non-blocking and the client's send pipe is
-  // bounded (ZeroMQ's default send high-water mark is 1000), so pushing a
-  // thousand subscriptions as fast as the loop can queue them loses some to
-  // the pipe rather than to the cap under test.
+  // Sent as one unpaced burst on purpose: this is the shape of a RESET
+  // recovery, and it exceeds the socket's send high-water mark, so it also
+  // pins that the control path retries rather than dropping the overflow.
   void subscribeMany(ZmqWorker& worker, const std::string& clientId, std::size_t count) {
     for (std::size_t i = 0; i < count; ++i) {
       subscribe(worker, clientId, "topic-" + std::to_string(i));
-      if ((i + 1) % 100 == 0) {
-        std::this_thread::sleep_for(10ms);
-      }
     }
   }
 
@@ -182,6 +178,28 @@ TEST_F(SubscriptionLimitsTest, ResubscribingAtTheCapIsStillHonored) {
   subscribe(subscriber, "resubscribe-subscriber", existingTopic);
 
   EXPECT_TRUE(deliversOn(inbound, existingTopic)) << "Re-subscribing to a topic already held must succeed at the cap";
+}
+
+/* Re-sending a full subscription set is what a client does whenever the
+   broker answers RESET, and it is a burst far larger than the socket's send
+   high-water mark. Every one of those subscriptions has to survive: a
+   __SUBSCRIBE__ lost to a full pipe costs the client that topic with no error
+   anywhere, and the loss would only grow if the cap were raised. */
+TEST_F(SubscriptionLimitsTest, EveryTopicSurvivesAFullCapBurst) {
+  SafeQueue<Envelope> inbound;
+  ZmqWorker& subscriber = startSubscriber("burst-subscriber", inbound);
+  startPublisher();
+
+  subscribeMany(subscriber, "burst-subscriber", MAX_SUBSCRIPTIONS_PER_CLIENT);
+
+  // Sampled across the burst, the last topic included: the overflow lands at
+  // the end, so that one is the first to be lost if the retry regresses.
+  for (std::size_t i = 0; i < MAX_SUBSCRIPTIONS_PER_CLIENT; i += MAX_SUBSCRIPTIONS_PER_CLIENT / 8) {
+    const std::string topic = "topic-" + std::to_string(i);
+    EXPECT_TRUE(deliversOn(inbound, topic)) << "subscription '" << topic << "' was lost in the burst";
+  }
+  const std::string lastTopic = "topic-" + std::to_string(MAX_SUBSCRIPTIONS_PER_CLIENT - 1);
+  EXPECT_TRUE(deliversOn(inbound, lastTopic)) << "the last subscription in the burst was lost";
 }
 
 // A refused subscription is invisible to the client that asked for it, so the
