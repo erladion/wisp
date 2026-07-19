@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(wisp LANGUAGES CXX C)
+project(wisp VERSION 0.1.0 LANGUAGES CXX C)
 
 # Default to an optimized build: a plain `cmake -S . -B build` would otherwise
 # compile with no optimization at all (~35-55% message throughput lost). IDEs
@@ -12,6 +12,10 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Needed while the subdirectories are configured, since they attach their own
+# install rules to CMAKE_INSTALL_{LIB,INCLUDE}DIR.
+include(GNUInstallDirs)
 
 list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/.local")
 
@@ -39,9 +43,19 @@ add_library(wisp_cppzmq INTERFACE)
 if (WISP_USE_SYSTEM_CPPZMQ)
     message(STATUS "cppzmq: using the system headers")
 else()
-    target_include_directories(wisp_cppzmq INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cppzmq)
+    # Installed alongside the wisp headers so an out-of-tree consumer compiles
+    # wireframe.h against the same cppzmq this build used, rather than whatever
+    # the machine happens to ship.
+    target_include_directories(wisp_cppzmq INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/cppzmq>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/wisp>
+    )
     message(STATUS "cppzmq: using the vendored copy in third_party/cppzmq")
 endif()
+
+# wisp_cppzmq is a PUBLIC dependency of the installed libraries, so it has to
+# travel with them in the export set even though it carries no binary.
+install(TARGETS wisp_cppzmq EXPORT WispTargets)
 
 include_directories(common)
 
@@ -72,12 +86,60 @@ if (BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
-# Install the deliverables: the broker and the C-ABI client library plus its
-# header (what the language bindings build against). client1/client2 are
-# throwaway test apps and deliberately not installed.
-include(GNUInstallDirs)
+# --- Install ------------------------------------------------------------------
+# Three consumer shapes are shipped: the broker binary, the C ABI (libwisp.so +
+# connectionapi.h) for FFI callers, and the C++ client library as a CMake
+# package. client1/client2 are throwaway test apps and deliberately not
+# installed. The per-target install rules live next to their targets; what
+# follows assembles them into a findable package.
 install(TARGETS wisp-broker wisp
+    EXPORT WispTargets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-install(FILES common/connectionapi.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
+
+if (NOT WISP_USE_SYSTEM_CPPZMQ)
+    install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cppzmq/zmq.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cppzmq/zmq_addon.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp
+    )
+endif()
+
+set(WISP_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/Wisp)
+
+install(EXPORT WispTargets
+    FILE WispTargets.cmake
+    NAMESPACE Wisp::
+    DESTINATION ${WISP_CMAKE_DIR}
+)
+
+# The Qt binding is exported separately: it drags in Qt, which a consumer of
+# the plain C++ library must not be forced to have.
+if (TARGET QtConnectionAdapter)
+    set_target_properties(QtConnectionAdapter PROPERTIES EXPORT_NAME Qt)
+    install(TARGETS QtConnectionAdapter EXPORT WispQtTargets)
+    install(EXPORT WispQtTargets
+        FILE WispQtTargets.cmake
+        NAMESPACE Wisp::
+        DESTINATION ${WISP_CMAKE_DIR}
+    )
+    install(FILES bindings/qt/qtconnectionadapter.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
+endif()
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WispConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/WispConfig.cmake
+    INSTALL_DESTINATION ${WISP_CMAKE_DIR}
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/WispConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/WispConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/WispConfigVersion.cmake
+    DESTINATION ${WISP_CMAKE_DIR}
+)

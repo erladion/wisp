@@ -1,0 +1,43 @@
+@PACKAGE_INIT@
+
+# Package config for the Wisp C++ client library.
+#
+#   find_package(Wisp REQUIRED)
+#   target_link_libraries(myapp PRIVATE Wisp::Core)        # static
+#   target_link_libraries(myapp PRIVATE Wisp::CoreShared)  # shared
+#
+# Targets:
+#   Wisp::Core        static C++ client library (libwispcore.a)
+#   Wisp::CoreShared  shared C++ client library (libwispcore.so)
+#   Wisp::Polling     header-only frame-loop adapter
+#   Wisp::wisp        the C ABI shared library (libwisp.so), for FFI callers
+#   Wisp::Qt          Qt binding, present only when Wisp was built with Qt
+#
+# The C++ library exposes protobuf types through its headers, so a consumer
+# necessarily compiles against the same Protocol Buffers that built Wisp - it
+# is resolved here rather than left for the caller to discover.
+
+include(CMakeFindDependencyMacro)
+
+# Mirrors the lookup the Wisp build itself performs: config mode first (a
+# source-built protobuf, e.g. under ~/.local), then CMake's find module, which
+# is what distro packages need.
+list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/.local")
+find_package(Protobuf CONFIG QUIET)
+if (NOT Protobuf_FOUND)
+    find_dependency(Protobuf)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/WispTargets.cmake")
+
+# Present only when Wisp was built with Qt available; pulling Qt in
+# unconditionally would make it a hard requirement for every consumer.
+if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/WispQtTargets.cmake")
+    find_package(QT NAMES Qt6 Qt5 COMPONENTS Core QUIET)
+    if (QT_FOUND)
+        find_dependency(Qt${QT_VERSION_MAJOR} COMPONENTS Core)
+        include("${CMAKE_CURRENT_LIST_DIR}/WispQtTargets.cmake")
+    endif()
+endif()
+
+check_required_components(Wisp)

@@ -39,7 +39,22 @@ else()
     message(STATUS "protoc NOT found - using committed protobuf sources in ${PROTO_GEN_DIR}")
 endif()
 
-add_library(WispCore STATIC
+# The headers an out-of-tree C++ consumer needs. They include each other with
+# quoted paths, so installing them flat into one directory keeps those working
+# untouched - broker.pb.h lands there too, since wireframe.h includes it.
+set(WISP_PUBLIC_HEADERS
+    config.h
+    connectionapi.h
+    connectionmanager.h
+    logger.h
+    messagekeys.h
+    safequeue.h
+    wireframe.h
+    workerinterface.h
+)
+
+# Compiled once, then used for both the static and the shared C++ library.
+add_library(WispObjects OBJECT
     ${PROTO_GENERATED_SOURCES}
     ${PROTO_GENERATED_HEADERS}
     zmqworker.h
@@ -58,18 +73,62 @@ add_library(WispCore STATIC
     wireframe.h
 )
 
-target_include_directories(WispCore PUBLIC ${PROTO_GEN_DIR})
+# PIC so these objects can be folded into the shared libraries below.
+set_target_properties(WispObjects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(WispObjects PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_GEN_DIR})
+target_link_libraries(WispObjects PUBLIC zmq wisp_cppzmq protobuf::libprotobuf)
 
-# wisp_cppzmq is PUBLIC so the vendored zmq.hpp reaches everything that
-# includes wireframe.h through this library (broker, inspector, tests).
-target_link_libraries(WispCore PUBLIC
-    zmq
-    wisp_cppzmq
-    protobuf::libprotobuf
+# The C++ client library, shipped both ways: static for consumers who want a
+# self-contained binary, shared for those who want to swap it out. Same
+# objects, same usage requirements - only the linkage differs.
+add_library(WispCore STATIC $<TARGET_OBJECTS:WispObjects>)
+add_library(WispCoreShared SHARED $<TARGET_OBJECTS:WispObjects>)
+
+foreach (wispLib WispCore WispCoreShared)
+    # BUILD_INTERFACE for the in-tree build (headers still scattered across the
+    # source and build trees), INSTALL_INTERFACE for consumers of the package,
+    # where everything sits flat in <prefix>/include/wisp.
+    # Both directories: <prefix>/include so consumers can write the qualified
+    # <wisp/connectionmanager.h>, and <prefix>/include/wisp because the headers
+    # include each other (and <zmq.hpp>) unqualified.
+    target_include_directories(${wispLib} PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${PROTO_GEN_DIR}>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/wisp>
+    )
+    # wisp_cppzmq is PUBLIC so the vendored zmq.hpp reaches everything that
+    # includes wireframe.h through this library (broker, inspector, tests).
+    target_link_libraries(${wispLib} PUBLIC
+        zmq
+        wisp_cppzmq
+        protobuf::libprotobuf
+    )
+endforeach()
+
+# libwispcore.a and libwispcore.so - the linkage is what distinguishes them,
+# not the name.
+set_target_properties(WispCore PROPERTIES OUTPUT_NAME wispcore)
+set_target_properties(WispCoreShared PROPERTIES OUTPUT_NAME wispcore)
+
+# EXPORT_NAME drops the redundant "Wisp" the namespace already supplies, so
+# consumers write Wisp::Core rather than Wisp::WispCore. The matching in-tree
+# aliases mean example code copied out of this repo builds unchanged against
+# an installed Wisp.
+set_target_properties(WispCore PROPERTIES EXPORT_NAME Core)
+set_target_properties(WispCoreShared PROPERTIES EXPORT_NAME CoreShared)
+add_library(Wisp::Core ALIAS WispCore)
+add_library(Wisp::CoreShared ALIAS WispCoreShared)
+
+install(TARGETS WispCore WispCoreShared
+    EXPORT WispTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-
-# PIC so WispCore's objects can be folded into the shared C ABI below.
-set_target_properties(WispCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
+install(FILES ${WISP_PUBLIC_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
+# Generated (or committed, when protoc is absent), so it is not in the list above.
+install(FILES ${PROTO_GENERATED_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
 
 # --- Shared C ABI (libwisp.so) -----------------------------------------------
 # The connectionapi.h ABI as a standalone shared library, for FFI consumers

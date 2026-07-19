@@ -36,7 +36,38 @@ cmake --build build
 ctest --test-dir build          # run the test suite
 ```
 
-Requires a C++17 compiler, ZeroMQ with the cppzmq headers (Debian/Ubuntu ship them in `libzmq3-dev`), and Protocol Buffers. Qt is optional — it enables the inspector, the Qt binding, and the demo clients; the broker and client library build without it. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given; `make install` ships the broker, `libwisp.so`, and `connectionapi.h`.
+Requires a C++17 compiler, ZeroMQ with the cppzmq headers (Debian/Ubuntu ship them in `libzmq3-dev`), and Protocol Buffers. Qt is optional — it enables the inspector, the Qt binding, and the demo clients; the broker and client library build without it. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given.
+
+## Using Wisp from another project
+
+`make install` ships the broker, both client libraries, the public headers, and a CMake package:
+
+```cmake
+find_package(Wisp REQUIRED)
+target_link_libraries(myapp PRIVATE Wisp::Core)   # or Wisp::CoreShared
+```
+
+```cpp
+#include <wisp/connectionmanager.h>
+
+ConnectionConfig config;
+config.address = "tcp://localhost:5555";
+config.clientId = "my-app";
+ConnectionManager::init(config);
+ConnectionManager::sendMessage("telemetry", myProtobufMessage);
+```
+
+| Target | What |
+|---|---|
+| `Wisp::Core` | C++ client library, static (`libwispcore.a`) |
+| `Wisp::CoreShared` | C++ client library, shared (`libwispcore.so`) |
+| `Wisp::Polling` | Header-only frame-loop adapter (`wisp::MessagePoller`) |
+| `Wisp::Qt` | Qt binding — present only if Wisp was built with Qt |
+| `Wisp::wisp` | The C ABI (`libwisp.so`), for FFI callers |
+
+The C ABI is the boundary to use from other languages: `libwisp.so` exports only the `connectionapi.h` functions and hides everything else, so a host process linking its own protobuf can never collide with ours.
+
+The C++ library cannot offer that isolation — its API is templated (`sendMessage<T>`, `registerCallback`, `tryUnpack<T>`), so those instantiate in your translation unit and reference protobuf directly. **A C++ consumer therefore compiles against the same Protocol Buffers that built Wisp**; the package resolves it for you via `find_package`, but a mismatched protobuf will not work. Wisp's vendored cppzmq is installed alongside its headers so you compile against the same one it did.
 
 ## Configuration
 
