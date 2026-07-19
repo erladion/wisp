@@ -55,6 +55,9 @@ Everything else is optional and set through environment variables:
 | `WISP_CLUSTER` | broker | Discovery cluster name (default `default`); brokers only mesh with brokers sharing it |
 | `WISP_NO_DISCOVERY` | broker | Set (to anything) to disable LAN auto-discovery |
 | `WISP_LOG_LEVEL` | broker and any process embedding the client library | Minimum log severity: `debug`, `info`, `warn`, `error`; unset logs everything |
+| `WISP_INSPECTOR_SOCK` | broker and inspector | Local inspector tap endpoint (default `ipc:///tmp/broker_inspector.sock`). Give each broker on a host its own — see below |
+
+Running several brokers on one host, give each one its own `WISP_INSPECTOR_SOCK`. ZeroMQ's `ipc://` bind takes over an existing socket path instead of failing, so brokers sharing the default tap silently steal it from each other: every one of them reports the tap as active, but only the last to start is actually reachable there, and the others' traffic never shows up in the inspector. The broker warns when it takes over a path someone else is serving.
 
 The log level and destination can also be changed at runtime — `Logger::setMinLevel`/`setHandler` from C++, `setLogLevel`/`setLogHandler` through the C ABI.
 

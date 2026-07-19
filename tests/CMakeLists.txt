@@ -23,6 +23,7 @@ set(BROKER_TEST_SOURCES
   delivery_test.cpp
   discovery_test.cpp
   handshake_test.cpp
+  inspector_tap_test.cpp
   message_size_limit_test.cpp
   reply_to_sender_context_test.cpp
   request_reply_test.cpp

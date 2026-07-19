@@ -170,8 +170,14 @@ swap.
 ## Inspector tap
 
 The broker republishes every message it processes — control traffic included —
-on a PUB socket at `ipc:///tmp/broker_inspector.sock`, as the same
-header + payload frames (no identity frame).
+on a PUB socket at `ipc:///tmp/broker_inspector.sock` (overridable with
+`WISP_INSPECTOR_SOCK`), as the same header + payload frames (no identity
+frame).
+
+Because ZeroMQ's `ipc://` bind unlinks and takes over an existing path rather
+than failing, brokers sharing a tap path steal it from each other: all of them
+bind successfully, but only the last one to start is reachable at the path.
+Each broker on a host therefore needs its own tap endpoint.
 
 A broker started with `--inspector-port N` binds the same PUB socket to
 `tcp://*:N` as well and advertises `N` in its beacons, so a tool anywhere on

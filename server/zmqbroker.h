@@ -121,6 +121,13 @@ public:
   // start().
   void enableRemoteInspector(std::uint16_t port);
 
+  // Where the local inspector tap is bound (default
+  // "ipc:///tmp/broker_inspector.sock"). Give each broker on a host its own
+  // path: ZeroMQ's ipc bind takes over an existing path instead of failing, so
+  // brokers sharing one silently steal the tap from each other. Call before
+  // start().
+  void setInspectorEndpoint(const std::string& endpoint);
+
 private:
   void run(const std::vector<std::string>& addresses);
   // Add/remove a peer link under `key` (a remote uuid for discovered peers, the
@@ -171,8 +178,9 @@ private:
   std::string m_clusterName;
   std::uint16_t m_discoveryPort = BrokerDiscovery::kDefaultPort;
 
-  // 0 = no TCP inspector tap (the ipc:// tap is always bound).
+  // 0 = no TCP inspector tap (the local tap below is always bound).
   std::uint16_t m_inspectorTcpPort = 0;
+  std::string m_inspectorEndpoint = "ipc:///tmp/broker_inspector.sock";
 
   // Dedup history as two rotating windows: ids land in the current set, and
   // once it holds MaxHistorySize the sets swap and the older window is

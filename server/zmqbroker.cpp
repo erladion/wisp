@@ -6,6 +6,10 @@
 #include "uuidhelper.h"
 #include "wireframe.h"
 
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cstring>
 #include <deque>
@@ -110,6 +114,35 @@ void disconnectPeerLink(ZmqWorker& link, const std::string& brokerId) {
   link.writeControlMessage(std::move(bye));
 }
 
+/* True when some other process is already serving this ipc endpoint.
+
+   ZeroMQ's ipc bind does not fail on a path that is already in use - it
+   unlinks it and takes it over - so a second broker silently steals the first
+   one's inspector tap. The victim keeps logging that its tap is active while
+   nothing can reach it. A plain connect() tells us whether anyone is
+   listening, so at least the takeover is announced. */
+bool ipcEndpointIsServed(const std::string& endpoint) {
+  const std::string prefix = "ipc://";
+  if (endpoint.rfind(prefix, 0) != 0) {
+    return false;
+  }
+  const std::string path = endpoint.substr(prefix.size());
+  if (path.empty() || path.size() >= sizeof(sockaddr_un::sun_path)) {
+    return false;
+  }
+
+  const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd < 0) {
+    return false;
+  }
+  sockaddr_un addr{};
+  addr.sun_family = AF_UNIX;
+  std::memcpy(addr.sun_path, path.c_str(), path.size());
+  const bool served = ::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
+  ::close(fd);
+  return served;
+}
+
 // Best-effort extraction of the TCP port a broker binds, to advertise in beacons.
 std::uint16_t parseTcpPort(const std::vector<std::string>& addresses) {
   for (const auto& addr : addresses) {
@@ -206,7 +239,12 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
 
   zmq::socket_t inspectorSocket(m_context, ZMQ_PUB);
   inspectorSocket.set(zmq::sockopt::linger, 0);
-  const std::string inspectorConnection = "ipc:///tmp/broker_inspector.sock";
+  const std::string inspectorConnection = m_inspectorEndpoint;
+  if (ipcEndpointIsServed(inspectorConnection)) {
+    Logger::Log(Logger::WARNING, "Another process is already serving the inspector tap at " + inspectorConnection +
+                                     " - taking it over, so that broker's traffic will no longer be visible there. Give each broker its own tap "
+                                     "(WISP_INSPECTOR_SOCK) to run several on one host.");
+  }
   try {
     inspectorSocket.bind(inspectorConnection);  // The dedicated inspector port
     Logger::Log(Logger::INFO, "Inspector socket active on " + inspectorConnection);
@@ -655,6 +693,12 @@ void ZmqBroker::enableDiscovery(const std::string& clusterName, std::uint16_t di
 
 void ZmqBroker::enableRemoteInspector(std::uint16_t port) {
   m_inspectorTcpPort = port;
+}
+
+void ZmqBroker::setInspectorEndpoint(const std::string& endpoint) {
+  if (!endpoint.empty()) {
+    m_inspectorEndpoint = endpoint;
+  }
 }
 
 void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) {

@@ -26,7 +26,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_pWorker = new InspectorWorker(this);
   connect(m_pWorker, &InspectorWorker::packetReceived, this, &MainWindow::onNewPacket, Qt::QueuedConnection);
 
-  m_currentEndpoint = InspectorWorker::kLocalTap;
+  m_currentEndpoint = InspectorWorker::localTap();
   m_pWorker->setEndpoint(m_currentEndpoint);
   m_pWorker->start();
 
@@ -111,7 +111,7 @@ void MainWindow::refreshBrokerList() {
 
   QSignalBlocker blocker(m_pBrokerSelector);
   m_pBrokerSelector->clear();
-  m_pBrokerSelector->addItem("Local broker (ipc)", QString(InspectorWorker::kLocalTap));
+  m_pBrokerSelector->addItem("Local broker (ipc)", InspectorWorker::localTap());
 
   for (const auto& broker : m_discoveredBrokers) {
     const QString shortUuid = broker.uuid.left(8);
@@ -284,7 +284,7 @@ void MainWindow::setupUi() {
   m_pBrokerSelector->setToolTip(
       "Broker to inspect. Brokers appear here when they beacon on the LAN;\n"
       "attaching remotely requires the broker to run with --inspector-port.");
-  m_pBrokerSelector->addItem("Local broker (ipc)", QString(InspectorWorker::kLocalTap));
+  m_pBrokerSelector->addItem("Local broker (ipc)", InspectorWorker::localTap());
   connect(m_pBrokerSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onBrokerSelected);
 
   topBarLayout->addWidget(new QLabel("Broker:", this));

@@ -26,9 +26,12 @@ void printUsage(const char* program) {
       "                      payloads included, with no access control.\n"
       "\n"
       "Environment:\n"
-      "  WISP_CLUSTER       discovery cluster name (default \"default\")\n"
-      "  WISP_NO_DISCOVERY  set to disable LAN auto-discovery\n"
-      "  WISP_LOG_LEVEL     minimum log severity: debug, info, warn, error\n",
+      "  WISP_CLUSTER        discovery cluster name (default \"default\")\n"
+      "  WISP_NO_DISCOVERY   set to disable LAN auto-discovery\n"
+      "  WISP_LOG_LEVEL      minimum log severity: debug, info, warn, error\n"
+      "  WISP_INSPECTOR_SOCK local inspector tap endpoint (default\n"
+      "                      ipc:///tmp/broker_inspector.sock). Give each broker on\n"
+      "                      a host its own, or they take the tap from each other.\n",
       program, program);
 }
 
@@ -77,6 +80,10 @@ int main(int argc, char* argv[]) {
   if (!std::getenv("WISP_NO_DISCOVERY")) {
     const char* cluster = std::getenv("WISP_CLUSTER");
     broker.enableDiscovery(cluster ? cluster : "default");
+  }
+
+  if (const char* tap = std::getenv("WISP_INSPECTOR_SOCK")) {
+    broker.setInspectorEndpoint(tap);
   }
 
   if (inspectorPort != 0) {
