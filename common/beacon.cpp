@@ -68,6 +68,10 @@ UdpSocket::~UdpSocket() {
 }
 
 bool UdpSocket::open(std::uint16_t port, const char* who) {
+  // Reopening: don't leak the previous descriptor.
+  if (m_socket >= 0) {
+    ::close(m_socket);
+  }
   m_socket = ::socket(AF_INET, SOCK_DGRAM, 0);
   if (m_socket < 0) {
     Logger::Log(Logger::Error, std::string(who) + ": socket() failed");
