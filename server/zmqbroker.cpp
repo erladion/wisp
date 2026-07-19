@@ -393,6 +393,14 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   }
   const std::string headerBytes = wire::encodeHeader(header);
 
+  // Peer traffic bypasses the client-socket drain where local messages are
+  // counted; count it here so the stats cover everything received.
+  if (isFromPeer) {
+    m_totalMessages++;
+    m_msgsInterval++;
+    m_bytesInterval += headerBytes.size() + payload.size();
+  }
+
   // Loop protection, checked before the tap: a message flooded into the mesh
   // comes back from every peer link, and those echoes are dropped here - so
   // the inspector shows each message once, as routed, not once per echo.
@@ -588,8 +596,14 @@ bool ZmqBroker::isDuplicate(const std::string& uuid) {
 }
 
 void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSocket) {
-  auto uptime = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - m_startTime).count();
-  const double kbSec = static_cast<double>(m_bytesInterval) / 1024.0;
+  const auto now = std::chrono::steady_clock::now();
+  auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - m_startTime).count();
+
+  // The interval is nominally 1 s but actually 1.0-1.1 s (paced by the poll
+  // timeout), so scale the rates by the real elapsed time.
+  const double intervalSec = std::max(std::chrono::duration<double>(now - m_lastStatsTime).count(), 0.001);
+  const double msgsSec = static_cast<double>(m_msgsInterval) / intervalSec;
+  const double kbSec = static_cast<double>(m_bytesInterval) / 1024.0 / intervalSec;
 
   size_t peersCount = 0;
   {
@@ -601,7 +615,7 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   stats.set_broker_id(m_brokerId);
   stats.set_clients_count(m_clients.size());
   stats.set_peers_count(peersCount);
-  stats.set_msgs_per_sec(m_msgsInterval);
+  stats.set_msgs_per_sec(static_cast<int>(msgsSec + 0.5));
   stats.set_kb_per_sec(kbSec);
   stats.set_total_msgs(m_totalMessages);
   stats.set_uptime_sec(uptime);
