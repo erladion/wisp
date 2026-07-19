@@ -11,6 +11,15 @@ namespace {
 // In-process wake channel between producer threads and the run() loop. The
 // name is per-context (each worker owns its context), so instances don't clash.
 constexpr const char* WAKE_ENDPOINT = "inproc://worker_wake";
+
+// Lets one send loop serve both the envelope queues and the pre-encoded one.
+const Envelope& deref(const Envelope& env) {
+  return env;
+}
+
+const wire::WireMessage& deref(const wire::WireMessagePtr& msg) {
+  return *msg;
+}
 }  // namespace
 
 ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboundQueue, WorkerStatusCallback statusCb)
@@ -20,6 +29,7 @@ ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboun
       m_running(false),
       m_context(1),
       m_wakePush(m_context, ZMQ_PUSH),
+      m_hasEncoded(false),
       m_isOnline(false),
       m_droppedSends(0),
       m_dropLogThrottle() {}
@@ -51,11 +61,14 @@ void ZmqWorker::stop() {
   }
 }
 
-bool ZmqWorker::writeMessage(Envelope msg) {
-  // Ping only when the queue was empty: a non-empty queue means a wakeup is
-  // already pending, so further pings would just be drained and discarded.
+// Ping the run() loop only when the queue was empty: a non-empty queue means a
+// wakeup is already pending, so further pings would just be drained and
+// discarded. A single timed attempt - if the loop can't keep up the message is
+// dropped, as best-effort delivery does everywhere else in the stack.
+template <typename T>
+bool ZmqWorker::enqueue(SafeQueue<T>& queue, T msg) {
   bool wasEmpty = false;
-  if (!m_outboundQueue.push(std::move(msg), std::chrono::milliseconds(100), wasEmpty)) {
+  if (!queue.push(std::move(msg), std::chrono::milliseconds(100), wasEmpty)) {
     return false;
   }
   if (wasEmpty) {
@@ -64,15 +77,19 @@ bool ZmqWorker::writeMessage(Envelope msg) {
   return true;
 }
 
+bool ZmqWorker::writeMessage(Envelope msg) {
+  return enqueue(m_outboundQueue, std::move(msg));
+}
+
 bool ZmqWorker::writeControlMessage(Envelope msg) {
-  bool wasEmpty = false;
-  if (!m_controlQueue.push(std::move(msg), std::chrono::milliseconds(100), wasEmpty)) {
-    return false;
-  }
-  if (wasEmpty) {
-    wake();
-  }
-  return true;
+  return enqueue(m_controlQueue, std::move(msg));
+}
+
+bool ZmqWorker::writeEncoded(wire::WireMessagePtr msg) {
+  // Relaxed: the queue's own mutex synchronizes the message itself, and a
+  // momentarily stale read only costs one extra poll cycle before the drain.
+  m_hasEncoded.store(true, std::memory_order_relaxed);
+  return enqueue(m_encodedQueue, std::move(msg));
 }
 
 // A refused send means the pipe to the broker is full: the client is
@@ -144,6 +161,18 @@ void ZmqWorker::run() {
   }
 
   std::deque<Envelope> batch;
+  std::deque<wire::WireMessagePtr> encodedBatch;
+
+  // Envelopes are serialized here; pre-encoded messages go straight out.
+  const auto sendBatch = [&](auto& queued) {
+    for (const auto& msg : queued) {
+      const bool sent = wire::send(socket, deref(msg));
+      if (!sent) {
+        noteDroppedSend();
+      }
+    }
+  };
+
   // Reused across receives; when the envelope is moved into the inbound queue
   // its buffers are stolen anyway, but on the callback path (peer links) the
   // reuse makes repeated parses allocation-free.
@@ -191,16 +220,12 @@ void ZmqWorker::run() {
       }
     }
 
-    // Both queues drain in one lock acquisition per wakeup instead of one per
+    // Each queue drains in one lock acquisition per wakeup instead of one per
     // element. dontwait sends: a full send pipe (broker down or stalled) must
     // not wedge this thread - stop() needs the loop alive to join it. Overflow
     // is dropped; subscriptions resync via the RESET handshake on reconnect.
     if (m_controlQueue.drainTo(batch) > 0) {
-      for (Envelope& queued : batch) {
-        if (!wire::send(socket, queued)) {
-          noteDroppedSend();
-        }
-      }
+      sendBatch(batch);
       didWork = true;
     }
 
@@ -209,11 +234,13 @@ void ZmqWorker::run() {
     // holding just avoids pushing payloads at a broker that may not be
     // reachable. Messages queued while offline are held, not dropped.
     if (m_isOnline && m_outboundQueue.drainTo(batch) > 0) {
-      for (Envelope& queued : batch) {
-        if (!wire::send(socket, queued)) {
-          noteDroppedSend();
-        }
-      }
+      sendBatch(batch);
+      didWork = true;
+    }
+
+    // Pre-encoded data (peer links); same online rule as above.
+    if (m_isOnline && m_hasEncoded.load(std::memory_order_relaxed) && m_encodedQueue.drainTo(encodedBatch) > 0) {
+      sendBatch(encodedBatch);
       didWork = true;
     }
 
@@ -236,11 +263,7 @@ void ZmqWorker::run() {
   // ConnectionManager::shutdown()) are sent before the socket closes; without
   // it the broker only notices the disconnect via its zombie timeout.
   m_controlQueue.drainTo(batch);
-  for (Envelope& queued : batch) {
-    if (!wire::send(socket, queued)) {
-      noteDroppedSend();
-    }
-  }
+  sendBatch(batch);
 
   socket.close();
 }

@@ -503,13 +503,13 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   {
     std::lock_guard<std::mutex> lock(m_peersMutex);
     if (!m_peers.empty()) {
-      // The queue hand-off needs an owning Envelope, so peers cost one payload
-      // materialization plus a copy per link.
-      Envelope fwd;
-      fwd.header = header;
-      fwd.payload.assign(payload.data<char>(), payload.size());
+      // Encoded once and shared by every link: one payload materialization and
+      // no header re-encoding, so an extra peer costs a refcount bump. The
+      // bytes are the same headerBytes the tap and local subscribers used -
+      // `header` is not touched after it was encoded above.
+      const wire::WireMessagePtr fwd = wire::makeWireMessage(headerBytes, std::string(payload.data<char>(), payload.size()));
       for (auto& [key, peer] : m_peers) {
-        peer->writeMessage(fwd);
+        peer->writeEncoded(fwd);
       }
     }
   }

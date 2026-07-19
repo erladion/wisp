@@ -18,9 +18,17 @@ public:
   virtual void stop() = 0;
 
   // Sink parameters: pass with std::move to hand the envelope over without
-  // copying its payload; passing an lvalue costs one copy.
+  // copying its payload; passing an lvalue costs one copy. The header is
+  // serialized on the worker thread, at send time.
   virtual bool writeMessage(Envelope msg) = 0;
   virtual bool writeControlMessage(Envelope msg) = 0;
+
+  // Fan-out path: hand any number of links the same already-encoded message.
+  // The header is encoded and the payload materialized once by the caller, so
+  // each additional link costs a refcount bump instead of an encode and a
+  // copy. The broker floods peers this way; a client publishing to its one
+  // broker has nothing to fan out and uses writeMessage above.
+  virtual bool writeEncoded(wire::WireMessagePtr msg) = 0;
 
   virtual void setMessageCallback(WorkerMessageCallback cb) = 0;
 

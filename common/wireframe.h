@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -19,6 +20,28 @@ struct Envelope {
 };
 
 namespace wire {
+
+/* A message already encoded for the wire: the header frame bytes (format tag
+   included) plus the opaque payload.
+
+   Encoding once and sharing the result is what makes a fan-out cheap - handing
+   the same message to N recipients costs N refcount bumps rather than N header
+   encodes and N payload copies. Treated as immutable once built, so the
+   shared_ptr is the only synchronization sharing it across threads needs. */
+struct WireMessage {
+  std::string headerBytes;
+  std::string payload;
+};
+
+using WireMessagePtr = std::shared_ptr<const WireMessage>;
+
+// Bundle an already-encoded header frame with its payload for sharing.
+inline WireMessagePtr makeWireMessage(std::string headerBytes, std::string payload) {
+  auto msg = std::make_shared<WireMessage>();
+  msg->headerBytes = std::move(headerBytes);
+  msg->payload = std::move(payload);
+  return msg;
+}
 
 // Build a control message header (CONNECT, SUBSCRIBE, RESET, ...). Control
 // messages carry no payload, and the topic is only meaningful for the
@@ -204,6 +227,11 @@ inline bool send(zmq::socket_t& sock, const broker::MessageHeader& header, const
 
 inline bool send(zmq::socket_t& sock, const Envelope& env) {
   return send(sock, env.header, env.payload);
+}
+
+// Pre-encoded: no header serialization at send time.
+inline bool send(zmq::socket_t& sock, const WireMessage& msg) {
+  return sendFrames(sock, msg.headerBytes, msg.payload);
 }
 
 // Receive a header frame (format byte + encoded header) and any payload frame
