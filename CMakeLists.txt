@@ -15,7 +15,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/.local")
 
-find_package(Protobuf CONFIG REQUIRED)
+# Prefer config mode (source-built protobuf, e.g. under ~/.local) but fall
+# back to CMake's FindProtobuf module - distro packages usually ship no CMake
+# config files. Both paths define protobuf::libprotobuf and protobuf::protoc.
+find_package(Protobuf CONFIG QUIET)
+if (NOT Protobuf_FOUND)
+    find_package(Protobuf REQUIRED)
+endif()
 find_package(ZeroMQ QUIET)
 
 if (NOT ZeroMQ_FOUND)
@@ -45,6 +51,9 @@ endif()
 
 option(BUILD_TESTING "Build the test suite" ON)
 if (BUILD_TESTING)
+    # Must run at the top level or `ctest` from the build root finds no tests
+    # (the root CTestTestfile would never recurse into tests/).
+    enable_testing()
     add_subdirectory(tests)
 endif()
 

@@ -1,0 +1,58 @@
+# Build and test on every push and pull request.
+#
+# core: the deliverables - broker, client library, C ABI - built without Qt,
+#       which also guards the "broker needs no Qt" property.
+# qt:   the full tree including the inspector, demo clients, and Qt binding.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    name: core (no Qt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libzmq3-dev \
+            libprotobuf-dev protobuf-compiler \
+            libprotobuf-c-dev protobuf-c-compiler
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  qt:
+    name: full (Qt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libzmq3-dev \
+            libprotobuf-dev protobuf-compiler \
+            libprotobuf-c-dev protobuf-c-compiler \
+            qt6-base-dev
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
