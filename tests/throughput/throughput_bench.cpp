@@ -54,6 +54,12 @@ const std::string kTopic = "throughput-bench";
 // its clients then attach to the *other* process's broker and the results are
 // silently meaningless (a run measured 0 delivered that way).
 const std::string kBenchBrokerAddress = "tcp://127.0.0.1:25650";
+// Peer brokers (--peers) get the ports just above the bench broker's.
+constexpr int kBenchPeerBasePort = 25651;
+// Every broker here needs its own tap: ZeroMQ's ipc bind takes over an
+// existing path rather than failing, so brokers sharing one silently steal it
+// from each other - and from any broker the developer already has running.
+const std::string kBenchTapPrefix = "ipc:///tmp/wisp_bench_tap_";
 // Payload layout: 8 bytes send timestamp + 1 phase tag byte.
 constexpr int kMinPayloadBytes = static_cast<int>(sizeof(int64_t)) + 1;
 constexpr auto kDrainGrace = 2s;
@@ -73,6 +79,10 @@ constexpr std::size_t kPhaseByteOffset = sizeof(int64_t);
 struct BenchConfig {
   int publisherCount = 2;
   int subscriberCount = 2;
+  // Peer brokers linked to the bench broker. The broker floods every routed
+  // message to each of them, so this is what exercises the mesh fan-out path -
+  // with the default 0 that code never runs.
+  int peerCount = 0;
   std::vector<int> payloadSizes = {256};
   std::chrono::seconds warmup{1};
   std::chrono::seconds duration{5};
@@ -86,6 +96,10 @@ void printUsage() {
   std::cout << "Usage: throughput_bench [options]\n"
             << "  --publishers N      number of publisher clients   (default 2)\n"
             << "  --subscribers N     number of subscriber clients  (default 2)\n"
+            << "  --peers N           peer brokers linked to the bench broker (default 0).\n"
+            << "                      Every routed message is flooded to each one, so this\n"
+            << "                      is what measures the mesh fan-out path; at 0 that code\n"
+            << "                      never executes\n"
             << "  --payload-bytes N   payload size(s) in bytes (default 256, min " << kMinPayloadBytes << ");\n"
             << "                      a comma-separated list (e.g. 256,1024,4096) sweeps the\n"
             << "                      sizes in one invocation and prints a comparison table\n"
@@ -132,6 +146,11 @@ BenchConfig parseArgs(int argc, char** argv) {
       config.publisherCount = intArg(i);
     } else if (flag == "--subscribers") {
       config.subscriberCount = intArg(i);
+    } else if (flag == "--peers") {
+      config.peerCount = intArg(i);
+      if (config.peerCount < 0) {
+        throw std::runtime_error("--peers must be >= 0");
+      }
     } else if (flag == "--payload-bytes") {
       if (i + 1 >= argc) {
         throw std::runtime_error("missing value for --payload-bytes");
@@ -388,8 +407,9 @@ RunSummary summarize(const BenchConfig& config, int payloadBytes, std::chrono::s
 void printReport(const BenchConfig& config, const RunSummary& s) {
   std::cout << std::fixed << std::setprecision(2);
   std::cout << "\n===== Throughput benchmark report =====\n";
-  std::cout << config.publisherCount << " publisher(s), " << config.subscriberCount << " subscriber(s), ~" << s.payloadBytes << " B payload, " << s.seconds
-            << " s measured (after " << config.warmup.count() << " s warmup, plus a " << kDrainGrace.count() << " s drain grace before tallying delivery)\n";
+  std::cout << config.publisherCount << " publisher(s), " << config.subscriberCount << " subscriber(s), " << config.peerCount << " peer broker(s), ~"
+            << s.payloadBytes << " B payload, " << s.seconds << " s measured (after " << config.warmup.count() << " s warmup, plus a "
+            << kDrainGrace.count() << " s drain grace before tallying delivery)\n";
   if (config.ratePerPublisher > 0) {
     std::cout << "paced at " << config.ratePerPublisher << " msgs/sec per publisher\n\n";
   } else {
@@ -432,8 +452,32 @@ void printSweepTable(const BenchConfig& config, const std::vector<RunSummary>& r
 // when the mesh never becomes ready.
 RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
   ZmqBroker broker;
+  broker.setInspectorEndpoint(kBenchTapPrefix + "hub.sock");
   broker.start({kBenchBrokerAddress});
   std::this_thread::sleep_for(100ms);
+
+  // Peer brokers, each linked from the bench broker so every routed message is
+  // flooded to all of them. They have no clients of their own: the point is
+  // the cost the fan-out imposes on the bench broker's thread, not what the
+  // far side does with the traffic.
+  std::vector<std::unique_ptr<ZmqBroker>> peers;
+  for (int i = 0; i < config.peerCount; ++i) {
+    auto peer = std::make_unique<ZmqBroker>();
+    peer->setInspectorEndpoint(kBenchTapPrefix + "peer" + std::to_string(i) + ".sock");
+    peer->start({"tcp://127.0.0.1:" + std::to_string(kBenchPeerBasePort + i)});
+    peers.push_back(std::move(peer));
+  }
+  if (!peers.empty()) {
+    std::this_thread::sleep_for(300ms);  // let the peer brokers finish binding
+    for (int i = 0; i < config.peerCount; ++i) {
+      broker.connectToPeer("tcp://127.0.0.1:" + std::to_string(kBenchPeerBasePort + i));
+    }
+    // Each link handshakes (CONNECT -> RESET -> wildcard SUBSCRIBE) before it
+    // carries traffic. The bench broker floods every link regardless of how
+    // far along that is, so this only keeps the measured run realistic.
+    std::cout << "Linking " << config.peerCount << " peer broker(s)...\n";
+    std::this_thread::sleep_for(1500ms);
+  }
 
   std::vector<std::unique_ptr<SafeQueue<Envelope>>> inboundQueues;
   std::vector<std::unique_ptr<ZmqWorker>> subscribers;
@@ -530,6 +574,9 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
     w->stop();
   }
   broker.stop();
+  for (auto& peer : peers) {
+    peer->stop();
+  }
 
   return summarize(config, payloadBytes, measureStart, measureEnd, publisherResults, subscriberResults, totalSendDrops);
 }
