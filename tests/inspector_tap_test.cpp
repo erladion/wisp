@@ -35,25 +35,24 @@ bool tapSees(const std::string& brokerAddress, const std::string& tap, const std
   publisher.start();
   std::this_thread::sleep_for(300ms);
 
-  bool seen = false;
-  const auto deadline = std::chrono::steady_clock::now() + 4s;
-  while (std::chrono::steady_clock::now() < deadline && !seen) {
-    Envelope msg;
-    msg.header.set_handler_key(key);
-    msg.header.set_sender_id(cfg.clientId);
-    msg.header.set_topic("tap-test");
-    msg.payload = "payload";
-    publisher.writeMessage(std::move(msg));
+  const bool seen = TestSupport::waitFor(
+      [&] {
+        Envelope msg;
+        msg.header.set_handler_key(key);
+        msg.header.set_sender_id(cfg.clientId);
+        msg.header.set_topic("tap-test");
+        msg.payload = "payload";
+        publisher.writeMessage(std::move(msg));
 
-    Envelope tapped;
-    while (wire::recv(sub, tapped, zmq::recv_flags::none)) {
-      if (tapped.header.handler_key() == key) {
-        seen = true;
-        break;
-      }
-    }
-    std::this_thread::sleep_for(50ms);
-  }
+        Envelope tapped;
+        while (wire::recv(sub, tapped, zmq::recv_flags::none)) {
+          if (tapped.header.handler_key() == key) {
+            return true;
+          }
+        }
+        return false;
+      },
+      4s, 50ms);
 
   publisher.stop();
   return seen;

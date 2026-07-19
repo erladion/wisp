@@ -13,6 +13,10 @@
 #include "messagekeys.h"
 #include "wireframe.h"
 
+#include "support/test_helpers.h"
+
+using TestSupport::waitFor;
+
 using namespace std::chrono_literals;
 
 namespace {
@@ -109,17 +113,6 @@ private:
   mutable std::mutex m_mutex;
   std::vector<std::pair<std::string, std::string>> m_seen;
 };
-
-bool waitFor(const std::function<bool()>& predicate, std::chrono::milliseconds timeout) {
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (std::chrono::steady_clock::now() < deadline) {
-    if (predicate()) {
-      return true;
-    }
-    std::this_thread::sleep_for(10ms);
-  }
-  return predicate();
-}
 
 }  // namespace
 

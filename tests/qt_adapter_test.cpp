@@ -21,6 +21,7 @@
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
+using TestSupport::waitFor;
 using TestSupport::testBrokerAddress;
 
 // Spin the calling thread's Qt event loop until `pred` holds or `timeout`
@@ -28,16 +29,12 @@ using TestSupport::testBrokerAddress;
 // Qt::QueuedConnection), so they only run while this thread pumps events.
 template <typename Pred>
 static bool pumpUntil(Pred pred, std::chrono::milliseconds timeout) {
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (std::chrono::steady_clock::now() < deadline) {
-    QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-    if (pred()) {
-      return true;
-    }
-    std::this_thread::sleep_for(5ms);
-  }
-  QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-  return pred();
+  return waitFor(
+      [&] {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+        return pred();
+      },
+      timeout);
 }
 
 // --- Qt-type serialization (the adapter's DataSerializer specializations) ----

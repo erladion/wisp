@@ -19,6 +19,7 @@
 using namespace std::chrono_literals;
 using TestSupport::popWithTimeout;
 using TestSupport::subscribe;
+using TestSupport::waitFor;
 using TestSupport::testBrokerAddress;
 
 // Best-effort delivery must be observably best-effort: when a subscriber
@@ -74,45 +75,46 @@ TEST(StatsTest, DroppedDeliveriesAreCounted) {
   // The slow consumer is kept heartbeating meanwhile: it is slow, not dead,
   // so the broker must not zombie it (which would erase its drop counter).
   const std::string payload(4096, 'x');
-  bool sawDrops = false;
-  const auto deadline = std::chrono::steady_clock::now() + 20s;
   auto lastKeepalive = std::chrono::steady_clock::now();
   Envelope env;
-  while (std::chrono::steady_clock::now() < deadline && !sawDrops) {
-    for (int i = 0; i < 500; ++i) {
-      Envelope msg;
-      msg.header.set_handler_key("FLOOD");
-      msg.header.set_sender_id(pubConfig.clientId);
-      msg.header.set_topic("flood-topic");
-      msg.payload = payload;
-      (void)publisher.writeMessage(msg);
-    }
+  // No extra sleep between attempts: popWithTimeout already paces the loop.
+  const bool sawDrops = waitFor(
+      [&] {
+        for (int i = 0; i < 500; ++i) {
+          Envelope msg;
+          msg.header.set_handler_key("FLOOD");
+          msg.header.set_sender_id(pubConfig.clientId);
+          msg.header.set_topic("flood-topic");
+          msg.payload = payload;
+          (void)publisher.writeMessage(msg);
+        }
 
-    if (std::chrono::steady_clock::now() - lastKeepalive > 1s) {
-      broker::MessageHeader heartbeat;
-      heartbeat.set_handler_key(Keys::HEARTBEAT);
-      heartbeat.set_sender_id("slow-consumer");
-      (void)wire::send(slow, heartbeat, std::string());
-      lastKeepalive = std::chrono::steady_clock::now();
-    }
-    if (!popWithTimeout(statsInbound, env, 50ms) || env.header.handler_key() != Keys::SYS_STATS) {
-      continue;
-    }
-    google::protobuf::Any any;
-    broker::SystemStats stats;
-    if (!any.ParseFromString(env.payload) || !any.UnpackTo(&stats)) {
-      continue;
-    }
-    if (stats.total_dropped() == 0) {
-      continue;
-    }
-    for (const auto& client : stats.connected_clients()) {
-      if (client.id() == "slow-consumer" && client.dropped_messages() > 0) {
-        sawDrops = true;
-        break;
-      }
-    }
-  }
+        if (std::chrono::steady_clock::now() - lastKeepalive > 1s) {
+          broker::MessageHeader heartbeat;
+          heartbeat.set_handler_key(Keys::HEARTBEAT);
+          heartbeat.set_sender_id("slow-consumer");
+          (void)wire::send(slow, heartbeat, std::string());
+          lastKeepalive = std::chrono::steady_clock::now();
+        }
+        if (!popWithTimeout(statsInbound, env, 50ms) || env.header.handler_key() != Keys::SYS_STATS) {
+          return false;
+        }
+        google::protobuf::Any any;
+        broker::SystemStats stats;
+        if (!any.ParseFromString(env.payload) || !any.UnpackTo(&stats)) {
+          return false;
+        }
+        if (stats.total_dropped() == 0) {
+          return false;
+        }
+        for (const auto& client : stats.connected_clients()) {
+          if (client.id() == "slow-consumer" && client.dropped_messages() > 0) {
+            return true;
+          }
+        }
+        return false;
+      },
+      20s, 0ms);
   EXPECT_TRUE(sawDrops) << "The broker dropped deliveries without accounting for them in SYS_STATS";
 
   publisher.stop();

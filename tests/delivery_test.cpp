@@ -16,6 +16,7 @@
 
 using namespace std::chrono_literals;
 using TestSupport::subscribe;
+using TestSupport::waitFor;
 using TestSupport::testBrokerAddress;
 
 namespace {
@@ -76,10 +77,7 @@ TEST(DeliveryTest, NothingIsLostBelowCapacity) {
   }
 
   // Generous drain: the assertion is about loss, not latency.
-  const auto deadline = std::chrono::steady_clock::now() + 5s;
-  while (std::chrono::steady_clock::now() < deadline && received.load() < sent) {
-    std::this_thread::sleep_for(50ms);
-  }
+  waitFor([&] { return received.load() >= sent; }, 5s, 50ms);
 
   running = false;
   inbound.stop();
@@ -107,17 +105,18 @@ TEST(DeliveryTest, SendPipeDropsAreCountedWhenTheBrokerIsUnreachable) {
   // The worker holds data messages until it is online, so an unreachable
   // broker means these queue up rather than drop - drive the control path,
   // which is sent regardless of connection state.
-  const auto deadline = std::chrono::steady_clock::now() + 10s;
-  while (std::chrono::steady_clock::now() < deadline && publisher.droppedSends() == 0) {
-    for (int i = 0; i < 500; ++i) {
-      Envelope msg;
-      msg.header.set_handler_key(Keys::SUBSCRIBE);
-      msg.header.set_sender_id(pubConfig.clientId);
-      msg.header.set_topic("flood-" + std::to_string(i));
-      (void)publisher.writeControlMessage(std::move(msg));
-    }
-    std::this_thread::sleep_for(20ms);
-  }
+  waitFor(
+      [&] {
+        for (int i = 0; i < 500; ++i) {
+          Envelope msg;
+          msg.header.set_handler_key(Keys::SUBSCRIBE);
+          msg.header.set_sender_id(pubConfig.clientId);
+          msg.header.set_topic("flood-" + std::to_string(i));
+          (void)publisher.writeControlMessage(std::move(msg));
+        }
+        return publisher.droppedSends() > 0;
+      },
+      10s, 20ms);
 
   EXPECT_GT(publisher.droppedSends(), 0u) << "sends into a full pipe vanished without being counted";
 

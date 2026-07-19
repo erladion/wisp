@@ -16,6 +16,7 @@
 
 using namespace std::chrono_literals;
 using TestSupport::testBrokerAddress;
+using TestSupport::waitFor;
 
 namespace {
 const std::string kTopic = "polling-topic";
@@ -67,12 +68,13 @@ protected:
   // Publishes until the poller has captured something, since a subscription
   // goes live asynchronously.
   void publishUntilCaptured(wisp::MessagePoller& poller, int expected, const std::string& payloadPrefix) {
-    const auto deadline = std::chrono::steady_clock::now() + 5s;
     int sent = 0;
-    while (std::chrono::steady_clock::now() < deadline && poller.pending() < static_cast<std::size_t>(expected)) {
-      publish(payloadPrefix + std::to_string(sent++));
-      std::this_thread::sleep_for(20ms);
-    }
+    waitFor(
+        [&] {
+          publish(payloadPrefix + std::to_string(sent++));
+          return poller.pending() >= static_cast<std::size_t>(expected);
+        },
+        5s, 20ms);
   }
 
   std::unique_ptr<ZmqBroker> m_broker;
@@ -104,14 +106,15 @@ TEST_F(PollingAdapterTest, FullBufferDiscardsOldestAndCountsIt) {
   poller.subscribe(kTopic);
 
   // Publish well past the capacity without polling once - the stalled-loop case.
-  const auto deadline = std::chrono::steady_clock::now() + 5s;
   int sent = 0;
-  while (std::chrono::steady_clock::now() < deadline && poller.dropped() == 0) {
-    for (int i = 0; i < 10; ++i) {
-      publish("overflow-" + std::to_string(sent++));
-    }
-    std::this_thread::sleep_for(20ms);
-  }
+  waitFor(
+      [&] {
+        for (int i = 0; i < 10; ++i) {
+          publish("overflow-" + std::to_string(sent++));
+        }
+        return poller.dropped() > 0;
+      },
+      5s, 20ms);
 
   EXPECT_GT(poller.dropped(), 0u) << "an overflowing buffer did not report dropping anything";
   EXPECT_LE(poller.pending(), 4u) << "the buffer grew past its capacity";

@@ -19,18 +19,30 @@ inline const std::string& testBrokerAddress() {
   return addr;
 }
 
+// Blocks until `predicate` holds or `timeout` elapses; returns what it last
+// saw, so `EXPECT_TRUE(waitFor(...))` reads as "this became true in time".
+// Polling rather than blocking keeps a wedged broker from hanging the run.
+// The predicate is checked once before the first sleep, so an already-true
+// condition costs nothing.
+template <typename Predicate>
+bool waitFor(Predicate predicate, std::chrono::milliseconds timeout, std::chrono::milliseconds interval = std::chrono::milliseconds(5)) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (true) {
+    if (predicate()) {
+      return true;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      return false;
+    }
+    std::this_thread::sleep_for(interval);
+  }
+}
+
 // Blocks until `queue` yields a value or `timeout` elapses, polling rather than
 // using SafeQueue::pop() so a hung broker fails the test instead of the run.
 template <typename T>
 bool popWithTimeout(SafeQueue<T>& queue, T& out, std::chrono::milliseconds timeout) {
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  do {
-    if (queue.try_pop(out)) {
-      return true;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  } while (std::chrono::steady_clock::now() < deadline);
-  return false;
+  return waitFor([&] { return queue.try_pop(out); }, timeout);
 }
 
 // Largely historical: ZmqWorker now leads with CONNECT automatically, and the
