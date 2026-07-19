@@ -45,12 +45,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   connect(m_pBrokerExpiryTimer, &QTimer::timeout, this, &MainWindow::expireDiscoveredBrokers);
   m_pBrokerExpiryTimer->start(1000);
 
-  ConnectionConfig config;
-  config.address = "tcp://localhost:5555";
-  config.clientId = "Inspector-Replay";
-
-  m_pInjector = new ZmqWorker(config, nullptr, nullptr);
-  m_pInjector->start();
+  // Router endpoint of the stock local broker; retargeted whenever the user
+  // attaches to a discovered broker, whose beacon advertises its router.
+  retargetInjector("tcp://localhost:5555");
 }
 
 MainWindow::~MainWindow() {
@@ -61,8 +58,40 @@ MainWindow::~MainWindow() {
   m_pWorker->stopWorker();
   m_pWorker->wait();
 
-  m_pInjector->stop();
-  delete m_pInjector;
+  if (m_pInjector) {
+    m_pInjector->stop();
+  }
+}
+
+// Point the replay injector at `address` (a broker ROUTER endpoint), so
+// "Replay Message" reaches the broker being inspected rather than always the
+// default local one.
+void MainWindow::retargetInjector(const QString& address) {
+  if (m_pInjector && address == m_injectorAddress) {
+    return;
+  }
+  if (m_pInjector) {
+    m_pInjector->stop();
+  }
+
+  ConnectionConfig config;
+  config.address = address.toStdString();
+  config.clientId = "Inspector-Replay";
+  m_pInjector = std::make_unique<ZmqWorker>(config, nullptr, nullptr);
+  m_pInjector->start();
+  m_injectorAddress = address;
+}
+
+// The ROUTER endpoint of the broker whose tap is `tapEndpoint`. Discovered
+// brokers advertise theirs in beacons; the local ipc tap falls back to the
+// stock broker's default port.
+QString MainWindow::routerEndpointForTap(const QString& tapEndpoint) const {
+  for (const auto& broker : m_discoveredBrokers) {
+    if (broker.endpoint == tapEndpoint) {
+      return broker.routerEndpoint;
+    }
+  }
+  return QStringLiteral("tcp://localhost:5555");
 }
 
 void MainWindow::onBeaconHeard(const QString& senderIp, const beacon::Beacon& heard) {
@@ -72,10 +101,12 @@ void MainWindow::onBeaconHeard(const QString& senderIp, const beacon::Beacon& he
   broker.cluster = QString::fromStdString(heard.cluster);
   broker.uuid = uuid;
   broker.endpoint = heard.tapPort == 0 ? QString() : QString("tcp://%1:%2").arg(senderIp).arg(heard.tapPort);
+  broker.routerEndpoint = QString("tcp://%1:%2").arg(senderIp).arg(heard.routerPort);
   broker.lastSeen = std::chrono::steady_clock::now();
 
   const auto existing = m_discoveredBrokers.find(uuid);
-  const bool changed = existing == m_discoveredBrokers.end() || existing->endpoint != broker.endpoint || existing->cluster != broker.cluster;
+  const bool changed = existing == m_discoveredBrokers.end() || existing->endpoint != broker.endpoint || existing->cluster != broker.cluster ||
+                       existing->routerEndpoint != broker.routerEndpoint;
 
   m_discoveredBrokers.insert(uuid, broker);
   if (changed) {
@@ -164,6 +195,9 @@ void MainWindow::attachTo(const QString& endpoint, const QString& label) {
   m_pWorker->setEndpoint(endpoint);
   m_currentEndpoint = endpoint;
   m_pWorker->start();
+
+  // Replay must inject into the broker now being inspected.
+  retargetInjector(routerEndpointForTap(endpoint));
 
   Logger::Log(Logger::Info, "Inspector attached to " + endpoint.toStdString());
   statusBar()->showMessage("Attached to " + label, 5000);

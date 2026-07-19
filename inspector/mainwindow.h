@@ -62,7 +62,8 @@ private:
   struct DiscoveredBroker {
     QString cluster;
     QString uuid;
-    QString endpoint;  // empty when the broker exposes no remote tap
+    QString endpoint;        // empty when the broker exposes no remote tap
+    QString routerEndpoint;  // where the broker's clients connect, from its beacon
     std::chrono::steady_clock::time_point lastSeen;
   };
 
@@ -70,10 +71,13 @@ private:
   void refreshBrokerList();
   void attachTo(const QString& endpoint, const QString& label);
   void clearCapture();
+  void retargetInjector(const QString& address);
+  QString routerEndpointForTap(const QString& tapEndpoint) const;
 
 private:
   InspectorWorker* m_pWorker;
-  ZmqWorker* m_pInjector;
+  std::unique_ptr<ZmqWorker> m_pInjector;
+  QString m_injectorAddress;
 
   std::deque<InspectorPacket> m_packetHistory;
 
