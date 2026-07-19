@@ -14,7 +14,7 @@
 // listen-only receiver live here, in common, so a tool needs no broker code.
 namespace beacon {
 
-constexpr std::uint16_t kDefaultPort = 5670;
+constexpr std::uint16_t DEFAULT_PORT = 5670;
 
 struct Beacon {
   std::string cluster;
@@ -32,7 +32,7 @@ std::string encode(const std::string& cluster, const std::string& uuid, std::uin
 bool decode(const char* data, std::size_t size, Beacon& out);
 
 // Beacons are far smaller than this; the cluster-name cap keeps them so.
-constexpr std::size_t kMaxDatagramSize = 512;
+constexpr std::size_t MAX_DATAGRAM_SIZE = 512;
 
 /* The UDP socket beacon traffic runs on, owned RAII-style.
 
@@ -89,7 +89,7 @@ private:
   const std::uint16_t m_port;
   const OnBeacon m_onBeacon;
 
-  std::atomic<bool> m_running{false};
+  std::atomic<bool> m_running;
   std::thread m_thread;
 };
 

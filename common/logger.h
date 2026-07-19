@@ -60,7 +60,7 @@ private:
 
 class Logger {
 public:
-  enum Level { DEBUG, INFO, WARNING, ERROR };
+  enum Level { Debug, Info, Warning, Error };
 
   // Receives the raw level and message (no timestamp prefix - host logging
   // frameworks stamp their own) on whatever internal thread produced the line.
@@ -97,22 +97,22 @@ private:
   static Level initialLevel() {
     const char* env = std::getenv("WISP_LOG_LEVEL");
     if (!env) {
-      return DEBUG;
+      return Debug;
     }
     std::string value(env);
     for (char& c : value) {
       c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     if (value == "info") {
-      return INFO;
+      return Info;
     }
     if (value == "warning" || value == "warn") {
-      return WARNING;
+      return Warning;
     }
     if (value == "error") {
-      return ERROR;
+      return Error;
     }
-    return DEBUG;
+    return Debug;
   }
 
   void logInternal(Level level, const std::string& msg) {
@@ -136,7 +136,7 @@ private:
 
   // Caller holds m_mutex.
   void writeDefault(Level level, const std::string& msg) {
-    std::ostream& out = (level == ERROR) ? std::cerr : std::cout;
+    std::ostream& out = (level == Error) ? std::cerr : std::cout;
 
     // Formatted separately so no fill/width state leaks into the shared
     // stream, which would corrupt setw-formatted output the host program
@@ -144,16 +144,16 @@ private:
     out << "[" << TimeFormat::hhmmssMillisNow() << "] ";
 
     switch (level) {
-      case DEBUG:
+      case Debug:
         out << "[DEBUG] ";
         break;
-      case INFO:
+      case Info:
         out << "[INFO]  ";
         break;
-      case WARNING:
+      case Warning:
         out << "[WARN]  ";
         break;
-      case ERROR:
+      case Error:
         out << "[ERROR] ";
         break;
     }

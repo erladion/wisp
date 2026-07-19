@@ -96,7 +96,7 @@ TEST(MessageSizeLimitTest, OversizedMessageIsRejectedAndBrokerSurvives) {
 TEST(MessageSizeLimitTest, MalformedFloodProducesAtMostOneWarningPerWindow) {
   std::atomic<int> malformedWarnings{0};
   Logger::setHandler([&malformedWarnings](Logger::Level level, const std::string& msg) {
-    if (level == Logger::WARNING && msg.find("malformed") != std::string::npos) {
+    if (level == Logger::Warning && msg.find("malformed") != std::string::npos) {
       ++malformedWarnings;
     }
   });

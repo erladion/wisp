@@ -19,7 +19,7 @@ public:
 
   void packetAdded();
   // The backing history was cleared wholesale (e.g. switching brokers).
-  void historyCleared();  // Call this when the history grows
+  void historyCleared();
 
   // Bracket the removal of the oldest `count` packets: call
   // packetsAboutToBeTrimmed(), erase from the front of the history deque,
@@ -32,18 +32,18 @@ private:
   const std::deque<InspectorPacket>& m_history;
 };
 
-// 2. THE HIGH-SPEED FILTER
 class PacketFilterProxyModel : public QSortFilterProxyModel {
   Q_OBJECT
 public:
   PacketFilterProxyModel(QObject* parent = nullptr);
 
-  QSet<QString> allowedTopics;
-  QString searchText;
-
   void updateFilters(const QString& text, const QSet<QString>& topics);
 
 protected:
   bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override;
+
+private:
+  QSet<QString> m_allowedTopics;
+  QString m_searchText;
 };
 #endif  // PACKETTABLEMODEL_H

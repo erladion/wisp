@@ -20,7 +20,6 @@
 #include "broker.pb.h"
 
 struct ClientState {
-  std::string identity; // ZMQ Routing ID
   std::chrono::steady_clock::time_point lastSeen;
   // Deliveries this client refused (full pipe / unroutable) since it
   // connected; surfaced in SystemStats so a lagging client is visible.
@@ -111,10 +110,10 @@ std::string peerLinkId(const std::string& brokerId, const std::string& key);
 }  // namespace BrokerInternal
 
 class ZmqBroker {
-  const size_t MaxHistorySize{10000};
+  static constexpr size_t MaxHistorySize = 10000;
   // Max envelopes drained from the client socket per poll wakeup, so a
   // sustained burst can't starve zombie cleanup and stats.
-  const int MaxMessagesPerWake{1000};
+  static constexpr int MaxMessagesPerWake = 1000;
   // Power of two > 2*MaxHistorySize, keeping the dedup sets' load factor
   // comfortably below 1/3.
   static constexpr size_t DedupSetCapacity = 32768;
@@ -133,7 +132,7 @@ public:
 
   // Enable automatic LAN peer discovery (UDP broadcast beacons). Brokers sharing
   // a cluster name auto-mesh. Call before start().
-  void enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort = BrokerDiscovery::kDefaultPort);
+  void enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort = BrokerDiscovery::DefaultPort);
 
   // Additionally expose the inspector tap on tcp://*:port so tools elsewhere
   // on the network can attach, and advertise the port in this broker's
@@ -218,13 +217,13 @@ private:
 
   // Optional LAN auto-discovery (set up by enableDiscovery, launched in start).
   std::unique_ptr<BrokerDiscovery> m_discovery;
-  bool m_discoveryEnabled = false;
+  bool m_discoveryEnabled;
   std::string m_clusterName;
-  std::uint16_t m_discoveryPort = BrokerDiscovery::kDefaultPort;
+  std::uint16_t m_discoveryPort;
 
   // 0 = no TCP inspector tap (the local tap below is always bound).
-  std::uint16_t m_inspectorTcpPort = 0;
-  std::string m_inspectorEndpoint = "ipc:///tmp/broker_inspector.sock";
+  std::uint16_t m_inspectorTcpPort;
+  std::string m_inspectorEndpoint;
 
   // Dedup history as two rotating windows: ids land in the current set, and
   // once it holds MaxHistorySize the sets swap and the older window is
@@ -237,13 +236,12 @@ private:
   std::chrono::steady_clock::time_point m_startTime;
   std::chrono::steady_clock::time_point m_lastStatsTime;
 
-  uint64_t m_totalMessages = 0;
-  uint64_t m_totalDropped = 0;
+  uint64_t m_totalMessages;
+  uint64_t m_totalDropped;
 
   // Interval counters (reset every second)
-  uint64_t m_msgsInterval = 0;
-  uint64_t m_bytesInterval = 0;
-
+  uint64_t m_msgsInterval;
+  uint64_t m_bytesInterval;
 };
 
 #endif

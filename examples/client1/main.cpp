@@ -28,19 +28,19 @@ int main(int argc, char* argv[]) {
   ConnectionManager::init(config);
 
   ConnectionManager::registerCallback("test", [](const std::string& message) {
-    Logger::Log(Logger::INFO, "\n" + message);
+    Logger::Log(Logger::Info, "\n" + message);
 
     ConnectionManager::sendMessage("MessageReceived", "Send a response");
   });
 
   ConnectionManager::registerCallback("struct", [](const TestStruct& s) {
-    Logger::Log(Logger::INFO, "Receiving a struct");
-    Logger::Log(Logger::INFO, "\n" + std::to_string(s.d) + "\n" + std::to_string(s.dd) + "\n" + std::to_string(s.ddd) + "\n" + std::to_string(s.h));
+    Logger::Log(Logger::Info, "Receiving a struct");
+    Logger::Log(Logger::Info, "\n" + std::to_string(s.d) + "\n" + std::to_string(s.dd) + "\n" + std::to_string(s.ddd) + "\n" + std::to_string(s.h));
   });
 
   ConnectionManager::registerCallback("protobuf", [](const broker::ClientInfo& s) {
-    Logger::Log(Logger::INFO, "Receiving a protobuf");
-    Logger::Log(Logger::INFO, "\n" + s.id() + "\n" + std::to_string(s.subscriptions_size()) + " subscription(s)");
+    Logger::Log(Logger::Info, "Receiving a protobuf");
+    Logger::Log(Logger::Info, "\n" + s.id() + "\n" + std::to_string(s.subscriptions_size()) + " subscription(s)");
   });
 
   QTimer t;

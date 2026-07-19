@@ -14,8 +14,8 @@
 namespace beacon {
 namespace {
 
-constexpr char kMagic[] = "WISP";
-constexpr char kVersion[] = "1";
+constexpr char MAGIC[] = "WISP";
+constexpr char WIRE_VERSION[] = "1";
 
 }  // namespace
 
@@ -24,7 +24,7 @@ bool isValidClusterName(const std::string& cluster) {
 }
 
 std::string encode(const std::string& cluster, const std::string& uuid, std::uint16_t routerPort, std::uint16_t tapPort) {
-  return std::string(kMagic) + "|" + kVersion + "|" + cluster + "|" + uuid + "|" + std::to_string(routerPort) + "|" + std::to_string(tapPort);
+  return std::string(MAGIC) + "|" + WIRE_VERSION + "|" + cluster + "|" + uuid + "|" + std::to_string(routerPort) + "|" + std::to_string(tapPort);
 }
 
 bool decode(const char* data, std::size_t size, Beacon& out) {
@@ -42,7 +42,7 @@ bool decode(const char* data, std::size_t size, Beacon& out) {
     start = pos + 1;
   }
 
-  if (fields.size() != 6 || fields[0] != kMagic || fields[1] != kVersion) {
+  if (fields.size() != 6 || fields[0] != MAGIC || fields[1] != WIRE_VERSION) {
     return false;
   }
 
@@ -70,7 +70,7 @@ UdpSocket::~UdpSocket() {
 bool UdpSocket::open(std::uint16_t port, const char* who) {
   m_socket = ::socket(AF_INET, SOCK_DGRAM, 0);
   if (m_socket < 0) {
-    Logger::Log(Logger::ERROR, std::string(who) + ": socket() failed");
+    Logger::Log(Logger::Error, std::string(who) + ": socket() failed");
     return false;
   }
 
@@ -88,7 +88,7 @@ bool UdpSocket::open(std::uint16_t port, const char* who) {
   bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
   bindAddr.sin_port = htons(port);
   if (::bind(m_socket, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) < 0) {
-    Logger::Log(Logger::ERROR, std::string(who) + ": bind() failed on UDP port " + std::to_string(port));
+    Logger::Log(Logger::Error, std::string(who) + ": bind() failed on UDP port " + std::to_string(port));
     ::close(m_socket);
     m_socket = -1;
     return false;
@@ -125,7 +125,7 @@ void UdpSocket::broadcast(const std::string& payload, std::uint16_t port) {
   ::sendto(m_socket, payload.data(), payload.size(), 0, reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
 }
 
-Listener::Listener(std::uint16_t port, OnBeacon onBeacon) : m_port(port), m_onBeacon(std::move(onBeacon)) {}
+Listener::Listener(std::uint16_t port, OnBeacon onBeacon) : m_port(port), m_onBeacon(std::move(onBeacon)), m_running(false) {}
 
 Listener::~Listener() {
   stop();
@@ -150,7 +150,7 @@ void Listener::run() {
   }
 
   while (m_running) {
-    char buf[kMaxDatagramSize];
+    char buf[MAX_DATAGRAM_SIZE];
     std::string senderIp;
     // The bounded wait keeps the m_running check responsive for a clean exit.
     const std::size_t n = socket.receive(buf, sizeof(buf), 200, senderIp);

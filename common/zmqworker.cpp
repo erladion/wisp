@@ -5,7 +5,6 @@
 #include "wireframe.h"
 
 #include <deque>
-#include <iostream>
 
 namespace {
 // In-process wake channel between producer threads and the run() loop. The
@@ -30,7 +29,6 @@ ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboun
       m_context(1),
       m_wakePush(m_context, ZMQ_PUSH),
       m_hasEncoded(false),
-      m_isOnline(false),
       m_droppedSends(0),
       m_dropLogThrottle() {}
 
@@ -102,7 +100,7 @@ void ZmqWorker::noteDroppedSend() {
   if (!m_dropLogThrottle.ready()) {
     return;
   }
-  Logger::Log(Logger::WARNING, "Client '" + m_config.clientId + "' dropped " + std::to_string(total) +
+  Logger::Log(Logger::Warning, "Client '" + m_config.clientId + "' dropped " + std::to_string(total) +
                                    " message(s) so far: the send pipe to the broker is full (publishing faster than it can be delivered)");
 }
 
@@ -145,7 +143,7 @@ void ZmqWorker::run() {
   auto serverTimeout = std::chrono::milliseconds(m_config.keepAliveTimeout > 0 ? m_config.keepAliveTimeout : 10000);
   if (serverTimeout <= heartbeatInterval) {
     serverTimeout = heartbeatInterval * 3;
-    Logger::Log(Logger::WARNING, "keepAliveTimeout <= keepAliveTime; raising the timeout to " + std::to_string(serverTimeout.count()) + " ms");
+    Logger::Log(Logger::Warning, "keepAliveTimeout <= keepAliveTime; raising the timeout to " + std::to_string(serverTimeout.count()) + " ms");
   }
 
   // Idle tick only: sends and receives wake the poll via sockets, so this
@@ -153,11 +151,11 @@ void ZmqWorker::run() {
   // interval; raising it further mostly saves idle wakeups.
   auto pollTimeout = std::chrono::milliseconds(100);
   auto lastHeartbeat = std::chrono::steady_clock::now() - heartbeatInterval;
-  m_isOnline = false;
-  m_lastRxTime = std::chrono::steady_clock::now();
+  bool isOnline = false;
+  auto lastRxTime = std::chrono::steady_clock::now();
 
   if (m_statusCallback) {
-    m_statusCallback(m_isOnline);
+    m_statusCallback(isOnline);
   }
 
   std::deque<Envelope> batch;
@@ -199,17 +197,17 @@ void ZmqWorker::run() {
       // header - wire::recv reads it plus any payload continuation frame.
       if (wire::recv(socket, inbound, zmq::recv_flags::none)) {
         didWork = true;
-        m_lastRxTime = std::chrono::steady_clock::now();
+        lastRxTime = std::chrono::steady_clock::now();
 
-        if (!m_isOnline) {
-          m_isOnline = true;
+        if (!isOnline) {
+          isOnline = true;
           if (m_statusCallback) {
-            m_statusCallback(m_isOnline);
+            m_statusCallback(isOnline);
           }
         }
 
         if (inbound.header.handler_key() == Keys::HEARTBEAT_ACK) {
-          // Liveness only - m_lastRxTime was already updated above
+          // Liveness only - lastRxTime was already updated above
         } else if (m_pInboundQueue) {
           // Single timed attempt: if the consumer can't keep up, drop -
           // delivery is best-effort everywhere else in the stack too.
@@ -233,13 +231,13 @@ void ZmqWorker::run() {
     // requirement (the broker routes a publish even from an unknown session);
     // holding just avoids pushing payloads at a broker that may not be
     // reachable. Messages queued while offline are held, not dropped.
-    if (m_isOnline && m_outboundQueue.drainTo(batch) > 0) {
+    if (isOnline && m_outboundQueue.drainTo(batch) > 0) {
       sendBatch(batch);
       didWork = true;
     }
 
     // Pre-encoded data (peer links); same online rule as above.
-    if (m_isOnline && m_hasEncoded.load(std::memory_order_relaxed) && m_encodedQueue.drainTo(encodedBatch) > 0) {
+    if (isOnline && m_hasEncoded.load(std::memory_order_relaxed) && m_encodedQueue.drainTo(encodedBatch) > 0) {
       sendBatch(encodedBatch);
       didWork = true;
     }
@@ -250,9 +248,9 @@ void ZmqWorker::run() {
       lastHeartbeat = now;
     }
 
-    if (m_isOnline && (now - m_lastRxTime > serverTimeout)) {
-      Logger::Log(Logger::ERROR, "Server timed out! Switching to OFFLINE.");
-      m_isOnline = false;
+    if (isOnline && (now - lastRxTime > serverTimeout)) {
+      Logger::Log(Logger::Error, "Server timed out! Switching to OFFLINE.");
+      isOnline = false;
       if (m_statusCallback) {
         m_statusCallback(false);
       }

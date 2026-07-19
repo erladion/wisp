@@ -17,7 +17,7 @@ void InspectorWorker::run() {
   try {
     inspector.connect(endpoint);
   } catch (const zmq::error_t& e) {
-    Logger::Log(Logger::ERROR, "Inspector could not attach to " + endpoint + ": " + e.what());
+    Logger::Log(Logger::Error, "Inspector could not attach to " + endpoint + ": " + e.what());
     return;
   }
   // Empty ZeroMQ subscription = receive everything (this is ZeroMQ's own

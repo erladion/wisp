@@ -13,12 +13,8 @@
 #include <algorithm>
 #include <cstring>
 #include <deque>
-#include <iostream>
-#include <sstream>
 
 #include <google/protobuf/any.pb.h>
-#include <google/protobuf/arena.h>
-#include <google/protobuf/stubs/common.h>
 
 namespace {
 
@@ -129,8 +125,16 @@ ZmqBroker::ZmqBroker(std::chrono::milliseconds clientTimeout)
       m_clientTimeout(clientTimeout),
       m_cleanupInterval(std::min<std::chrono::milliseconds>(std::chrono::seconds(2), clientTimeout / 2)),
       m_brokerId(generateUUID()),
+      m_discoveryEnabled(false),
+      m_discoveryPort(BrokerDiscovery::DefaultPort),
+      m_inspectorTcpPort(0),
+      m_inspectorEndpoint("ipc:///tmp/broker_inspector.sock"),
       m_seenCurrent(DedupSetCapacity),
-      m_seenPrevious(DedupSetCapacity) {}
+      m_seenPrevious(DedupSetCapacity),
+      m_totalMessages(0),
+      m_totalDropped(0),
+      m_msgsInterval(0),
+      m_bytesInterval(0) {}
 
 ZmqBroker::~ZmqBroker() {
   stop();
@@ -147,7 +151,7 @@ void ZmqBroker::start(const std::vector<std::string>& bindAddresses) {
   if (m_discoveryEnabled) {
     const std::uint16_t routerPort = parseTcpPort(bindAddresses);
     if (routerPort == 0) {
-      Logger::Log(Logger::WARNING, "Discovery enabled but no tcp:// bind address found; auto-mesh disabled");
+      Logger::Log(Logger::Warning, "Discovery enabled but no tcp:// bind address found; auto-mesh disabled");
     } else {
       m_discovery = std::make_unique<BrokerDiscovery>(
           m_clusterName, m_brokerId, routerPort, m_inspectorTcpPort, m_discoveryPort,
@@ -198,15 +202,15 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   inspectorSocket.set(zmq::sockopt::linger, 0);
   const std::string inspectorConnection = m_inspectorEndpoint;
   if (ipcEndpointIsServed(inspectorConnection)) {
-    Logger::Log(Logger::WARNING, "Another process is already serving the inspector tap at " + inspectorConnection +
+    Logger::Log(Logger::Warning, "Another process is already serving the inspector tap at " + inspectorConnection +
                                      " - taking it over, so that broker's traffic will no longer be visible there. Give each broker its own tap "
                                      "(WISP_INSPECTOR_SOCK) to run several on one host.");
   }
   try {
     inspectorSocket.bind(inspectorConnection);  // The dedicated inspector port
-    Logger::Log(Logger::INFO, "Inspector socket active on " + inspectorConnection);
+    Logger::Log(Logger::Info, "Inspector socket active on " + inspectorConnection);
   } catch (const zmq::error_t& e) {
-    Logger::Log(Logger::ERROR, "Failed to bind to " + inspectorConnection + ": " + e.what());
+    Logger::Log(Logger::Error, "Failed to bind to " + inspectorConnection + ": " + e.what());
   }
 
   // Optional second tap endpoint for tools elsewhere on the network. Opt-in
@@ -216,9 +220,9 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
     const std::string remoteTap = "tcp://*:" + std::to_string(m_inspectorTcpPort);
     try {
       inspectorSocket.bind(remoteTap);
-      Logger::Log(Logger::WARNING, "Remote inspector tap active on " + remoteTap + " - all broker traffic is readable there");
+      Logger::Log(Logger::Warning, "Remote inspector tap active on " + remoteTap + " - all broker traffic is readable there");
     } catch (const zmq::error_t& e) {
-      Logger::Log(Logger::ERROR, "Failed to bind the remote inspector tap to " + remoteTap + ": " + e.what());
+      Logger::Log(Logger::Error, "Failed to bind the remote inspector tap to " + remoteTap + ": " + e.what());
     }
   }
 
@@ -233,9 +237,9 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
     try {
       socket.bind(addr);
       ++boundCount;
-      Logger::Log(Logger::INFO, "Bound to: " + addr);
+      Logger::Log(Logger::Info, "Bound to: " + addr);
     } catch (const zmq::error_t& e) {
-      Logger::Log(Logger::ERROR, "Failed to bind to " + addr + " : " + e.what());
+      Logger::Log(Logger::Error, "Failed to bind to " + addr + " : " + e.what());
     }
   }
 
@@ -244,7 +248,7 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   // port instead - which looks like data loss rather than a misconfiguration.
   // Say so unmistakably.
   if (boundCount == 0 && !addresses.empty()) {
-    Logger::Log(Logger::ERROR, "No endpoints bound (all " + std::to_string(addresses.size()) +
+    Logger::Log(Logger::Error, "No endpoints bound (all " + std::to_string(addresses.size()) +
                                    " failed) - this broker is unreachable. Is another process already using the address?");
   }
 
@@ -258,7 +262,7 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   auto noteMalformed = [&](const char* what) {
     ++malformedCount;
     if (malformedThrottle.ready()) {
-      Logger::Log(Logger::WARNING, std::string(what) + " - dropped (" + std::to_string(malformedCount) + " malformed message(s) since last report)");
+      Logger::Log(Logger::Warning, std::string(what) + " - dropped (" + std::to_string(malformedCount) + " malformed message(s) since last report)");
       malformedCount = 0;
     }
   };
@@ -416,20 +420,19 @@ bool ZmqBroker::handleClientMessage(zmq::socket_t& socket, const broker::Message
 
   const bool newClient = (m_clients.find(senderId) == m_clients.end());
   ClientState& client = m_clients[senderId];
-  client.identity = senderId;
   client.lastSeen = std::chrono::steady_clock::now();
 
   if (newClient) {
     if (key == Keys::CONNECT) {
       // A fresh session leading with CONNECT, as the protocol prescribes:
       // register it silently - the client sends its subscriptions itself.
-      Logger::Log(Logger::INFO, "New client: " + senderId);
+      Logger::Log(Logger::Info, "New client: " + senderId);
     } else {
       // An identity we don't know that thinks it has a session: the broker
       // restarted, or the client was timed out. Ask it to rebuild via
       // RESET. The triggering message is still processed normally -
       // nothing is sacrificed (a publish still routes).
-      Logger::Log(Logger::INFO, "Unknown session from " + senderId + ". Requesting subscription reset");
+      Logger::Log(Logger::Info, "Unknown session from " + senderId + ". Requesting subscription reset");
       wire::sendTo(socket, senderId, wire::encodeHeader(wire::makeControlHeader(Keys::RESET, "")), std::string());
     }
   }
@@ -447,17 +450,17 @@ bool ZmqBroker::handleClientMessage(zmq::socket_t& socket, const broker::Message
       // "" was the wildcard before Keys::WILDCARD_TOPIC ("*") replaced it;
       // reject it loudly so a stale client fails visibly instead of
       // subscribing to nothing.
-      Logger::Log(Logger::WARNING,
+      Logger::Log(Logger::Warning,
                   "Client " + senderId + " sent SUBSCRIBE with an empty topic - use \"" + std::string(Keys::WILDCARD_TOPIC) + "\" for the wildcard");
     } else if (m_subscriptions.subscribe(senderId, header.topic())) {
-      Logger::Log(Logger::INFO, "Client " + senderId + " Subscribed to " + header.topic());
+      Logger::Log(Logger::Info, "Client " + senderId + " Subscribed to " + header.topic());
     }
     return true;
   }
 
   if (key == Keys::UNSUBSCRIBE) {
     if (m_subscriptions.unsubscribe(senderId, header.topic())) {
-      Logger::Log(Logger::INFO, "Client " + senderId + " Unsubscribed from " + header.topic());
+      Logger::Log(Logger::Info, "Client " + senderId + " Unsubscribed from " + header.topic());
     }
     return true;
   }
@@ -466,11 +469,11 @@ bool ZmqBroker::handleClientMessage(zmq::socket_t& socket, const broker::Message
     // The payload carries the new cluster name (see Keys::SET_CLUSTER).
     const std::string newCluster(payload.data<char>(), payload.size());
     if (!beacon::isValidClusterName(newCluster)) {
-      Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " rejected: name must be 1-64 chars without '|'");
+      Logger::Log(Logger::Warning, "SET_CLUSTER from " + senderId + " rejected: name must be 1-64 chars without '|'");
     } else if (!m_discovery) {
-      Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " ignored: discovery is not active");
+      Logger::Log(Logger::Warning, "SET_CLUSTER from " + senderId + " ignored: discovery is not active");
     } else if (newCluster != m_clusterName) {
-      Logger::Log(Logger::INFO, "Switching cluster '" + m_clusterName + "' -> '" + newCluster + "' (requested by " + senderId + ")");
+      Logger::Log(Logger::Info, "Switching cluster '" + m_clusterName + "' -> '" + newCluster + "' (requested by " + senderId + ")");
       m_clusterName = newCluster;
       m_discovery->setCluster(newCluster);
     }
@@ -635,7 +638,7 @@ void ZmqBroker::enableDiscovery(const std::string& clusterName, std::uint16_t di
   // Same rule SET_CLUSTER enforces; an invalid name here (e.g. from the
   // WISP_CLUSTER environment) would silently break this broker's own beacons.
   if (!beacon::isValidClusterName(clusterName)) {
-    Logger::Log(Logger::WARNING, "Discovery not enabled: cluster name must be 1-64 chars without '|'");
+    Logger::Log(Logger::Warning, "Discovery not enabled: cluster name must be 1-64 chars without '|'");
     return;
   }
   m_discoveryEnabled = true;
@@ -704,14 +707,14 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
     // which the remote's dedup would discard, so keep only the first link.
     for (const auto& [existingKey, existing] : m_peers) {
       if (existing.address == peerAddress) {
-        Logger::Log(Logger::INFO, "Already linked to " + peerAddress + " under key " + existingKey + "; ignoring the duplicate link");
+        Logger::Log(Logger::Info, "Already linked to " + peerAddress + " under key " + existingKey + "; ignoring the duplicate link");
         return;
       }
     }
     worker->start();
     m_peers.emplace(key, PeerLink{peerAddress, std::move(worker)});
   }
-  Logger::Log(Logger::INFO, "Connected to Peer: " + peerAddress);
+  Logger::Log(Logger::Info, "Connected to Peer: " + peerAddress);
 }
 
 void ZmqBroker::removePeer(const std::string& key) {
@@ -728,11 +731,11 @@ void ZmqBroker::removePeer(const std::string& key) {
   // Join the worker thread outside the lock so the flood loop isn't stalled.
   disconnectPeerLink(*worker, m_brokerId);
   worker->stop();
-  Logger::Log(Logger::INFO, "Dropped peer: " + key);
+  Logger::Log(Logger::Info, "Dropped peer: " + key);
 }
 
 void ZmqBroker::removeClient(const std::string& clientId, const std::string& reason) {
-  Logger::Log(Logger::INFO, "Removing Client: " + clientId + " (" + reason + ")");
+  Logger::Log(Logger::Info, "Removing Client: " + clientId + " (" + reason + ")");
 
   m_subscriptions.removeClient(clientId);
   m_clients.erase(clientId);

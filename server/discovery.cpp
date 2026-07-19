@@ -12,7 +12,10 @@ BrokerDiscovery::BrokerDiscovery(std::string cluster, std::string selfUuid, std:
       m_tapPort(tapPort),
       m_discoveryPort(discoveryPort),
       m_dial(std::move(dial)),
-      m_drop(std::move(drop)) {}
+      m_drop(std::move(drop)),
+      m_beaconInterval(std::chrono::seconds(1)),
+      m_peerTimeout(std::chrono::seconds(5)),
+      m_running(false) {}
 
 BrokerDiscovery::~BrokerDiscovery() {
   stop();
@@ -117,13 +120,13 @@ void BrokerDiscovery::stop() {
 void BrokerDiscovery::run() {
   beacon::UdpSocket socket;
   if (!socket.open(m_discoveryPort, "Discovery")) {
-    Logger::Log(Logger::ERROR, "Discovery: auto-mesh disabled");
+    Logger::Log(Logger::Error, "Discovery: auto-mesh disabled");
     return;
   }
 
   {
     std::lock_guard<std::mutex> lock(m_mutex);
-    Logger::Log(Logger::INFO, "Discovery active on UDP " + std::to_string(m_discoveryPort) + " (cluster '" + m_cluster + "')");
+    Logger::Log(Logger::Info, "Discovery active on UDP " + std::to_string(m_discoveryPort) + " (cluster '" + m_cluster + "')");
   }
 
   auto nextBeacon = std::chrono::steady_clock::now();
@@ -141,7 +144,7 @@ void BrokerDiscovery::run() {
       nextBeacon = now + m_beaconInterval;
     }
 
-    char buf[beacon::kMaxDatagramSize];
+    char buf[beacon::MAX_DATAGRAM_SIZE];
     std::string senderIp;
     const std::size_t n = socket.receive(buf, sizeof(buf), 200, senderIp);
     if (n > 0) {

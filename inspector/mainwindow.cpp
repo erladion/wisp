@@ -33,7 +33,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   // Listen for broker beacons so the selector can offer every broker on the
   // network. Listen-only by construction: an inspector that beaconed would be
   // dialed by brokers as if it were a peer broker.
-  m_pBeaconListener = std::make_unique<beacon::Listener>(beacon::kDefaultPort, [this](const std::string& senderIp, const beacon::Beacon& heard) {
+  m_pBeaconListener = std::make_unique<beacon::Listener>(beacon::DEFAULT_PORT, [this](const std::string& senderIp, const beacon::Beacon& heard) {
     // Hop to the UI thread before touching any widget or the broker map.
     const QString ip = QString::fromStdString(senderIp);
     QMetaObject::invokeMethod(
@@ -79,7 +79,7 @@ void MainWindow::onBeaconHeard(const QString& senderIp, const beacon::Beacon& he
 
   m_discoveredBrokers.insert(uuid, broker);
   if (changed) {
-    Logger::Log(Logger::INFO, "Discovered broker " + uuid.left(8).toStdString() + " (cluster '" + broker.cluster.toStdString() + "') at " +
+    Logger::Log(Logger::Info, "Discovered broker " + uuid.left(8).toStdString() + " (cluster '" + broker.cluster.toStdString() + "') at " +
                                   (broker.endpoint.isEmpty() ? std::string("no remote tap") : broker.endpoint.toStdString()));
     refreshBrokerList();
   }
@@ -165,7 +165,7 @@ void MainWindow::attachTo(const QString& endpoint, const QString& label) {
   m_currentEndpoint = endpoint;
   m_pWorker->start();
 
-  Logger::Log(Logger::INFO, "Inspector attached to " + endpoint.toStdString());
+  Logger::Log(Logger::Info, "Inspector attached to " + endpoint.toStdString());
   statusBar()->showMessage("Attached to " + label, 5000);
 }
 
@@ -446,5 +446,5 @@ void MainWindow::replaySelectedMessage() {
     m_pInjector->writeMessage(replayed);
   }
 
-  Logger::Log(Logger::INFO, "Injected replay for topic: " + replayed.header.topic());
+  Logger::Log(Logger::Info, "Injected replay for topic: " + replayed.header.topic());
 }

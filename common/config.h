@@ -28,12 +28,12 @@ inline bool parsePort(const std::string& text, bool zeroAllowed, std::uint16_t& 
 // the port can make the receiver allocate arbitrarily large buffers.
 constexpr int64_t MAX_MESSAGE_SIZE_BYTES = 16 * 1024 * 1024;  // 16 MiB
 
-enum class ProtocolType { ZMQ };
+enum class ProtocolType { Zmq };
 
 struct ConnectionConfig {
   std::string address;
   std::string clientId;
-  ProtocolType protocol = ProtocolType::ZMQ;
+  ProtocolType protocol = ProtocolType::Zmq;
 
   // Heartbeat interval, ms. Keep it below the broker's 10 s zombie timeout or
   // the broker will drop the client between heartbeats.

@@ -21,7 +21,7 @@ struct Recorder {
 // started; tests drive onDatagram()/expireStale() directly with an injected clock.
 std::unique_ptr<BrokerDiscovery> makeDiscovery(const std::string& cluster, const std::string& selfUuid, Recorder& rec) {
   return std::make_unique<BrokerDiscovery>(
-      cluster, selfUuid, /*routerPort=*/5555, /*tapPort=*/0, BrokerDiscovery::kDefaultPort,
+      cluster, selfUuid, /*routerPort=*/5555, /*tapPort=*/0, BrokerDiscovery::DefaultPort,
       [&rec](const std::string& uuid, const std::string& addr) { rec.dials.emplace_back(uuid, addr); },
       [&rec](const std::string& uuid) { rec.drops.push_back(uuid); });
 }

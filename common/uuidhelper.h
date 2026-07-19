@@ -10,7 +10,7 @@
 #include <thread>
 
 inline std::string generateUUID() {
-  static const char hex_chars[] = "0123456789abcdef";
+  static const char hexChars[] = "0123456789abcdef";
   // Seeding mt19937 from a single 32-bit draw would allow only 2^32 possible
   // UUID streams: two processes drawing the same seed emit identical UUID
   // sequences, and the broker dedup then silently drops one side's messages
@@ -31,23 +31,23 @@ inline std::string generateUUID() {
   uuid[13] = '-';
   uuid[18] = '-';
   uuid[23] = '-';
-  auto set_hex = [&](int index) { uuid[index] = hex_chars[dis(gen)]; };
+  auto setHex = [&](int index) { uuid[index] = hexChars[dis(gen)]; };
   for (int i = 0; i < 8; ++i) {
-    set_hex(i);
+    setHex(i);
   }
   for (int i = 9; i < 13; ++i) {
-    set_hex(i);
+    setHex(i);
   }
   uuid[14] = '4';
   for (int i = 15; i < 18; ++i) {
-    set_hex(i);
+    setHex(i);
   }
-  uuid[19] = hex_chars[dis2(gen)];
+  uuid[19] = hexChars[dis2(gen)];
   for (int i = 20; i < 23; ++i) {
-    set_hex(i);
+    setHex(i);
   }
   for (int i = 24; i < 36; ++i) {
-    set_hex(i);
+    setHex(i);
   }
   return uuid;
 }

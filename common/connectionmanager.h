@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
-#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
@@ -89,7 +88,7 @@ struct CallableTraits<ReturnType (*)()> {};
 
 namespace detail {
 
-inline constexpr std::string_view kAnyTypeUrlPrefix = "type.googleapis.com/";
+inline constexpr std::string_view ANY_TYPE_URL_PREFIX = "type.googleapis.com/";
 
 // Appends one length-delimited protobuf field (tag byte + varint length +
 // bytes) - the only encoding a google.protobuf.Any frame needs.
@@ -184,8 +183,8 @@ bool tryUnpack(const std::string& raw, T& outMsg) {
   // read in place, so the payload bytes are parsed exactly once.
   std::string_view typeUrl;
   std::string_view valueBytes;
-  if (readAnyFrame(raw, typeUrl, valueBytes) && typeUrl.substr(0, kAnyTypeUrlPrefix.size()) == kAnyTypeUrlPrefix) {
-    if (typeUrl.substr(kAnyTypeUrlPrefix.size()) != outMsg.GetTypeName()) {
+  if (readAnyFrame(raw, typeUrl, valueBytes) && typeUrl.substr(0, ANY_TYPE_URL_PREFIX.size()) == ANY_TYPE_URL_PREFIX) {
+    if (typeUrl.substr(ANY_TYPE_URL_PREFIX.size()) != outMsg.GetTypeName()) {
       return false;
     }
     return outMsg.ParseFromArray(valueBytes.data(), static_cast<int>(valueBytes.size()));
@@ -213,8 +212,8 @@ std::string encodePayload(const T& value) {
     // to a real Any.
     const std::string body = value.SerializeAsString();
     std::string out;
-    out.reserve(kAnyTypeUrlPrefix.size() + value.GetTypeName().size() + body.size() + 16);
-    appendLengthDelimited(out, '\x0a', std::string(kAnyTypeUrlPrefix) + std::string(value.GetTypeName()));  // Any.type_url
+    out.reserve(ANY_TYPE_URL_PREFIX.size() + value.GetTypeName().size() + body.size() + 16);
+    appendLengthDelimited(out, '\x0a', std::string(ANY_TYPE_URL_PREFIX) + std::string(value.GetTypeName()));  // Any.type_url
     appendLengthDelimited(out, '\x12', body);                                                              // Any.value
     return out;
   } else if constexpr (std::is_same<T, std::string>::value) {
@@ -315,7 +314,7 @@ public:
           if (detail::decodePayload(raw, value)) {
             func(value);
           } else {
-            Logger::Log(Logger::ERROR, "Failed to decode message for key: " + key);
+            Logger::Log(Logger::Error, "Failed to decode message for key: " + key);
           }
         },
         instance);
@@ -391,7 +390,7 @@ private:
   void resubscribeAll();
   static void registerInternal(const std::string& key, MessageCallback callback, void* instance);
 
-  // Snapshot of m_instance taken under m_initMutex. Callers keep the returned
+  // Snapshot of s_instance taken under s_initMutex. Callers keep the returned
   // shared_ptr alive for the duration of their work, so a concurrent
   // shutdown() can't destroy the instance out from under them.
   static std::shared_ptr<ConnectionManager> getInstance();
@@ -412,8 +411,8 @@ private:
   Envelope createControlEnvelope(const std::string& controlKey, const std::string& topic);
 
 private:
-  static std::shared_ptr<ConnectionManager> m_instance;
-  static std::mutex m_initMutex;
+  static std::shared_ptr<ConnectionManager> s_instance;
+  static std::mutex s_initMutex;
 
   std::string m_clientId;
 

@@ -9,7 +9,7 @@
 template <typename T>
 class SafeQueue {
 public:
-  explicit SafeQueue(size_t maxSize = 5000) : m_maxSize(maxSize) {}
+  explicit SafeQueue(size_t maxSize = 5000) : m_stop(false), m_maxSize(maxSize) {}
 
   // The `wasEmpty` overloads report whether the queue was empty before this
   // push - i.e. whether the consumer may be asleep and needs a wakeup. Lets
@@ -102,7 +102,7 @@ private:
   std::mutex m_mutex;
   std::condition_variable m_condEmpty;
   std::condition_variable m_condFull;
-  bool m_stop = false;
+  bool m_stop;
   size_t m_maxSize;
 };
 

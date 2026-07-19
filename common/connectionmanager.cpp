@@ -2,10 +2,7 @@
 
 #include <algorithm>
 #include <deque>
-#include <filesystem>
 #include <future>
-#include <random>
-#include <sstream>
 
 #include "logger.h"
 #include "messagekeys.h"
@@ -22,19 +19,19 @@ namespace {
 thread_local std::string t_currentReplyTopic;
 }  // namespace
 
-std::shared_ptr<ConnectionManager> ConnectionManager::m_instance = nullptr;
-std::mutex ConnectionManager::m_initMutex;
+std::shared_ptr<ConnectionManager> ConnectionManager::s_instance = nullptr;
+std::mutex ConnectionManager::s_initMutex;
 
 std::vector<std::tuple<std::string, MessageCallback, void*>> ConnectionManager::s_pendingMsgCallbacks;
 
 void ConnectionManager::init(const ConnectionConfig& config) {
-  std::lock_guard<std::mutex> lock(m_initMutex);
-  if (!m_instance) {
-    m_instance = std::shared_ptr<ConnectionManager>(new ConnectionManager(config), [](ConnectionManager* ptr) { delete ptr; });
+  std::lock_guard<std::mutex> lock(s_initMutex);
+  if (!s_instance) {
+    s_instance = std::shared_ptr<ConnectionManager>(new ConnectionManager(config), [](ConnectionManager* ptr) { delete ptr; });
 
     // Flush pending callbacks
     for (auto& p : s_pendingMsgCallbacks) {
-      m_instance->performRegistration(std::get<0>(p), std::get<1>(p), std::get<2>(p));
+      s_instance->performRegistration(std::get<0>(p), std::get<1>(p), std::get<2>(p));
     }
     s_pendingMsgCallbacks.clear();
   }
@@ -43,29 +40,29 @@ void ConnectionManager::init(const ConnectionConfig& config) {
 void ConnectionManager::shutdown() {
   std::shared_ptr<ConnectionManager> tmp;
   {
-    std::lock_guard<std::mutex> lock(m_initMutex);
-    if (m_instance) {
+    std::lock_guard<std::mutex> lock(s_initMutex);
+    if (s_instance) {
       {
         // Under m_statusMutex + notify so waitForConnection() waiters wake
         // promptly instead of sleeping out their timeout.
-        std::lock_guard<std::mutex> statusLock(m_instance->m_statusMutex);
-        m_instance->m_running = false;
+        std::lock_guard<std::mutex> statusLock(s_instance->m_statusMutex);
+        s_instance->m_running = false;
       }
-      m_instance->m_statusCv.notify_all();
+      s_instance->m_statusCv.notify_all();
 
-      if (m_instance->m_connected && m_instance->m_pWorker) {
-        m_instance->m_pWorker->writeControlMessage(m_instance->createControlEnvelope(Keys::DISCONNECT, ""));
+      if (s_instance->m_connected && s_instance->m_pWorker) {
+        s_instance->m_pWorker->writeControlMessage(s_instance->createControlEnvelope(Keys::DISCONNECT, ""));
       }
 
-      tmp = m_instance;
-      m_instance.reset();
+      tmp = s_instance;
+      s_instance.reset();
     }
   }
 }
 
 std::shared_ptr<ConnectionManager> ConnectionManager::getInstance() {
-  std::lock_guard<std::mutex> lock(m_initMutex);
-  return m_instance;
+  std::lock_guard<std::mutex> lock(s_initMutex);
+  return s_instance;
 }
 
 bool ConnectionManager::isConnected() {
@@ -93,12 +90,12 @@ bool ConnectionManager::waitForConnection(int timeoutMs) {
 }
 
 void ConnectionManager::unregisterCallback(const std::string& key, void* instance) {
-  // Mirrors registerInternal(): hold m_initMutex so a registration queued
+  // Mirrors registerInternal(): hold s_initMutex so a registration queued
   // before init() can be purged from the pending list too.
-  std::lock_guard<std::mutex> lock(m_initMutex);
+  std::lock_guard<std::mutex> lock(s_initMutex);
 
-  if (m_instance) {
-    m_instance->performUnregistration(key, instance);
+  if (s_instance) {
+    s_instance->performUnregistration(key, instance);
   } else {
     auto& pending = s_pendingMsgCallbacks;
     pending.erase(std::remove_if(pending.begin(), pending.end(),
@@ -116,7 +113,7 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
   // Replies are dispatched by the processing thread; blocking it here would
   // deadlock until the timeout, so refuse outright.
   if (std::this_thread::get_id() == self->m_processingThread.get_id()) {
-    Logger::Log(Logger::ERROR, "sendRequest() called from inside a message callback - it would deadlock waiting for its own reply. Request from another thread instead.");
+    Logger::Log(Logger::Error, "sendRequest() called from inside a message callback - it would deadlock waiting for its own reply. Request from another thread instead.");
     return false;
   }
 
@@ -128,7 +125,7 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
   const std::string replyTopic = requestTopic + generateUUID();
 
   // Register and unregister directly on the held instance: routing through the
-  // static registerInternal()/unregisterCallback() would re-read m_instance,
+  // static registerInternal()/unregisterCallback() would re-read s_instance,
   // and a concurrent shutdown() in between would strand the registration in
   // the pending list.
   self->performRegistration(
@@ -154,7 +151,7 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
     outResponse = future.get();
     success = true;
   } else {
-    Logger::Log(Logger::WARNING, "Timeout waiting for reply on: " + replyTopic);
+    Logger::Log(Logger::Warning, "Timeout waiting for reply on: " + replyTopic);
   }
 
   self->performUnregistration(replyTopic, tempInstanceKey);
@@ -166,7 +163,7 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
   auto statusHandler = [this](bool connected) {
     std::lock_guard<std::mutex> lock(m_mapMutex);
 
-    Logger::Log(Logger::INFO, std::string("Status: ") + (connected ? "ONLINE" : "OFFLINE"));
+    Logger::Log(Logger::Info, std::string("Status: ") + (connected ? "ONLINE" : "OFFLINE"));
 
     {
       // Store under m_statusMutex so waitForConnection() can't miss the wakeup.
@@ -185,7 +182,7 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
     }
   };
 
-  if (config.protocol == ProtocolType::ZMQ) {
+  if (config.protocol == ProtocolType::Zmq) {
     m_pWorker = std::make_unique<ZmqWorker>(config, &m_queue, statusHandler);
   }
 
@@ -237,7 +234,7 @@ void ConnectionManager::registerCallback(const std::string& key, MessageCallback
 
 void ConnectionManager::resubscribeAll() {
   std::lock_guard<std::mutex> lock(m_mapMutex);
-  Logger::Log(Logger::INFO, "Server requested Reset. Re-sending all subscriptions...");
+  Logger::Log(Logger::Info, "Server requested Reset. Re-sending all subscriptions...");
 
   for (auto const& [topic, _] : m_msgHandlers) {
     sendRawEnvelope(createControlEnvelope(Keys::SUBSCRIBE, topic));
@@ -245,11 +242,11 @@ void ConnectionManager::resubscribeAll() {
 }
 
 void ConnectionManager::registerInternal(const std::string& key, MessageCallback callback, void* instance) {
-  std::lock_guard<std::mutex> lock(m_initMutex);
+  std::lock_guard<std::mutex> lock(s_initMutex);
 
-  if (m_instance) {
+  if (s_instance) {
     // If we are initialized, pass it to the actual instance
-    m_instance->performRegistration(key, callback, instance);
+    s_instance->performRegistration(key, callback, instance);
   } else {
     // If not initialized yet, queue it up safely!
     s_pendingMsgCallbacks.push_back({key, callback, instance});
@@ -289,7 +286,7 @@ bool ConnectionManager::replyToSender(const std::string& data) {
 
 bool ConnectionManager::sendReplyEnvelope(Envelope reply) {
   if (t_currentReplyTopic.empty()) {
-    Logger::Log(Logger::WARNING, "replyToSender() called outside of a request context - nothing to reply to.");
+    Logger::Log(Logger::Warning, "replyToSender() called outside of a request context - nothing to reply to.");
     return false;
   }
 
@@ -368,9 +365,9 @@ void ConnectionManager::handleMessage(const Envelope& env) {
           entry.func(data);
         }
       } catch (const std::exception& e) {
-        Logger::Log(Logger::ERROR, std::string("User Callback Exception: ") + e.what());
+        Logger::Log(Logger::Error, std::string("User Callback Exception: ") + e.what());
       } catch (...) {
-        Logger::Log(Logger::ERROR, "Unknown User Exception");
+        Logger::Log(Logger::Error, "Unknown User Exception");
       }
     }
   };

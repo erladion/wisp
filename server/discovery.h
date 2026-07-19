@@ -27,7 +27,7 @@ public:
   using DialFn = std::function<void(const std::string& uuid, const std::string& address)>;
   using DropFn = std::function<void(const std::string& uuid)>;
 
-  static constexpr std::uint16_t kDefaultPort = beacon::kDefaultPort;
+  static constexpr std::uint16_t DefaultPort = beacon::DEFAULT_PORT;
 
   // tapPort is advertised so tools can find this broker's inspector tap; 0
   // when no remote tap is exposed.
@@ -75,10 +75,10 @@ private:
   const DialFn m_dial;
   const DropFn m_drop;
 
-  const std::chrono::seconds m_beaconInterval{1};
-  const std::chrono::seconds m_peerTimeout{5};
+  const std::chrono::seconds m_beaconInterval;
+  const std::chrono::seconds m_peerTimeout;
 
-  std::atomic<bool> m_running{false};
+  std::atomic<bool> m_running;
   std::thread m_thread;
 
   std::mutex m_mutex;

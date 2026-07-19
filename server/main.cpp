@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
 
   int received = 0;
   sigwait(&signals, &received);
-  Logger::Log(Logger::INFO, std::string("Received ") + (received == SIGINT ? "SIGINT" : "SIGTERM") + ", shutting down");
+  Logger::Log(Logger::Info, std::string("Received ") + (received == SIGINT ? "SIGINT" : "SIGTERM") + ", shutting down");
   broker.stop();
   return 0;
 }

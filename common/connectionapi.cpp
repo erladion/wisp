@@ -55,7 +55,7 @@ int initConnection(const Connection_Config* config) {
     ConnectionConfig cfg;
     cfg.address = config->address;
     cfg.clientId = config->client_id ? config->client_id : "DefaultClientName";
-    cfg.protocol = ProtocolType::ZMQ;
+    cfg.protocol = ProtocolType::Zmq;
     cfg.keepAliveTime = config->keepalive_time_ms;
     cfg.keepAliveTimeout = config->keepalive_timeout_ms;
 
@@ -177,8 +177,8 @@ void registerCallback(const char* topic, Message_Callback callback, void* userDa
   });
 }
 
-static_assert(int(WISP_LOG_DEBUG) == int(Logger::DEBUG) && int(WISP_LOG_INFO) == int(Logger::INFO) && int(WISP_LOG_WARNING) == int(Logger::WARNING) &&
-                  int(WISP_LOG_ERROR) == int(Logger::ERROR),
+static_assert(int(WISP_LOG_DEBUG) == int(Logger::Debug) && int(WISP_LOG_INFO) == int(Logger::Info) && int(WISP_LOG_WARNING) == int(Logger::Warning) &&
+                  int(WISP_LOG_ERROR) == int(Logger::Error),
               "Wisp_Log_Level must mirror Logger::Level - setLogLevel and the handler pass values through numerically");
 
 void setLogLevel(int level) {

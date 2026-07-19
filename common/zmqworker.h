@@ -64,9 +64,6 @@ private:
   // would pay a lock per loop iteration for a queue that is always empty.
   std::atomic<bool> m_hasEncoded;
 
-  std::atomic<bool> m_isOnline;
-  std::chrono::steady_clock::time_point m_lastRxTime;
-
   // Written by the worker thread, read by anyone (see droppedSends()).
   std::atomic<std::uint64_t> m_droppedSends;
   LogThrottle m_dropLogThrottle;

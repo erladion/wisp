@@ -95,8 +95,8 @@ QVariant PacketTableModel::data(const QModelIndex& index, int role) const {
 PacketFilterProxyModel::PacketFilterProxyModel(QObject* parent) : QSortFilterProxyModel(parent) {}
 
 void PacketFilterProxyModel::updateFilters(const QString& text, const QSet<QString>& topics) {
-  searchText = text.toLower();
-  allowedTopics = topics;
+  m_searchText = text.toLower();
+  m_allowedTopics = topics;
   // invalidateFilter() is deprecated from Qt 6.9; the replacement pair does not
   // exist before it, so both spellings have to be kept while either Qt is supported.
 #if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
@@ -111,16 +111,16 @@ bool PacketFilterProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex& 
   QModelIndex topicIdx = sourceModel()->index(sourceRow, 3, sourceParent);
   const QString topic = sourceModel()->data(topicIdx).toString();
 
-  if (!allowedTopics.contains(topic)) {
+  if (!m_allowedTopics.contains(topic)) {
     return false;
   }
 
-  if (searchText.isEmpty()) {
+  if (m_searchText.isEmpty()) {
     return true;
   }
 
   const QString sender = sourceModel()->data(sourceModel()->index(sourceRow, 1, sourceParent)).toString().toLower();
   const QString key = sourceModel()->data(sourceModel()->index(sourceRow, 2, sourceParent)).toString().toLower();
 
-  return sender.contains(searchText) || key.contains(searchText) || topic.toLower().contains(searchText);
+  return sender.contains(m_searchText) || key.contains(m_searchText) || topic.toLower().contains(m_searchText);
 }

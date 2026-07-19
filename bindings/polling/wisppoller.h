@@ -49,7 +49,7 @@ public:
   // discarded and counted by dropped(): a loop that stalls should come back to
   // recent traffic rather than work through a stale backlog, and the delivery
   // path must never block waiting for a frame.
-  explicit MessagePoller(std::size_t capacity = 4096) : m_capacity(capacity > 0 ? capacity : 1) {}
+  explicit MessagePoller(std::size_t capacity = 4096) : m_capacity(capacity > 0 ? capacity : 1), m_dropped(0) {}
 
   ~MessagePoller() { unsubscribeAll(); }
 
@@ -100,12 +100,17 @@ public:
   // `out` is cleared first. Returns the number of messages handed over.
   std::size_t poll(std::vector<PolledMessage>& out) {
     out.clear();
-    std::lock_guard<std::mutex> lock(m_mutex);
-    out.reserve(m_buffer.size());
-    for (PolledMessage& msg : m_buffer) {
+    // Swap under the lock, move outside it: the delivery thread only ever
+    // contends for the swap, not for the whole handover.
+    std::deque<PolledMessage> grabbed;
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      grabbed.swap(m_buffer);
+    }
+    out.reserve(grabbed.size());
+    for (PolledMessage& msg : grabbed) {
       out.push_back(std::move(msg));
     }
-    m_buffer.clear();
     return out.size();
   }
 
@@ -138,7 +143,7 @@ private:
   const std::size_t m_capacity;
   std::deque<PolledMessage> m_buffer;
   std::set<std::string> m_topics;
-  std::uint64_t m_dropped = 0;
+  std::uint64_t m_dropped;
 };
 
 }  // namespace wisp
