@@ -138,14 +138,10 @@ install(FILES ${PROTO_GENERATED_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 # ABI symbols are exported, and resolves the rest from WispCore.
 add_library(wisp SHARED connectionapi.cpp)
 target_link_libraries(wisp PRIVATE WispCore)
-target_compile_definitions(wisp PRIVATE BUILDING_DLL)
 
-# Export only the C ABI symbols; see libwisp.map. (On Windows the CONN_API
-# dllexport annotations achieve the same.)
-if (NOT WIN32)
-    target_link_options(wisp PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/libwisp.map)
-    set_target_properties(wisp PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/libwisp.map)
-endif()
+# Export only the C ABI symbols; see libwisp.map.
+target_link_options(wisp PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/libwisp.map)
+set_target_properties(wisp PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/libwisp.map)
 
 # --- C protobuf bindings (protobuf-c) ---------------------------------------
 # Optional pure-C bindings for C clients. Wire-compatible with the C++ types

@@ -5,15 +5,8 @@
 extern "C" {
 #endif
 
-#if defined(_WIN32)
-#ifdef BUILDING_DLL
-#define CONN_API __declspec(dllexport)
-#else
-#define CONN_API __declspec(dllimport)
-#endif
-#else
+// Wisp is POSIX-only; the exported-symbol set is controlled by libwisp.map.
 #define CONN_API
-#endif
 
 typedef enum { PROTOCOL_ZMQ = 0 } Connection_Protocol;
 

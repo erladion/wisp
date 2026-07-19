@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.14)
 
 project(wisp VERSION 0.1.0 LANGUAGES CXX C)
 
+# POSIX-only: the beacon/discovery UDP layer, the broker's ipc tap probe, and
+# the shutdown signal handling all use POSIX APIs. Fail here, with the reason,
+# rather than partway through the build.
+if (WIN32)
+    message(FATAL_ERROR "Wisp requires a POSIX system (Linux is what's tested); there is no Windows port.")
+endif()
+
 # Default to an optimized build: a plain `cmake -S . -B build` would otherwise
 # compile with no optimization at all (~35-55% message throughput lost). IDEs
 # and multi-config generators that set their own build type are unaffected.
