@@ -264,6 +264,11 @@ bool decodePayload(const std::string& raw, T& out) {
 class ConnectionManager {
 public:
   static void init(const ConnectionConfig& config);
+
+  // Tears down the singleton. If another thread still holds a getInstance()
+  // snapshot (an in-flight send or sendRequest), the destructor - its thread
+  // joins included - runs when that snapshot is released, on that thread;
+  // shutdown() itself may return first.
   static void shutdown();
 
   // True while the broker connection is up. init() returns before the
