@@ -41,9 +41,11 @@ inline bool isSystemPacket(std::string_view key) {
   return key == HEARTBEAT || key == HEARTBEAT_ACK || key == CONNECT || key == DISCONNECT || key == RESET;
 }
 
+// Every system packet, plus the keys that carry subscription or cluster state.
+// Control messages are queued and sent regardless of connection state, so this
+// is what decides which queue a message goes through.
 inline bool isControlMessage(std::string_view key) {
-  return key == HEARTBEAT || key == HEARTBEAT_ACK || key == SUBSCRIBE || key == UNSUBSCRIBE || key == CONNECT || key == DISCONNECT || key == RESET ||
-         key == SET_CLUSTER;
+  return isSystemPacket(key) || key == SUBSCRIBE || key == UNSUBSCRIBE || key == SET_CLUSTER;
 }
 
 }  // namespace Keys

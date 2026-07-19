@@ -192,9 +192,13 @@ bool sendFrames(zmq::socket_t& sock, const std::string* identity, const std::str
       }
     }
 
+    // Only the group's first frame can be refused; zmq guarantees the
+    // continuation frames once it has accepted that one, so the header's
+    // result is only meaningful when there was no identity frame ahead of it.
+    const bool headerIsLeadFrame = (identity == nullptr);
     zmq::message_t header(headerFrame.data(), headerFrame.size());
     const auto headerFlags = (hasPayload ? zmq::send_flags::sndmore : zmq::send_flags::none) | zmq::send_flags::dontwait;
-    if (!sock.send(header, headerFlags) && !identity) {
+    if (!sock.send(header, headerFlags) && headerIsLeadFrame) {
       return false;
     }
 
