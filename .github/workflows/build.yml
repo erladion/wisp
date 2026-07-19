@@ -3,7 +3,7 @@
 # core: the deliverables - broker, client library, C ABI - built without Qt,
 #       which also guards the "broker needs no Qt" property.
 # qt:   the full tree including the inspector, demo clients, and Qt binding.
-name: CI
+name: build
 
 on:
   push:
