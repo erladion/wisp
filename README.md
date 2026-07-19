@@ -1,6 +1,6 @@
 <div align="center">
 
-[![CI](https://github.com/erladion/wisp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/erladion/wisp/actions/workflows/ci.yml)
+[![build](https://github.com/erladion/wisp/actions/workflows/build.yml/badge.svg)](https://github.com/erladion/wisp/actions/workflows/build.yml)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="branding/wisp-mark-dark.svg">
