@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "config.h"
+#include "logger.h"
 #include "wireframe.h"
 
 std::string getCurrentTimestamp() {
@@ -22,13 +23,22 @@ std::string getCurrentTimestamp() {
 
 void InspectorWorker::run() {
   m_running = true;
+  const std::string endpoint = this->endpoint().toStdString();
+
   zmq::context_t ctx(1);
   zmq::socket_t inspector(ctx, ZMQ_SUB);
   inspector.set(zmq::sockopt::maxmsgsize, MAX_MESSAGE_SIZE_BYTES);
   // Bounded blocking receive: quiet periods cost no CPU, and the timeout keeps
   // the m_running check responsive for a clean exit.
   inspector.set(zmq::sockopt::rcvtimeo, 100);
-  inspector.connect("ipc:///tmp/broker_inspector.sock");
+  try {
+    inspector.connect(endpoint);
+  } catch (const zmq::error_t& e) {
+    Logger::Log(Logger::ERROR, "Inspector could not attach to " + endpoint + ": " + e.what());
+    return;
+  }
+  // Empty ZeroMQ subscription = receive everything (this is ZeroMQ's own
+  // prefix filter, unrelated to Wisp's "*" wildcard topic).
   inspector.set(zmq::sockopt::subscribe, "");
 
   while (m_running) {

@@ -160,7 +160,7 @@ void ZmqBroker::start(const std::vector<std::string>& bindAddresses) {
       Logger::Log(Logger::WARNING, "Discovery enabled but no tcp:// bind address found; auto-mesh disabled");
     } else {
       m_discovery = std::make_unique<BrokerDiscovery>(
-          m_clusterName, m_brokerId, routerPort, m_discoveryPort,
+          m_clusterName, m_brokerId, routerPort, m_inspectorTcpPort, m_discoveryPort,
           [this](const std::string& uuid, const std::string& address) { addPeer(uuid, address); },
           [this](const std::string& uuid) { removePeer(uuid); });
       m_discovery->start();
@@ -212,6 +212,19 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
     Logger::Log(Logger::INFO, "Inspector socket active on " + inspectorConnection);
   } catch (const zmq::error_t& e) {
     Logger::Log(Logger::ERROR, "Failed to bind to " + inspectorConnection + ": " + e.what());
+  }
+
+  // Optional second tap endpoint for tools elsewhere on the network. Opt-in
+  // (see enableRemoteInspector): everything routed, payloads included, is
+  // readable by anyone who can reach this port.
+  if (m_inspectorTcpPort != 0) {
+    const std::string remoteTap = "tcp://*:" + std::to_string(m_inspectorTcpPort);
+    try {
+      inspectorSocket.bind(remoteTap);
+      Logger::Log(Logger::WARNING, "Remote inspector tap active on " + remoteTap + " - all broker traffic is readable there");
+    } catch (const zmq::error_t& e) {
+      Logger::Log(Logger::ERROR, "Failed to bind the remote inspector tap to " + remoteTap + ": " + e.what());
+    }
   }
 
   // Wake pings from peer workers (see PEER_WAKE_ENDPOINT). The queue itself
@@ -438,7 +451,7 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
     if (key == Keys::SET_CLUSTER) {
       // The payload carries the new cluster name (see Keys::SET_CLUSTER).
       const std::string newCluster(payload.data<char>(), payload.size());
-      if (!BrokerDiscovery::isValidClusterName(newCluster)) {
+      if (!beacon::isValidClusterName(newCluster)) {
         Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " rejected: name must be 1-64 chars without '|'");
       } else if (!m_discovery) {
         Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " ignored: discovery is not active");
@@ -620,13 +633,17 @@ void ZmqBroker::connectToPeer(const std::string& peerAddress) {
 void ZmqBroker::enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort) {
   // Same rule SET_CLUSTER enforces; an invalid name here (e.g. from the
   // WISP_CLUSTER environment) would silently break this broker's own beacons.
-  if (!BrokerDiscovery::isValidClusterName(clusterName)) {
+  if (!beacon::isValidClusterName(clusterName)) {
     Logger::Log(Logger::WARNING, "Discovery not enabled: cluster name must be 1-64 chars without '|'");
     return;
   }
   m_discoveryEnabled = true;
   m_clusterName = clusterName;
   m_discoveryPort = discoveryPort;
+}
+
+void ZmqBroker::enableRemoteInspector(std::uint16_t port) {
+  m_inspectorTcpPort = port;
 }
 
 void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) {

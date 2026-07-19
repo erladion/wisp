@@ -11,15 +11,12 @@
 #include <cstring>
 #include <vector>
 
-namespace {
-constexpr char kMagic[] = "WISP";
-constexpr char kVersion[] = "1";
-}  // namespace
-
-BrokerDiscovery::BrokerDiscovery(std::string cluster, std::string selfUuid, std::uint16_t routerPort, std::uint16_t discoveryPort, DialFn dial, DropFn drop)
+BrokerDiscovery::BrokerDiscovery(std::string cluster, std::string selfUuid, std::uint16_t routerPort, std::uint16_t tapPort, std::uint16_t discoveryPort,
+                                 DialFn dial, DropFn drop)
     : m_cluster(std::move(cluster)),
       m_selfUuid(std::move(selfUuid)),
       m_routerPort(routerPort),
+      m_tapPort(tapPort),
       m_discoveryPort(discoveryPort),
       m_dial(std::move(dial)),
       m_drop(std::move(drop)) {}
@@ -28,50 +25,9 @@ BrokerDiscovery::~BrokerDiscovery() {
   stop();
 }
 
-bool BrokerDiscovery::isValidClusterName(const std::string& cluster) {
-  return !cluster.empty() && cluster.size() <= 64 && cluster.find('|') == std::string::npos;
-}
-
-std::string BrokerDiscovery::encodeBeacon(const std::string& cluster, const std::string& uuid, std::uint16_t routerPort) {
-  return std::string(kMagic) + "|" + kVersion + "|" + cluster + "|" + uuid + "|" + std::to_string(routerPort);
-}
-
-bool BrokerDiscovery::decodeBeacon(const char* data, std::size_t size, Beacon& out) {
-  const std::string s(data, size);
-
-  std::vector<std::string> fields;
-  std::size_t start = 0;
-  while (true) {
-    const std::size_t pos = s.find('|', start);
-    if (pos == std::string::npos) {
-      fields.push_back(s.substr(start));
-      break;
-    }
-    fields.push_back(s.substr(start, pos - start));
-    start = pos + 1;
-  }
-
-  if (fields.size() != 5 || fields[0] != kMagic || fields[1] != kVersion) {
-    return false;
-  }
-
-  out.cluster = fields[2];
-  out.uuid = fields[3];
-  try {
-    const int port = std::stoi(fields[4]);
-    if (port <= 0 || port > 65535) {
-      return false;
-    }
-    out.routerPort = static_cast<std::uint16_t>(port);
-  } catch (const std::exception&) {
-    return false;
-  }
-  return true;
-}
-
 void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, std::size_t size, std::chrono::steady_clock::time_point now) {
-  Beacon beacon;
-  if (!decodeBeacon(data, size, beacon)) {
+  beacon::Beacon heard;
+  if (!beacon::decode(data, size, heard)) {
     return;
   }
   std::string cluster;
@@ -79,26 +35,26 @@ void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, 
     std::lock_guard<std::mutex> lock(m_mutex);
     cluster = m_cluster;
   }
-  if (beacon.cluster != cluster) {
+  if (heard.cluster != cluster) {
     return;  // different mesh on the same LAN
   }
-  if (beacon.uuid == m_selfUuid) {
+  if (heard.uuid == m_selfUuid) {
     return;  // our own beacon
   }
   // Exactly one side of a pair dials, so a single link forms (and it's
   // bidirectional). The broker with the smaller uuid is the initiator.
-  if (!(m_selfUuid < beacon.uuid)) {
+  if (!(m_selfUuid < heard.uuid)) {
     return;
   }
 
-  const std::string address = "tcp://" + senderIp + ":" + std::to_string(beacon.routerPort);
+  const std::string address = "tcp://" + senderIp + ":" + std::to_string(heard.routerPort);
 
   bool isNew = false;
   {
     std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = m_dialed.find(beacon.uuid);
+    auto it = m_dialed.find(heard.uuid);
     if (it == m_dialed.end()) {
-      m_dialed.emplace(beacon.uuid, PeerEntry{address, now});
+      m_dialed.emplace(heard.uuid, PeerEntry{address, now});
       isNew = true;
     } else {
       it->second.address = address;
@@ -107,7 +63,7 @@ void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, 
   }
 
   if (isNew && m_dial) {
-    m_dial(beacon.uuid, address);
+    m_dial(heard.uuid, address);
   }
 }
 
@@ -205,12 +161,12 @@ void BrokerDiscovery::run() {
     const auto now = std::chrono::steady_clock::now();
     if (now >= nextBeacon) {
       // Re-encoded every send: the cluster can change under us via setCluster.
-      std::string beacon;
+      std::string wire;
       {
         std::lock_guard<std::mutex> lock(m_mutex);
-        beacon = encodeBeacon(m_cluster, m_selfUuid, m_routerPort);
+        wire = beacon::encode(m_cluster, m_selfUuid, m_routerPort, m_tapPort);
       }
-      ::sendto(m_socket, beacon.data(), beacon.size(), 0, reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
+      ::sendto(m_socket, wire.data(), wire.size(), 0, reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
       expireStale(now);
       nextBeacon = now + m_beaconInterval;
     }

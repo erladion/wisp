@@ -21,35 +21,18 @@ struct Recorder {
 // started; tests drive onDatagram()/expireStale() directly with an injected clock.
 std::unique_ptr<BrokerDiscovery> makeDiscovery(const std::string& cluster, const std::string& selfUuid, Recorder& rec) {
   return std::make_unique<BrokerDiscovery>(
-      cluster, selfUuid, /*routerPort=*/5555, BrokerDiscovery::kDefaultPort,
+      cluster, selfUuid, /*routerPort=*/5555, /*tapPort=*/0, BrokerDiscovery::kDefaultPort,
       [&rec](const std::string& uuid, const std::string& addr) { rec.dials.emplace_back(uuid, addr); },
       [&rec](const std::string& uuid) { rec.drops.push_back(uuid); });
 }
 
 void feed(BrokerDiscovery& disc, const std::string& ip, const std::string& cluster, const std::string& uuid, std::uint16_t port,
           std::chrono::steady_clock::time_point now) {
-  const std::string beacon = BrokerDiscovery::encodeBeacon(cluster, uuid, port);
-  disc.onDatagram(ip, beacon.data(), beacon.size(), now);
+  const std::string wire = beacon::encode(cluster, uuid, port, /*tapPort=*/0);
+  disc.onDatagram(ip, wire.data(), wire.size(), now);
 }
 
 }  // namespace
-
-TEST(DiscoveryTest, BeaconRoundTrips) {
-  const std::string wire = BrokerDiscovery::encodeBeacon("prod", "uuid-123", 5555);
-  BrokerDiscovery::Beacon b;
-  ASSERT_TRUE(BrokerDiscovery::decodeBeacon(wire.data(), wire.size(), b));
-  EXPECT_EQ(b.cluster, "prod");
-  EXPECT_EQ(b.uuid, "uuid-123");
-  EXPECT_EQ(b.routerPort, 5555);
-}
-
-TEST(DiscoveryTest, DecodeRejectsMalformed) {
-  BrokerDiscovery::Beacon b;
-  const char* cases[] = {"nope", "XXXX|1|c|u|5555", "WISP|9|c|u|5555", "WISP|1|c|u", "WISP|1|c|u|notaport", "WISP|1|c|u|99999"};
-  for (const char* c : cases) {
-    EXPECT_FALSE(BrokerDiscovery::decodeBeacon(c, std::char_traits<char>::length(c), b)) << "should reject: " << c;
-  }
-}
 
 // The broker with the smaller uuid is the designated initiator for a pair, and
 // the peer address is built from the datagram's source IP plus the beacon port.

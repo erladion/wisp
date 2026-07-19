@@ -25,6 +25,11 @@ void PacketTableModel::packetAdded() {
   endInsertRows();
 }
 
+void PacketTableModel::historyCleared() {
+  beginResetModel();
+  endResetModel();
+}
+
 void PacketTableModel::packetsAboutToBeTrimmed(int count) {
   beginRemoveRows(QModelIndex(), 0, count - 1);
 }

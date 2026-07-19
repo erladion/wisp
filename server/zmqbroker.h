@@ -113,6 +113,14 @@ public:
   // a cluster name auto-mesh. Call before start().
   void enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort = BrokerDiscovery::kDefaultPort);
 
+  // Additionally expose the inspector tap on tcp://*:port so tools elsewhere
+  // on the network can attach, and advertise the port in this broker's
+  // beacons. Off by default: the tap carries every message, payloads
+  // included, and binding it to TCP makes that readable by anyone who can
+  // reach the port. The local ipc:// tap is always available. Call before
+  // start().
+  void enableRemoteInspector(std::uint16_t port);
+
 private:
   void run(const std::vector<std::string>& addresses);
   // Add/remove a peer link under `key` (a remote uuid for discovered peers, the
@@ -162,6 +170,9 @@ private:
   bool m_discoveryEnabled = false;
   std::string m_clusterName;
   std::uint16_t m_discoveryPort = BrokerDiscovery::kDefaultPort;
+
+  // 0 = no TCP inspector tap (the ipc:// tap is always bound).
+  std::uint16_t m_inspectorTcpPort = 0;
 
   // Dedup history as two rotating windows: ids land in the current set, and
   // once it holds MaxHistorySize the sets swap and the older window is

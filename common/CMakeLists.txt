@@ -44,6 +44,8 @@ add_library(ZmqLib STATIC
     ${PROTO_GENERATED_HEADERS}
     zmqworker.h
     zmqworker.cpp
+    beacon.h
+    beacon.cpp
     connectionapi.h
     connectionapi.cpp
     logger.h

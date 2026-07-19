@@ -44,6 +44,8 @@ The broker's bind endpoints are command-line arguments (default `tcp://*:5555` a
 ./build/server/server tcp://*:6666 ipc:///tmp/my_broker.sock
 ```
 
+The inspector always sees brokers on the local machine. To inspect one from another machine, start it with `--inspector-port N`: the broker then exposes its tap on `tcp://*:N` and advertises it in its discovery beacons, and the inspector lists every such broker it hears about — pick one from the dropdown to switch while it runs. **This is off by default and unauthenticated**: the tap carries every message, payloads included, so anyone who can reach that port can read all traffic through that broker.
+
 Everything else is optional and set through environment variables:
 
 | Variable | Read by | Effect |

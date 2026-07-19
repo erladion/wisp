@@ -11,11 +11,13 @@
 #include <thread>
 #include <unordered_map>
 
-// LAN auto-discovery of peer brokers via periodic UDP broadcast beacons. Each
-// broker beacons {cluster, uuid, router_port}; on hearing a beacon from a peer
-// in the same cluster, the broker with the smaller uuid dials the other - one
-// bidirectional DEALER link per pair (see ZmqBroker::connectToPeer). Peers that
-// go silent are dropped.
+#include "beacon.h"
+
+// LAN auto-discovery of peer brokers via periodic UDP broadcast beacons (the
+// format and a listen-only receiver live in common/beacon.h). On hearing a
+// beacon from a peer in the same cluster, the broker with the smaller uuid
+// dials the other - one bidirectional DEALER link per pair (see
+// ZmqBroker::connectToPeer). Peers that go silent are dropped.
 //
 // The UDP socket is a thin loop around onDatagram() / expireStale(), which hold
 // all the decision logic and are unit-testable without a network.
@@ -25,9 +27,12 @@ public:
   using DialFn = std::function<void(const std::string& uuid, const std::string& address)>;
   using DropFn = std::function<void(const std::string& uuid)>;
 
-  static constexpr std::uint16_t kDefaultPort = 5670;
+  static constexpr std::uint16_t kDefaultPort = beacon::kDefaultPort;
 
-  BrokerDiscovery(std::string cluster, std::string selfUuid, std::uint16_t routerPort, std::uint16_t discoveryPort, DialFn dial, DropFn drop);
+  // tapPort is advertised so tools can find this broker's inspector tap; 0
+  // when no remote tap is exposed.
+  BrokerDiscovery(std::string cluster, std::string selfUuid, std::uint16_t routerPort, std::uint16_t tapPort, std::uint16_t discoveryPort, DialFn dial,
+                  DropFn drop);
   ~BrokerDiscovery();
 
   BrokerDiscovery(const BrokerDiscovery&) = delete;
@@ -45,20 +50,6 @@ public:
   void setCluster(const std::string& cluster);
 
   // --- Pure logic (no sockets); the loop drives these, tests call them directly ---
-
-  struct Beacon {
-    std::string cluster;
-    std::string uuid;
-    std::uint16_t routerPort = 0;
-  };
-
-  // A usable cluster name: 1-64 bytes without '|' (the beacon field
-  // separator); the cap keeps beacons well inside the 512-byte read buffer.
-  static bool isValidClusterName(const std::string& cluster);
-
-  // Wire form: "WISP|1|<cluster>|<uuid>|<port>" (cluster must not contain '|').
-  static std::string encodeBeacon(const std::string& cluster, const std::string& uuid, std::uint16_t routerPort);
-  static bool decodeBeacon(const char* data, std::size_t size, Beacon& out);
 
   // Process a beacon heard from senderIp; dials the peer (once) when this broker
   // is the designated initiator for the pair.
@@ -79,6 +70,7 @@ private:
   std::string m_cluster;
   const std::string m_selfUuid;
   const std::uint16_t m_routerPort;
+  const std::uint16_t m_tapPort;
   const std::uint16_t m_discoveryPort;
   const DialFn m_dial;
   const DropFn m_drop;

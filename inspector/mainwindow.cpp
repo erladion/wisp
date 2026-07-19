@@ -3,6 +3,8 @@
 #include <QHeaderView>
 #include <QScrollBar>
 #include <QStringList>
+#include <QStandardItemModel>
+#include <QStatusBar>
 #include <QVBoxLayout>
 
 #include "hexutils.h"
@@ -24,7 +26,24 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   m_pWorker = new InspectorWorker(this);
   connect(m_pWorker, &InspectorWorker::packetReceived, this, &MainWindow::onNewPacket, Qt::QueuedConnection);
 
+  m_currentEndpoint = InspectorWorker::kLocalTap;
+  m_pWorker->setEndpoint(m_currentEndpoint);
   m_pWorker->start();
+
+  // Listen for broker beacons so the selector can offer every broker on the
+  // network. Listen-only by construction: an inspector that beaconed would be
+  // dialed by brokers as if it were a peer broker.
+  m_pBeaconListener = std::make_unique<beacon::Listener>(beacon::kDefaultPort, [this](const std::string& senderIp, const beacon::Beacon& heard) {
+    // Hop to the UI thread before touching any widget or the broker map.
+    const QString ip = QString::fromStdString(senderIp);
+    QMetaObject::invokeMethod(
+        this, [this, ip, heard]() { onBeaconHeard(ip, heard); }, Qt::QueuedConnection);
+  });
+  m_pBeaconListener->start();
+
+  m_pBrokerExpiryTimer = new QTimer(this);
+  connect(m_pBrokerExpiryTimer, &QTimer::timeout, this, &MainWindow::expireDiscoveredBrokers);
+  m_pBrokerExpiryTimer->start(1000);
 
   ConnectionConfig config;
   config.address = "tcp://localhost:5555";
@@ -35,11 +54,143 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() {
+  if (m_pBeaconListener) {
+    m_pBeaconListener->stop();  // joins before the callback's captured `this` dies
+  }
+
   m_pWorker->stopWorker();
   m_pWorker->wait();
 
   m_pInjector->stop();
   delete m_pInjector;
+}
+
+void MainWindow::onBeaconHeard(const QString& senderIp, const beacon::Beacon& heard) {
+  const QString uuid = QString::fromStdString(heard.uuid);
+
+  DiscoveredBroker broker;
+  broker.cluster = QString::fromStdString(heard.cluster);
+  broker.uuid = uuid;
+  broker.endpoint = heard.tapPort == 0 ? QString() : QString("tcp://%1:%2").arg(senderIp).arg(heard.tapPort);
+  broker.lastSeen = std::chrono::steady_clock::now();
+
+  const auto existing = m_discoveredBrokers.find(uuid);
+  const bool changed = existing == m_discoveredBrokers.end() || existing->endpoint != broker.endpoint || existing->cluster != broker.cluster;
+
+  m_discoveredBrokers.insert(uuid, broker);
+  if (changed) {
+    Logger::Log(Logger::INFO, "Discovered broker " + uuid.left(8).toStdString() + " (cluster '" + broker.cluster.toStdString() + "') at " +
+                                  (broker.endpoint.isEmpty() ? std::string("no remote tap") : broker.endpoint.toStdString()));
+    refreshBrokerList();
+  }
+}
+
+void MainWindow::expireDiscoveredBrokers() {
+  // Beacons are sent once a second; a broker silent for this long is gone
+  // (or unreachable), so drop it from the selector.
+  const auto cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+
+  bool removedAny = false;
+  for (auto it = m_discoveredBrokers.begin(); it != m_discoveredBrokers.end();) {
+    if (it->lastSeen < cutoff) {
+      it = m_discoveredBrokers.erase(it);
+      removedAny = true;
+    } else {
+      ++it;
+    }
+  }
+  if (removedAny) {
+    refreshBrokerList();
+  }
+}
+
+void MainWindow::refreshBrokerList() {
+  // Rebuilding resets the current index; remember what was selected so the
+  // user's choice survives beacons arriving underneath them.
+  const QString selected = m_currentEndpoint;
+
+  QSignalBlocker blocker(m_pBrokerSelector);
+  m_pBrokerSelector->clear();
+  m_pBrokerSelector->addItem("Local broker (ipc)", QString(InspectorWorker::kLocalTap));
+
+  for (const auto& broker : m_discoveredBrokers) {
+    const QString shortUuid = broker.uuid.left(8);
+    if (broker.endpoint.isEmpty()) {
+      // Listed but not attachable: the broker was started without
+      // --inspector-port, so it exposes no tap beyond its own machine.
+      m_pBrokerSelector->addItem(QString("%1 · %2 — no remote tap").arg(broker.cluster, shortUuid), QString());
+      if (auto* model = qobject_cast<QStandardItemModel*>(m_pBrokerSelector->model())) {
+        if (auto* item = model->item(m_pBrokerSelector->count() - 1)) {
+          item->setEnabled(false);
+        }
+      }
+      continue;
+    }
+    m_pBrokerSelector->addItem(QString("%1 · %2 · %3").arg(broker.cluster, shortUuid, broker.endpoint), broker.endpoint);
+  }
+
+  for (int i = 0; i < m_pBrokerSelector->count(); ++i) {
+    if (m_pBrokerSelector->itemData(i).toString() == selected) {
+      m_pBrokerSelector->setCurrentIndex(i);
+      return;
+    }
+  }
+  // The attached broker just went away; keep showing its traffic but make the
+  // selector reflect that it is no longer in the list.
+  m_pBrokerSelector->setCurrentIndex(-1);
+}
+
+void MainWindow::onBrokerSelected(int index) {
+  if (index < 0) {
+    return;
+  }
+  const QString endpoint = m_pBrokerSelector->itemData(index).toString();
+  if (endpoint.isEmpty()) {
+    return;  // a "no remote tap" entry
+  }
+  attachTo(endpoint, m_pBrokerSelector->itemText(index));
+}
+
+void MainWindow::attachTo(const QString& endpoint, const QString& label) {
+  if (endpoint == m_currentEndpoint) {
+    return;
+  }
+
+  m_pWorker->stopWorker();
+  m_pWorker->wait();
+
+  clearCapture();
+
+  m_pWorker->setEndpoint(endpoint);
+  m_currentEndpoint = endpoint;
+  m_pWorker->start();
+
+  Logger::Log(Logger::INFO, "Inspector attached to " + endpoint.toStdString());
+  statusBar()->showMessage("Attached to " + label, 5000);
+}
+
+// Traffic from a different broker must not be mixed into the same capture, so
+// switching starts from a clean slate.
+void MainWindow::clearCapture() {
+  m_packetHistory.clear();
+  m_pTableModel->historyCleared();
+
+  m_knownTopics.clear();
+  m_pTopicMenu->clear();
+
+  m_pProtoTree->clear();
+  m_pHexDump->clear();
+
+  m_pBrokerIdLabel->setText("Broker ID: --");
+  m_pClusterLabel->setText("Cluster: --");
+  m_pUptimeLabel->setText("Uptime: -- s");
+  m_pClientsLabel->setText("Clients: 0");
+  m_pPeersLabel->setText("Peers: 0");
+  m_pMsgsSecLabel->setText("Msgs/sec: 0");
+  m_pKbSecLabel->setText("KB/sec: 0.00");
+  m_pTotalMsgsLabel->setText("Total Msgs: 0");
+  m_pDroppedLabel->setText("Dropped: 0");
+  m_pDroppedLabel->setStyleSheet("");
 }
 
 void MainWindow::onNewPacket(const InspectorPacket& packet) {
@@ -127,6 +278,17 @@ void MainWindow::setupUi() {
   m_pTopicMenu = new QMenu(this);
   m_pTopicFilterButton->setMenu(m_pTopicMenu);
 
+  // Brokers found on the network, refreshed from their discovery beacons.
+  m_pBrokerSelector = new QComboBox(this);
+  m_pBrokerSelector->setMinimumWidth(320);
+  m_pBrokerSelector->setToolTip(
+      "Broker to inspect. Brokers appear here when they beacon on the LAN;\n"
+      "attaching remotely requires the broker to run with --inspector-port.");
+  m_pBrokerSelector->addItem("Local broker (ipc)", QString(InspectorWorker::kLocalTap));
+  connect(m_pBrokerSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onBrokerSelected);
+
+  topBarLayout->addWidget(new QLabel("Broker:", this));
+  topBarLayout->addWidget(m_pBrokerSelector);
   topBarLayout->addWidget(m_pFilterBar);
   topBarLayout->addWidget(m_pTopicFilterButton);
 

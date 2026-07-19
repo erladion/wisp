@@ -146,11 +146,16 @@ Brokers find each other with UDP broadcast beacons on port **5670** (default),
 sent every **1 s**:
 
 ```
-WISP|1|<cluster>|<uuid>|<router_port>
+WISP|1|<cluster>|<uuid>|<router_port>|<tap_port>
 ```
 
-`1` is the beacon format version. Receivers ignore beacons from other
-clusters and their own uuid. For each same-cluster pair, exactly one side
+`1` is the beacon format version. `tap_port` is the broker's remote inspector
+tap (see below), or `0` when it exposes none. Brokers ignore beacons from
+other clusters and their own uuid; monitoring tools listen without filtering
+so they can see every mesh.
+
+Tools that consume beacons must **listen only, never transmit**: a broker that
+hears a beacon treats the sender as a peer broker and may dial it. For each same-cluster pair, exactly one side
 dials: the broker with the **smaller uuid** (string comparison) connects to
 `tcp://<beacon sender ip>:<router_port>`. A dialed peer whose beacons stop
 for **5 s** is dropped. Cluster names must not contain `|` and fit within the
@@ -166,7 +171,16 @@ swap.
 
 The broker republishes every message it processes — control traffic included —
 on a PUB socket at `ipc:///tmp/broker_inspector.sock`, as the same
-header + payload frames (no identity frame). This is plain ZeroMQ PUB/SUB,
+header + payload frames (no identity frame).
+
+A broker started with `--inspector-port N` binds the same PUB socket to
+`tcp://*:N` as well and advertises `N` in its beacons, so a tool anywhere on
+the network can find and attach to it. This is **off by default and has no
+access control**: the tap carries every message including payloads, so binding
+it to TCP makes all broker traffic readable by anyone who can reach the port.
+The `ipc://` tap, restricted by filesystem permissions, is always available.
+
+Either way this is plain ZeroMQ PUB/SUB,
 not a Wisp session: attach a SUB socket and set an **empty ZeroMQ
 subscription** (`ZMQ_SUBSCRIBE`, ""), which is ZeroMQ's own match-everything
 prefix filter — Wisp's `*` wildcard topic plays no role here. The tap is

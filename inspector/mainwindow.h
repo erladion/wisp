@@ -2,22 +2,28 @@
 #define MAINWINDOW_H
 
 #include <QAction>
+#include <QComboBox>
 #include <QDockWidget>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
+#include <QMap>
 #include <QMenu>
 #include <QPushButton>
 #include <QSet>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTextEdit>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
+#include <chrono>
 #include <deque>
+#include <memory>
 
+#include "beacon.h"
 #include "inspectorworker.h"
 #include "zmqworker.h"
 
@@ -43,9 +49,27 @@ private slots:
   void showContextMenu(const QPoint& pos);
   void replaySelectedMessage();
 
+  void onBrokerSelected(int index);
+  void expireDiscoveredBrokers();
+
 private:
   void setupUi();
   void setupSysStatsView();
+
+  // A broker heard on the network. Only those advertising a tap port can be
+  // attached to; the rest are listed (disabled) so it is obvious they exist
+  // and why they cannot be selected.
+  struct DiscoveredBroker {
+    QString cluster;
+    QString uuid;
+    QString endpoint;  // empty when the broker exposes no remote tap
+    std::chrono::steady_clock::time_point lastSeen;
+  };
+
+  void onBeaconHeard(const QString& senderIp, const beacon::Beacon& heard);
+  void refreshBrokerList();
+  void attachTo(const QString& endpoint, const QString& label);
+  void clearCapture();
 
 private:
   InspectorWorker* m_pWorker;
@@ -77,6 +101,14 @@ private:
   QSet<QString> m_knownTopics;
   QPushButton* m_pTopicFilterButton;
   QMenu* m_pTopicMenu;
+
+  // Broker discovery: beacons arrive on the listener's own thread and are
+  // marshalled onto the UI thread before touching any of this state.
+  std::unique_ptr<beacon::Listener> m_pBeaconListener;
+  QMap<QString, DiscoveredBroker> m_discoveredBrokers;  // keyed by uuid
+  QComboBox* m_pBrokerSelector;
+  QTimer* m_pBrokerExpiryTimer;
+  QString m_currentEndpoint;
 };
 
 #endif

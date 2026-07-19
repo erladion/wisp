@@ -17,7 +17,9 @@ public:
   QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
   QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
-  void packetAdded();  // Call this when the history grows
+  void packetAdded();
+  // The backing history was cleared wholesale (e.g. switching brokers).
+  void historyCleared();  // Call this when the history grows
 
   // Bracket the removal of the oldest `count` packets: call
   // packetsAboutToBeTrimmed(), erase from the front of the history deque,
