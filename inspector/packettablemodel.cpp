@@ -95,12 +95,15 @@ QVariant PacketTableModel::data(const QModelIndex& index, int role) const {
 PacketFilterProxyModel::PacketFilterProxyModel(QObject* parent) : QSortFilterProxyModel(parent) {}
 
 void PacketFilterProxyModel::updateFilters(const QString& text, const QSet<QString>& topics) {
-  m_searchText = text.toLower();
-  m_allowedTopics = topics;
-  // invalidateFilter() is deprecated from Qt 6.9; the replacement pair does not
-  // exist before it, so both spellings have to be kept while either Qt is supported.
+  // invalidateFilter() is deprecated from Qt 6.9; the replacement pair does
+  // not exist before it, so both spellings have to be kept while either Qt is
+  // supported. The contract is begin -> mutate the filter state -> end.
 #if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
   beginFilterChange();
+#endif
+  m_searchText = text.toLower();
+  m_allowedTopics = topics;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
   endFilterChange();
 #else
   invalidateFilter();
