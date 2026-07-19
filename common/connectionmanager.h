@@ -70,8 +70,22 @@ struct CallableTraits<ReturnType (*)(Arg)> {
   using ArgType = Arg;
 };
 
+/* No ArgType, deliberately: a no-argument callable must fail substitution in
+   registerCallback's BaseT default so it falls through to the void() overload.
+
+   Every no-argument spelling needs its own specialization. Anything not listed
+   here lands in the primary template above, which then asks a member-pointer
+   (or function-pointer) type for its operator() - a hard error raised deep in
+   template instantiation rather than a clean SFINAE fallthrough. A `mutable`
+   lambda's operator() is non-const, so the const form alone is not enough. */
 template <typename ClassType, typename ReturnType>
 struct CallableTraits<ReturnType (ClassType::*)() const> {};
+
+template <typename ClassType, typename ReturnType>
+struct CallableTraits<ReturnType (ClassType::*)()> {};
+
+template <typename ReturnType>
+struct CallableTraits<ReturnType (*)()> {};
 
 namespace detail {
 
@@ -292,9 +306,11 @@ public:
   // Decoding rules live in detail::decodePayload.
   template <typename Callable, typename BaseT = typename std::decay<typename CallableTraits<Callable>::ArgType>::type>
   static void registerCallback(const std::string& key, Callable func, void* instance = nullptr) {
+    // mutable so a `mutable` user callable (whose operator() is non-const) can
+    // be invoked through the copy captured here.
     registerInternal(
         key,
-        [func, key](const std::string& raw) {
+        [func, key](const std::string& raw) mutable {
           BaseT value;
           if (detail::decodePayload(raw, value)) {
             func(value);
@@ -317,11 +333,9 @@ public:
         key, [instance, method]() { (instance->*method)(); }, instance);
   }
 
-  static void registerCallback(const std::string& key, void (*func)(), void* instance = nullptr) {
-    registerInternal(
-        key, [func](const std::string& /* ignored */) { func(); }, instance);
-  }
-
+  // Callables that take no argument, including plain function pointers - a
+  // std::function<void()> accepts those too, so a separate void(*)() overload
+  // would only make a captureless `[]{}` ambiguous between the two.
   static void registerCallback(const std::string& key, std::function<void()> callback, void* instance = nullptr) {
     registerInternal(
         key,

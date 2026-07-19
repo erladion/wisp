@@ -19,6 +19,7 @@ set(BROKER_TEST_SOURCES
   support/test_helpers.h
   any_payload_roundtrip_test.cpp
   beacon_test.cpp
+  callback_shapes_test.cpp
   cluster_swap_test.cpp
   delivery_test.cpp
   discovery_test.cpp
