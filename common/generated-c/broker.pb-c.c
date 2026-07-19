@@ -245,7 +245,7 @@ const ProtobufCMessageDescriptor broker__message_header__descriptor =
   (ProtobufCMessageInit) broker__message_header__init,
   NULL,NULL,NULL    /* reserved[123] */
 };
-static const ProtobufCFieldDescriptor broker__client_info__field_descriptors[3] =
+static const ProtobufCFieldDescriptor broker__client_info__field_descriptors[4] =
 {
   {
     "id",
@@ -283,16 +283,29 @@ static const ProtobufCFieldDescriptor broker__client_info__field_descriptors[3] 
     0,             /* flags */
     0,NULL,NULL    /* reserved1,reserved2, etc */
   },
+  {
+    "subscription_count",
+    4,
+    PROTOBUF_C_LABEL_NONE,
+    PROTOBUF_C_TYPE_UINT32,
+    0,   /* quantifier_offset */
+    offsetof(Broker__ClientInfo, subscription_count),
+    NULL,
+    NULL,
+    0,             /* flags */
+    0,NULL,NULL    /* reserved1,reserved2, etc */
+  },
 };
 static const unsigned broker__client_info__field_indices_by_name[] = {
   2,   /* field[2] = dropped_messages */
   0,   /* field[0] = id */
+  3,   /* field[3] = subscription_count */
   1,   /* field[1] = subscriptions */
 };
 static const ProtobufCIntRange broker__client_info__number_ranges[1 + 1] =
 {
   { 1, 0 },
-  { 0, 3 }
+  { 0, 4 }
 };
 const ProtobufCMessageDescriptor broker__client_info__descriptor =
 {
@@ -302,7 +315,7 @@ const ProtobufCMessageDescriptor broker__client_info__descriptor =
   "Broker__ClientInfo",
   "broker",
   sizeof(Broker__ClientInfo),
-  3,
+  4,
   broker__client_info__field_descriptors,
   broker__client_info__field_indices_by_name,
   1,  broker__client_info__number_ranges,

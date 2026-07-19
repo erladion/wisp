@@ -21,11 +21,17 @@ message MessageHeader {
 
 message ClientInfo {
     string id = 1;
+    // Truncated: brokers list at most a few dozen topics per client, since
+    // these are serialized into every stats broadcast. Use subscription_count
+    // for the real total.
     repeated string subscriptions = 2;
     // Messages the broker tried to deliver to this client but had to drop
     // (full pipe or unroutable), since the client connected. A growing value
     // means the client is not keeping up.
     uint64 dropped_messages = 3;
+    // How many topics this client is actually subscribed to, which may exceed
+    // the number listed in `subscriptions` above.
+    uint32 subscription_count = 4;
 }
 
 message SystemStats {

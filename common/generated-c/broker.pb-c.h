@@ -55,6 +55,11 @@ struct  _Broker__ClientInfo
 {
   ProtobufCMessage base;
   char *id;
+  /*
+   * Truncated: brokers list at most a few dozen topics per client, since
+   * these are serialized into every stats broadcast. Use subscription_count
+   * for the real total.
+   */
   size_t n_subscriptions;
   char **subscriptions;
   /*
@@ -63,10 +68,15 @@ struct  _Broker__ClientInfo
    * means the client is not keeping up.
    */
   uint64_t dropped_messages;
+  /*
+   * How many topics this client is actually subscribed to, which may exceed
+   * the number listed in `subscriptions` above.
+   */
+  uint32_t subscription_count;
 };
 #define BROKER__CLIENT_INFO__INIT \
  { PROTOBUF_C_MESSAGE_INIT (&broker__client_info__descriptor) \
-    , (char *)protobuf_c_empty_string, 0,NULL, 0 }
+    , (char *)protobuf_c_empty_string, 0,NULL, 0, 0 }
 
 
 struct  _Broker__SystemStats

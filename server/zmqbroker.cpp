@@ -653,7 +653,12 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
     clientInfo->set_dropped_messages(entry.second.droppedMessages);
 
     if (const auto* topics = m_subscriptions.subscriptionsOf(entry.first)) {
+      clientInfo->set_subscription_count(static_cast<std::uint32_t>(topics->size()));
+      std::size_t listed = 0;
       for (const auto& topic : *topics) {
+        if (listed++ >= MaxListedSubscriptions) {
+          break;
+        }
         clientInfo->add_subscriptions(topic);
       }
     }

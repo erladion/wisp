@@ -119,6 +119,12 @@ class ZmqBroker {
   // Power of two > 2*MaxHistorySize, keeping the dedup sets' load factor
   // comfortably below 1/3.
   static constexpr size_t DedupSetCapacity = 32768;
+  // Subscriptions listed per client in SystemStats. Every stats broadcast
+  // serializes these, once a second, for every connected client - listing a
+  // client's full set (up to MAX_SUBSCRIPTIONS_PER_CLIENT) would make the
+  // stats message itself the broker's biggest recurring cost. The true total
+  // travels alongside as ClientInfo::subscription_count.
+  static constexpr size_t MaxListedSubscriptions = 64;
 
 public:
   // clientTimeout: silence after which a client is forgotten (its next message

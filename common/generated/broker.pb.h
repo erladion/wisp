@@ -505,6 +505,7 @@ class ClientInfo final : public ::google::protobuf::Message
     kSubscriptionsFieldNumber = 2,
     kIdFieldNumber = 1,
     kDroppedMessagesFieldNumber = 3,
+    kSubscriptionCountFieldNumber = 4,
   };
   // repeated string subscriptions = 2;
   int subscriptions_size() const;
@@ -553,11 +554,21 @@ class ClientInfo final : public ::google::protobuf::Message
   void _internal_set_dropped_messages(::uint64_t value);
 
   public:
+  // uint32 subscription_count = 4;
+  void clear_subscription_count() ;
+  ::uint32_t subscription_count() const;
+  void set_subscription_count(::uint32_t value);
+
+  private:
+  ::uint32_t _internal_subscription_count() const;
+  void _internal_set_subscription_count(::uint32_t value);
+
+  public:
   // @@protoc_insertion_point(class_scope:broker.ClientInfo)
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
-  static const ::google::protobuf::internal::TcParseTable<2, 3,
+  static const ::google::protobuf::internal::TcParseTable<2, 4,
                                    0, 41,
                                    2>
       _table_;
@@ -582,6 +593,7 @@ class ClientInfo final : public ::google::protobuf::Message
     ::google::protobuf::RepeatedPtrField<::std::string> subscriptions_;
     ::google::protobuf::internal::ArenaStringPtr id_;
     ::uint64_t dropped_messages_;
+    ::uint32_t subscription_count_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -1479,6 +1491,30 @@ inline ::uint64_t ClientInfo::_internal_dropped_messages() const {
 inline void ClientInfo::_internal_set_dropped_messages(::uint64_t value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.dropped_messages_ = value;
+}
+
+// uint32 subscription_count = 4;
+inline void ClientInfo::clear_subscription_count() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.subscription_count_ = 0u;
+  _impl_._has_bits_[0] &= ~0x00000004u;
+}
+inline ::uint32_t ClientInfo::subscription_count() const {
+  // @@protoc_insertion_point(field_get:broker.ClientInfo.subscription_count)
+  return _internal_subscription_count();
+}
+inline void ClientInfo::set_subscription_count(::uint32_t value) {
+  _internal_set_subscription_count(value);
+  _impl_._has_bits_[0] |= 0x00000004u;
+  // @@protoc_insertion_point(field_set:broker.ClientInfo.subscription_count)
+}
+inline ::uint32_t ClientInfo::_internal_subscription_count() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.subscription_count_;
+}
+inline void ClientInfo::_internal_set_subscription_count(::uint32_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.subscription_count_ = value;
 }
 
 // -------------------------------------------------------------------
