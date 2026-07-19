@@ -160,6 +160,27 @@ private:
   // none); recipients share its bytes via zmq reference counting rather than
   // copying it per send.
   void processMessage(zmq::socket_t &socket, zmq::socket_t &inspectorSocket, broker::MessageHeader &header, zmq::message_t &payload, const std::string &senderId, bool isFromPeer);
+
+  /* The session and control-plane half of processMessage, for messages from
+     local clients only: keep-alive bookkeeping, the unknown-session RESET, and
+     the (un)subscribe / disconnect / cluster-swap keys.
+
+     Returns true when the message was fully handled and must not be routed
+     onward; false leaves it to the delivery path. */
+  bool handleClientMessage(zmq::socket_t& socket, const broker::MessageHeader& header, zmq::message_t& payload, const std::string& senderId);
+
+  // Fan `headerBytes`/`payload` out to this broker's own subscribers - exact
+  // topic matches plus wildcard subscribers, each served once.
+  void deliverToSubscribers(zmq::socket_t& socket, const broker::MessageHeader& header, const std::string& headerBytes, zmq::message_t& payload,
+                            const std::string& senderId, bool isFromPeer);
+
+  // Forward an already-encoded message to every peer link.
+  void floodPeers(const std::string& headerBytes, zmq::message_t& payload);
+
+  // Record a delivery this client refused, against both the client and the
+  // broker-wide total.
+  void noteDroppedTo(const std::string& clientId);
+
   bool isDuplicate(const std::string& uuid);
 
   void broadcastStats(zmq::socket_t &socket, zmq::socket_t &inspectorSocket);
@@ -217,7 +238,6 @@ private:
   std::chrono::steady_clock::time_point m_lastStatsTime;
 
   uint64_t m_totalMessages = 0;
-  uint64_t m_totalBytes = 0;
   uint64_t m_totalDropped = 0;
 
   // Interval counters (reset every second)

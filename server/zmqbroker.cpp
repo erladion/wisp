@@ -312,9 +312,7 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
         // Stats
         m_totalMessages++;
         m_msgsInterval++;
-        const uint64_t wireBytes = headerFrame.size() + payload.size();
-        m_totalBytes += wireBytes;
-        m_bytesInterval += wireBytes;
+        m_bytesInterval += headerFrame.size() + payload.size();
 
         processMessage(socket, inspectorSocket, header, payload, identity.to_string(), false);
       }
@@ -385,84 +383,17 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
   // payload frames verbatim - the broker never parses the payload itself.
   wire::sendFrames(inspectorSocket, headerBytes, payload);
 
-  std::string key = header.handler_key();
-
-  // Local clients
-  if (!isFromPeer) {
-    if (key == Keys::DISCONNECT) {
-      removeClient(senderId, "Disconnect");
-      return;
-    }
-
-    bool newClient = (m_clients.find(senderId) == m_clients.end());
-    ClientState& client = m_clients[senderId];
-    client.identity = senderId;
-    client.lastSeen = std::chrono::steady_clock::now();
-
-    if (newClient) {
-      if (key == Keys::CONNECT) {
-        // A fresh session leading with CONNECT, as the protocol prescribes:
-        // register it silently - the client sends its subscriptions itself.
-        Logger::Log(Logger::INFO, "New client: " + senderId);
-      } else {
-        // An identity we don't know that thinks it has a session: the broker
-        // restarted, or the client was timed out. Ask it to rebuild via
-        // RESET. The triggering message is processed normally below -
-        // nothing is sacrificed (a publish still routes).
-        Logger::Log(Logger::INFO, "Unknown session from " + senderId + ". Requesting subscription reset");
-        wire::sendTo(socket, senderId, wire::encodeHeader(wire::makeControlHeader(Keys::RESET, "")), std::string());
-      }
-    }
-
-    if (key == Keys::CONNECT || key == Keys::HEARTBEAT) {
-      // Just keep-alive, already handled by updating 'lastSeen' above
-      if (key == Keys::HEARTBEAT) {
-        wire::sendTo(socket, senderId, wire::encodeHeader(wire::makeControlHeader(Keys::HEARTBEAT_ACK, "")), std::string());
-      }
-      return;
-    }
-
-    if (key == Keys::SUBSCRIBE) {
-      if (header.topic().empty()) {
-        // "" was the wildcard before Keys::WILDCARD_TOPIC ("*") replaced it;
-        // reject it loudly so a stale client fails visibly instead of
-        // subscribing to nothing.
-        Logger::Log(Logger::WARNING, "Client " + senderId + " sent SUBSCRIBE with an empty topic - use \"" + std::string(Keys::WILDCARD_TOPIC) +
-                                         "\" for the wildcard");
-      } else if (m_subscriptions.subscribe(senderId, header.topic())) {
-        Logger::Log(Logger::INFO, "Client " + senderId + " Subscribed to " + header.topic());
-      }
-      return;
-    }
-
-    if (key == Keys::UNSUBSCRIBE) {
-      if (m_subscriptions.unsubscribe(senderId, header.topic())) {
-        Logger::Log(Logger::INFO, "Client " + senderId + " Unsubscribed from " + header.topic());
-      }
-      return;
-    }
-
-    if (key == Keys::SET_CLUSTER) {
-      // The payload carries the new cluster name (see Keys::SET_CLUSTER).
-      const std::string newCluster(payload.data<char>(), payload.size());
-      if (!beacon::isValidClusterName(newCluster)) {
-        Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " rejected: name must be 1-64 chars without '|'");
-      } else if (!m_discovery) {
-        Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " ignored: discovery is not active");
-      } else if (newCluster != m_clusterName) {
-        Logger::Log(Logger::INFO, "Switching cluster '" + m_clusterName + "' -> '" + newCluster + "' (requested by " + senderId + ")");
-        m_clusterName = newCluster;
-        m_discovery->setCluster(newCluster);
-      }
-      return;  // Never broadcast; the swap is local to this broker
-    }
+  // Session bookkeeping and control keys apply to local clients only; a peer's
+  // traffic goes straight to the routing path below.
+  if (!isFromPeer && handleClientMessage(socket, header, payload, senderId)) {
+    return;
   }
 
   // The __KEY__ namespace is reserved for control messages. Reaching this
   // point means the dispatch above did not recognize the key - a message from
   // a newer (or misbehaving) node - so drop it rather than route it into
   // subscribers and peers as application traffic.
-  if (Keys::isReservedKey(key)) {
+  if (Keys::isReservedKey(header.handler_key())) {
     return;
   }
 
@@ -471,66 +402,151 @@ void ZmqBroker::processMessage(zmq::socket_t& socket,
     return;  // Drop it, we've seen it.
   }
 
-  // Local subscribers
-  {
-    const std::vector<std::string>* exactSubs = m_subscriptions.subscribersOf(header.topic());
+  deliverToSubscribers(socket, header, headerBytes, payload, senderId, isFromPeer);
+  floodPeers(headerBytes, payload);
+}
 
-    // A "*" subscription is the wildcard: it receives every topic. Peer links
-    // rely on this (connectToPeer subscribes to "*").
-    static const std::string wildcardTopic{Keys::WILDCARD_TOPIC};
-    const std::vector<std::string>* wildcardSubs = header.topic() == wildcardTopic ? nullptr : m_subscriptions.subscribersOf(wildcardTopic);
+bool ZmqBroker::handleClientMessage(zmq::socket_t& socket, const broker::MessageHeader& header, zmq::message_t& payload, const std::string& senderId) {
+  const std::string& key = header.handler_key();
 
-    if (exactSubs || wildcardSubs) {
-      auto deliver = [&](const std::string& id) {
-        // Don't echo back to sender if it's a local client
-        if (!isFromPeer && id == senderId) {
-          return;
-        }
+  if (key == Keys::DISCONNECT) {
+    removeClient(senderId, "Disconnect");
+    return true;
+  }
 
-        // Verify client is still connected (safety check)
-        auto clientIt = m_clients.find(id);
-        if (clientIt == m_clients.end()) {
-          return;
-        }
+  const bool newClient = (m_clients.find(senderId) == m_clients.end());
+  ClientState& client = m_clients[senderId];
+  client.identity = senderId;
+  client.lastSeen = std::chrono::steady_clock::now();
 
-        if (!wire::sendTo(socket, id, headerBytes, payload)) {
-          clientIt->second.droppedMessages++;
-          m_totalDropped++;
-        }
-      };
-
-      if (exactSubs) {
-        for (const auto& id : *exactSubs) {
-          deliver(id);
-        }
-      }
-
-      if (wildcardSubs) {
-        for (const auto& id : *wildcardSubs) {
-          // Skip clients already served by their exact subscription
-          if (exactSubs && std::find(exactSubs->begin(), exactSubs->end(), id) != exactSubs->end()) {
-            continue;
-          }
-          deliver(id);
-        }
-      }
+  if (newClient) {
+    if (key == Keys::CONNECT) {
+      // A fresh session leading with CONNECT, as the protocol prescribes:
+      // register it silently - the client sends its subscriptions itself.
+      Logger::Log(Logger::INFO, "New client: " + senderId);
+    } else {
+      // An identity we don't know that thinks it has a session: the broker
+      // restarted, or the client was timed out. Ask it to rebuild via
+      // RESET. The triggering message is still processed normally -
+      // nothing is sacrificed (a publish still routes).
+      Logger::Log(Logger::INFO, "Unknown session from " + senderId + ". Requesting subscription reset");
+      wire::sendTo(socket, senderId, wire::encodeHeader(wire::makeControlHeader(Keys::RESET, "")), std::string());
     }
   }
 
-  // Flood peers
-  {
-    std::lock_guard<std::mutex> lock(m_peersMutex);
-    if (!m_peers.empty()) {
-      // Encoded once and shared by every link: one payload materialization and
-      // no header re-encoding, so an extra peer costs a refcount bump. The
-      // bytes are the same headerBytes the tap and local subscribers used -
-      // `header` is not touched after it was encoded above.
-      const wire::WireMessagePtr fwd = wire::makeWireMessage(headerBytes, std::string(payload.data<char>(), payload.size()));
-      for (auto& [key, peer] : m_peers) {
-        peer.worker->writeEncoded(fwd);
-      }
+  if (key == Keys::CONNECT || key == Keys::HEARTBEAT) {
+    // Just keep-alive, already handled by updating 'lastSeen' above
+    if (key == Keys::HEARTBEAT) {
+      wire::sendTo(socket, senderId, wire::encodeHeader(wire::makeControlHeader(Keys::HEARTBEAT_ACK, "")), std::string());
+    }
+    return true;
+  }
+
+  if (key == Keys::SUBSCRIBE) {
+    if (header.topic().empty()) {
+      // "" was the wildcard before Keys::WILDCARD_TOPIC ("*") replaced it;
+      // reject it loudly so a stale client fails visibly instead of
+      // subscribing to nothing.
+      Logger::Log(Logger::WARNING,
+                  "Client " + senderId + " sent SUBSCRIBE with an empty topic - use \"" + std::string(Keys::WILDCARD_TOPIC) + "\" for the wildcard");
+    } else if (m_subscriptions.subscribe(senderId, header.topic())) {
+      Logger::Log(Logger::INFO, "Client " + senderId + " Subscribed to " + header.topic());
+    }
+    return true;
+  }
+
+  if (key == Keys::UNSUBSCRIBE) {
+    if (m_subscriptions.unsubscribe(senderId, header.topic())) {
+      Logger::Log(Logger::INFO, "Client " + senderId + " Unsubscribed from " + header.topic());
+    }
+    return true;
+  }
+
+  if (key == Keys::SET_CLUSTER) {
+    // The payload carries the new cluster name (see Keys::SET_CLUSTER).
+    const std::string newCluster(payload.data<char>(), payload.size());
+    if (!beacon::isValidClusterName(newCluster)) {
+      Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " rejected: name must be 1-64 chars without '|'");
+    } else if (!m_discovery) {
+      Logger::Log(Logger::WARNING, "SET_CLUSTER from " + senderId + " ignored: discovery is not active");
+    } else if (newCluster != m_clusterName) {
+      Logger::Log(Logger::INFO, "Switching cluster '" + m_clusterName + "' -> '" + newCluster + "' (requested by " + senderId + ")");
+      m_clusterName = newCluster;
+      m_discovery->setCluster(newCluster);
+    }
+    return true;  // Never broadcast; the swap is local to this broker
+  }
+
+  return false;
+}
+
+void ZmqBroker::deliverToSubscribers(zmq::socket_t& socket, const broker::MessageHeader& header, const std::string& headerBytes, zmq::message_t& payload,
+                                     const std::string& senderId, bool isFromPeer) {
+  const std::vector<std::string>* exactSubs = m_subscriptions.subscribersOf(header.topic());
+
+  // A "*" subscription is the wildcard: it receives every topic. Peer links
+  // rely on this (connectToPeer subscribes to "*").
+  static const std::string wildcardTopic{Keys::WILDCARD_TOPIC};
+  const std::vector<std::string>* wildcardSubs = header.topic() == wildcardTopic ? nullptr : m_subscriptions.subscribersOf(wildcardTopic);
+
+  if (!exactSubs && !wildcardSubs) {
+    return;
+  }
+
+  auto deliver = [&](const std::string& id) {
+    // Don't echo back to sender if it's a local client
+    if (!isFromPeer && id == senderId) {
+      return;
+    }
+
+    // Verify client is still connected (safety check)
+    if (m_clients.find(id) == m_clients.end()) {
+      return;
+    }
+
+    if (!wire::sendTo(socket, id, headerBytes, payload)) {
+      noteDroppedTo(id);
+    }
+  };
+
+  if (exactSubs) {
+    for (const auto& id : *exactSubs) {
+      deliver(id);
     }
   }
+
+  if (wildcardSubs) {
+    for (const auto& id : *wildcardSubs) {
+      // Skip clients already served by their exact subscription
+      if (exactSubs && std::find(exactSubs->begin(), exactSubs->end(), id) != exactSubs->end()) {
+        continue;
+      }
+      deliver(id);
+    }
+  }
+}
+
+void ZmqBroker::floodPeers(const std::string& headerBytes, zmq::message_t& payload) {
+  std::lock_guard<std::mutex> lock(m_peersMutex);
+  if (m_peers.empty()) {
+    return;
+  }
+
+  // Encoded once and shared by every link: one payload materialization and no
+  // header re-encoding, so an extra peer costs a refcount bump. The bytes are
+  // the same headerBytes the tap and local subscribers used.
+  const wire::WireMessagePtr fwd = wire::makeWireMessage(headerBytes, std::string(payload.data<char>(), payload.size()));
+  for (auto& entry : m_peers) {
+    entry.second.worker->writeEncoded(fwd);
+  }
+}
+
+void ZmqBroker::noteDroppedTo(const std::string& clientId) {
+  auto it = m_clients.find(clientId);
+  if (it != m_clients.end()) {
+    it->second.droppedMessages++;
+  }
+  m_totalDropped++;
 }
 
 bool ZmqBroker::isDuplicate(const std::string& uuid) {
@@ -595,22 +611,16 @@ void ZmqBroker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSo
   const std::string payload = any.SerializeAsString();
   const std::string headerBytes = wire::encodeHeader(header);
 
-  const std::string sysStatsKey(Keys::SYS_STATS);
-
   wire::sendFrames(inspectorSocket, headerBytes, payload);
 
   // Exact-match subscribers only, unlike processMessage's exact+wildcard
   // union: wildcard subscribers include peer links, and per-broker stats must
   // not flood the mesh every second. The cost is that a local wildcard
   // subscriber misses stats too - subscribe to SYS_STATS explicitly to get them.
-  if (const auto* subs = m_subscriptions.subscribersOf(sysStatsKey)) {
+  if (const auto* subs = m_subscriptions.subscribersOf(Keys::SYS_STATS)) {
     for (const auto& id : *subs) {
       if (!wire::sendTo(socket, id, headerBytes, payload)) {
-        auto clientIt = m_clients.find(id);
-        if (clientIt != m_clients.end()) {
-          clientIt->second.droppedMessages++;
-        }
-        m_totalDropped++;
+        noteDroppedTo(id);
       }
     }
   }
