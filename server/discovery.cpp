@@ -26,14 +26,6 @@ void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, 
   if (!beacon::decode(data, size, heard)) {
     return;
   }
-  std::string cluster;
-  {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    cluster = m_cluster;
-  }
-  if (heard.cluster != cluster) {
-    return;  // different mesh on the same LAN
-  }
   if (heard.uuid == m_selfUuid) {
     return;  // our own beacon
   }
@@ -45,21 +37,23 @@ void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, 
 
   const std::string address = "tcp://" + senderIp + ":" + std::to_string(heard.routerPort);
 
-  bool isNew = false;
-  {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = m_dialed.find(heard.uuid);
-    if (it == m_dialed.end()) {
-      m_dialed.emplace(heard.uuid, PeerEntry{address, now});
-      isNew = true;
-    } else {
-      it->second.address = address;
-      it->second.lastSeen = now;
-    }
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (heard.cluster != m_cluster) {
+    return;  // different mesh on the same LAN
   }
-
-  if (isNew && m_dial) {
-    m_dial(heard.uuid, address);
+  auto it = m_dialed.find(heard.uuid);
+  if (it == m_dialed.end()) {
+    m_dialed.emplace(heard.uuid, PeerEntry{address, now});
+    // Dialed under the lock: a concurrent setCluster() must either run before
+    // this entry exists or find it in m_dialed and drop it. Dialing after
+    // releasing the lock would let it slip between the two, leaving a link no
+    // expiry ever sees.
+    if (m_dial) {
+      m_dial(heard.uuid, address);
+    }
+  } else {
+    it->second.address = address;
+    it->second.lastSeen = now;
   }
 }
 
