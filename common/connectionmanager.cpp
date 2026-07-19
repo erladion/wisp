@@ -144,7 +144,14 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
   request.header.set_topic(requestTopic);
   request.header.set_reply_topic(replyTopic);
   request.payload = payload;
-  self->sendRawEnvelope(std::move(request));
+
+  // Queue refused (worker gone, or the send queue is full): the reply can
+  // never come, so fail now instead of sleeping out the timeout.
+  if (!self->sendRawEnvelope(std::move(request))) {
+    Logger::Log(Logger::Warning, "sendRequest: could not queue the request for '" + requestTopic + "'");
+    self->performUnregistration(replyTopic, tempInstanceKey);
+    return false;
+  }
 
   bool success = false;
   if (future.wait_for(std::chrono::milliseconds(timeoutMs)) == std::future_status::ready) {
