@@ -25,6 +25,21 @@ int ok() {
   return SUCCESS;
 }
 
+// Runs `body` with the ABI's exception barrier around it. Every entry point
+// needs the same one, so it lives here rather than being spelled out per
+// function. Argument validation stays outside: it must run before any work,
+// and its message names the offending argument.
+template <typename Body>
+int guard(Body&& body) {
+  try {
+    return body();
+  } catch (const std::exception& e) {
+    return fail(ERROR_GENERIC, e.what());
+  } catch (...) {
+    return fail(ERROR_GENERIC, "unknown exception");
+  }
+}
+
 }  // namespace
 
 const char* lastErrorMessage() {
@@ -36,7 +51,7 @@ int initConnection(const Connection_Config* config) {
     return fail(ERROR_INVALID_ARGS, "config and config->address must be non-null");
   }
 
-  try {
+  return guard([&] {
     ConnectionConfig cfg;
     cfg.address = config->address;
     cfg.clientId = config->client_id ? config->client_id : "DefaultClientName";
@@ -46,22 +61,14 @@ int initConnection(const Connection_Config* config) {
 
     ConnectionManager::init(cfg);
     return ok();
-  } catch (const std::exception& e) {
-    return fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    return fail(ERROR_GENERIC, "unknown exception");
-  }
+  });
 }
 
 void shutdownConnection() {
-  try {
+  (void)guard([] {
     ConnectionManager::shutdown();
-    ok();
-  } catch (const std::exception& e) {
-    fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    fail(ERROR_GENERIC, "unknown exception");
-  }
+    return ok();
+  });
 }
 
 int isConnected() {
@@ -73,7 +80,7 @@ int waitForConnection(int timeoutMs) {
     return fail(ERROR_INVALID_ARGS, "timeoutMs must be >= 0");
   }
 
-  try {
+  return guard([&] {
     if (ConnectionManager::waitForConnection(timeoutMs)) {
       return ok();
     }
@@ -81,11 +88,7 @@ int waitForConnection(int timeoutMs) {
       return fail(ERROR_NO_CONNECTION, "initConnection has not been called");
     }
     return fail(ERROR_TIMEOUT, "not connected after " + std::to_string(timeoutMs) + " ms");
-  } catch (const std::exception& e) {
-    return fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    return fail(ERROR_GENERIC, "unknown exception");
-  }
+  });
 }
 
 int sendMessage(const char* topic, const char* text) {
@@ -93,16 +96,12 @@ int sendMessage(const char* topic, const char* text) {
     return fail(ERROR_INVALID_ARGS, "topic and text must be non-null");
   }
 
-  try {
+  return guard([&] {
     if (!ConnectionManager::sendMessage(topic, text)) {
       return fail(ERROR_NO_CONNECTION, "no active connection");
     }
     return ok();
-  } catch (const std::exception& e) {
-    return fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    return fail(ERROR_GENERIC, "unknown exception");
-  }
+  });
 }
 
 int sendData(const char* topic, const char* data, int len) {
@@ -110,16 +109,12 @@ int sendData(const char* topic, const char* data, int len) {
     return fail(ERROR_INVALID_ARGS, "topic and data must be non-null and len >= 0");
   }
 
-  try {
+  return guard([&] {
     if (!ConnectionManager::sendDataRaw(topic, data, len)) {
       return fail(ERROR_NO_CONNECTION, "no active connection");
     }
     return ok();
-  } catch (const std::exception& e) {
-    return fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    return fail(ERROR_GENERIC, "unknown exception");
-  }
+  });
 }
 
 int replyToSender(const char* data, int len) {
@@ -127,16 +122,12 @@ int replyToSender(const char* data, int len) {
     return fail(ERROR_INVALID_ARGS, "data must be non-null and len >= 0");
   }
 
-  try {
+  return guard([&] {
     if (!ConnectionManager::replyToSender(std::string(data, len))) {
       return fail(ERROR_NO_CONNECTION, "no active connection (or not inside a request handler)");
     }
     return ok();
-  } catch (const std::exception& e) {
-    return fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    return fail(ERROR_GENERIC, "unknown exception");
-  }
+  });
 }
 
 int sendRequest(const char* topic, const char* payload, int payloadLen, char* outBuffer, int outBufferCap, int* outLen, int timeoutMs) {
@@ -144,7 +135,7 @@ int sendRequest(const char* topic, const char* payload, int payloadLen, char* ou
     return fail(ERROR_INVALID_ARGS, "topic, payload, outBuffer and outLen must be non-null; lengths must be >= 0");
   }
 
-  try {
+  return guard([&] {
     // Fail fast instead of letting a doomed request run out its timeout.
     if (!ConnectionManager::isConnected()) {
       return fail(ERROR_NO_CONNECTION, "not connected to a broker");
@@ -165,11 +156,7 @@ int sendRequest(const char* topic, const char* payload, int payloadLen, char* ou
     std::memcpy(outBuffer, response.data(), response.size());
     *outLen = static_cast<int>(response.size());
     return ok();
-  } catch (const std::exception& e) {
-    return fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    return fail(ERROR_GENERIC, "unknown exception");
-  }
+  });
 }
 
 void registerCallback(const char* topic, Message_Callback callback, void* userData) {
@@ -178,7 +165,7 @@ void registerCallback(const char* topic, Message_Callback callback, void* userDa
     return;
   }
 
-  try {
+  (void)guard([&] {
     // userData doubles as the registration's identity for unregisterCallback.
     ConnectionManager::registerCallback(
         topic,
@@ -186,12 +173,8 @@ void registerCallback(const char* topic, Message_Callback callback, void* userDa
           callback(t.c_str(), data.c_str(), (int)data.size(), userData);
         },
         userData);
-    ok();
-  } catch (const std::exception& e) {
-    fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    fail(ERROR_GENERIC, "unknown exception");
-  }
+    return ok();
+  });
 }
 
 static_assert(int(WISP_LOG_DEBUG) == int(Logger::DEBUG) && int(WISP_LOG_INFO) == int(Logger::INFO) && int(WISP_LOG_WARNING) == int(Logger::WARNING) &&
@@ -224,12 +207,8 @@ void unregisterCallback(const char* topic, void* userData) {
     return;
   }
 
-  try {
+  (void)guard([&] {
     ConnectionManager::unregisterCallback(topic, userData);
-    ok();
-  } catch (const std::exception& e) {
-    fail(ERROR_GENERIC, e.what());
-  } catch (...) {
-    fail(ERROR_GENERIC, "unknown exception");
-  }
+    return ok();
+  });
 }
