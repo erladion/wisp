@@ -61,9 +61,22 @@ ConnectionManager::sendMessage("telemetry", myProtobufMessage);
 |---|---|
 | `Wisp::Core` | C++ client library, static (`libwispcore.a`) |
 | `Wisp::CoreShared` | C++ client library, shared (`libwispcore.so`) |
+| `Wisp::Broker` | Broker as a library, static (`libwispbroker.a`) — run one in-process |
+| `Wisp::BrokerShared` | Broker as a library, shared (`libwispbroker.so`) |
 | `Wisp::Polling` | Header-only frame-loop adapter (`wisp::MessagePoller`) |
 | `Wisp::Qt` | Qt binding — present only if Wisp was built with Qt |
 | `Wisp::wisp` | The C ABI (`libwisp.so`), for FFI callers |
+
+Linking `Wisp::Broker` embeds a broker in your own process, so a self-contained application needs no separate `wisp-broker`:
+
+```cpp
+#include <wisp/zmqbroker.h>
+
+ZmqBroker broker;
+broker.start({"tcp://*:5555"});
+```
+
+Pick one linkage and stay in it: `Wisp::Broker` pairs with `Wisp::Core`, `Wisp::BrokerShared` with `Wisp::CoreShared`. Mixing them would put two copies of the client library's process-wide state (the logger, the `ConnectionManager` singleton) into one process.
 
 The C ABI is the boundary to use from other languages: `libwisp.so` exports only the `connectionapi.h` functions and hides everything else, so a host process linking its own protobuf can never collide with ours.
 

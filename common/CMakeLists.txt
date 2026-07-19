@@ -43,6 +43,7 @@ endif()
 # quoted paths, so installing them flat into one directory keeps those working
 # untouched - broker.pb.h lands there too, since wireframe.h includes it.
 set(WISP_PUBLIC_HEADERS
+    beacon.h
     config.h
     connectionapi.h
     connectionmanager.h
@@ -51,6 +52,7 @@ set(WISP_PUBLIC_HEADERS
     safequeue.h
     wireframe.h
     workerinterface.h
+    zmqworker.h
 )
 
 # Compiled once, then used for both the static and the shared C++ library.
