@@ -413,9 +413,15 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
   if (next->empty()) {
     m_msgHandlers.erase(it);
 
-    if (m_connected) {
-      sendRawEnvelope(createControlEnvelope(Keys::UNSUBSCRIBE, key));
-    }
+    // Sent whether or not the connection is currently up, unlike SUBSCRIBE.
+    // The handler is gone from m_msgHandlers, so a reconnect's resubscribeAll
+    // will never mention this topic again - skipping the UNSUBSCRIBE while
+    // briefly offline would strand the subscription on a broker that is still
+    // running, until it times the whole client out. sendRequest's per-request
+    // reply topics make that leak unbounded for a long-lived client. Control
+    // messages are queued regardless of online state, so a flap no longer
+    // loses this.
+    sendRawEnvelope(createControlEnvelope(Keys::UNSUBSCRIBE, key));
   } else {
     it->second = std::move(next);
   }

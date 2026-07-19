@@ -34,6 +34,7 @@ set(BROKER_TEST_SOURCES
   stats_test.cpp
   shutdown_test.cpp
   subscriptionregistry_test.cpp
+  unsubscribe_while_offline_test.cpp
   wildcard_subscription_test.cpp
 )
 
