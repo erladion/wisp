@@ -208,6 +208,21 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   auto lastCleanup = std::chrono::steady_clock::now();
   std::deque<Envelope> peerBatch;
 
+  // Malformed traffic is counted and reported at most once per 5 s: each log
+  // line takes the logger mutex and flushes, so warning per message would let
+  // a garbage-sending peer make logging the broker's bottleneck.
+  std::uint64_t malformedCount = 0;
+  auto lastMalformedLog = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+  auto noteMalformed = [&](const char* what) {
+    ++malformedCount;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - lastMalformedLog >= std::chrono::seconds(5)) {
+      Logger::Log(Logger::WARNING, std::string(what) + " - dropped (" + std::to_string(malformedCount) + " malformed message(s) since last report)");
+      lastMalformedLog = now;
+      malformedCount = 0;
+    }
+  };
+
   // Reused across messages: protobuf's Clear() keeps the string fields' heap
   // buffers, so parsing into the same object is allocation-free after warmup
   // (a fresh header per message costs ~1us more per parse).
@@ -233,7 +248,7 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
           break;
         }
         if (!socket.get(zmq::sockopt::rcvmore)) {
-          Logger::Log(Logger::WARNING, "Received single-part message on ROUTER socket. Dropping.");
+          noteMalformed("Single-part message on the ROUTER socket");
           continue;
         }
         // Identity consumed; next is the header frame, then an optional
@@ -244,6 +259,7 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
           continue;
         }
         if (!wire::decodeHeaderFrame(headerFrame.data(), headerFrame.size(), header)) {
+          noteMalformed("Undecodable header frame");
           wire::drainMultipart(socket);  // unknown format byte or a bad header
           continue;
         }

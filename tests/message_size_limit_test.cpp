@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "config.h"
+#include "logger.h"
 #include "safequeue.h"
 #include "wireframe.h"
 #include "zmqbroker.h"
@@ -85,4 +88,38 @@ TEST(MessageSizeLimitTest, OversizedMessageIsRejectedAndBrokerSurvives) {
   publisher.stop();
   subscriberWorker.stop();
   broker->stop();
+}
+
+// A peer spraying garbage must not turn the broker's log into its bottleneck:
+// malformed messages are dropped silently and reported at most once per
+// window, however many arrive.
+TEST(MessageSizeLimitTest, MalformedFloodProducesAtMostOneWarningPerWindow) {
+  std::atomic<int> malformedWarnings{0};
+  Logger::setHandler([&malformedWarnings](Logger::Level level, const std::string& msg) {
+    if (level == Logger::WARNING && msg.find("malformed") != std::string::npos) {
+      ++malformedWarnings;
+    }
+  });
+
+  auto broker = std::make_unique<ZmqBroker>();
+  broker->start({testBrokerAddress()});
+
+  // Raw DEALER sending single-part garbage (no header frame at all).
+  zmq::context_t ctx(1);
+  zmq::socket_t dealer(ctx, ZMQ_DEALER);
+  dealer.set(zmq::sockopt::linger, 0);
+  dealer.set(zmq::sockopt::routing_id, "garbage-sender");
+  dealer.connect(testBrokerAddress());
+
+  for (int i = 0; i < 200; ++i) {
+    zmq::message_t garbage("junk", 4);
+    (void)dealer.send(garbage, zmq::send_flags::dontwait);
+  }
+  std::this_thread::sleep_for(500ms);
+
+  // The report window is 5s, so a 200-message burst yields exactly one line.
+  EXPECT_EQ(malformedWarnings.load(), 1) << "Malformed-message warnings are not rate-limited";
+
+  broker->stop();
+  Logger::setHandler(Logger::Handler());
 }
