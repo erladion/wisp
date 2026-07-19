@@ -233,13 +233,24 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
   peerWakeSocket.set(zmq::sockopt::linger, 0);
   peerWakeSocket.bind(PEER_WAKE_ENDPOINT);
 
+  std::size_t boundCount = 0;
   for (const auto& addr : addresses) {
     try {
       socket.bind(addr);
+      ++boundCount;
       Logger::Log(Logger::INFO, "Bound to: " + addr);
     } catch (const zmq::error_t& e) {
       Logger::Log(Logger::ERROR, "Failed to bind to " + addr + " : " + e.what());
     }
+  }
+
+  // A broker that bound nothing keeps running but can never be reached, and
+  // its would-be clients silently attach to whatever *other* process holds the
+  // port instead - which looks like data loss rather than a misconfiguration.
+  // Say so unmistakably.
+  if (boundCount == 0 && !addresses.empty()) {
+    Logger::Log(Logger::ERROR, "No endpoints bound (all " + std::to_string(addresses.size()) +
+                                   " failed) - this broker is unreachable. Is another process already using the address?");
   }
 
   auto lastCleanup = std::chrono::steady_clock::now();

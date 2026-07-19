@@ -48,6 +48,12 @@ using TestSupport::testBrokerAddress;
 namespace {
 
 const std::string kTopic = "throughput-bench";
+
+// Deliberately not the test suite's port: the benchmark and `ctest` are often
+// run at the same time, and a broker whose bind fails keeps running unbound -
+// its clients then attach to the *other* process's broker and the results are
+// silently meaningless (a run measured 0 delivered that way).
+const std::string kBenchBrokerAddress = "tcp://127.0.0.1:25650";
 // Payload layout: 8 bytes send timestamp + 1 phase tag byte.
 constexpr int kMinPayloadBytes = static_cast<int>(sizeof(int64_t)) + 1;
 constexpr auto kDrainGrace = 2s;
@@ -426,7 +432,7 @@ void printSweepTable(const BenchConfig& config, const std::vector<RunSummary>& r
 // when the mesh never becomes ready.
 RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
   ZmqBroker broker;
-  broker.start({testBrokerAddress()});
+  broker.start({kBenchBrokerAddress});
   std::this_thread::sleep_for(100ms);
 
   std::vector<std::unique_ptr<SafeQueue<Envelope>>> inboundQueues;
@@ -437,7 +443,7 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
     auto queue = std::make_unique<SafeQueue<Envelope>>();
 
     ConnectionConfig cfg;
-    cfg.address = testBrokerAddress();
+    cfg.address = kBenchBrokerAddress;
     cfg.clientId = clientId;
     auto worker = std::make_unique<ZmqWorker>(cfg, queue.get(), nullptr);
     worker->start();
@@ -455,7 +461,7 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
     const std::string clientId = "bench-publisher-" + std::to_string(i);
 
     ConnectionConfig cfg;
-    cfg.address = testBrokerAddress();
+    cfg.address = kBenchBrokerAddress;
     cfg.clientId = clientId;
     auto worker = std::make_unique<ZmqWorker>(cfg, nullptr, nullptr);
     worker->start();
@@ -467,7 +473,7 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
 
   std::cout << "Waiting for the broker to start routing '" << kTopic << "' to " << config.subscriberCount << " subscriber(s)...\n";
   if (!waitForSubscriptionsActive(*publishers.front(), publisherIds.front(), subscribers, inboundQueues, subscriberIds)) {
-    throw std::runtime_error("timed out waiting for subscriptions to become active - is the broker reachable on " + testBrokerAddress() + "?");
+    throw std::runtime_error("timed out waiting for subscriptions to become active - is the broker reachable on " + kBenchBrokerAddress + "?");
   }
 
   std::atomic<bool> running{true};
