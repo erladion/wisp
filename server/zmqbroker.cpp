@@ -581,10 +581,9 @@ void ZmqBroker::floodPeers(const std::string& headerBytes, zmq::message_t& paylo
 }
 
 // A peer link refuses forwarded traffic once its queue is full: the link is
-// down, or the remote is slower than this broker routes. The alternative -
-// waiting for room - would stall every client this broker serves, so the
-// message goes (see ZmqWorker::writeEncoded). Count it, because a mesh quietly
-// losing traffic is otherwise invisible from either end.
+// down, or the remote is slower than this broker routes. Waiting instead would
+// stall every client this broker serves (see ZmqWorker::writeEncoded), so the
+// message goes - counted, because a mesh losing traffic is otherwise invisible.
 void ZmqBroker::notePeerDrop(const std::string& peerKey) {
   m_totalDropped++;
   if (!m_peerDropThrottle.ready()) {

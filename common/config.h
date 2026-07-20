@@ -44,12 +44,10 @@ constexpr int64_t MAX_MESSAGE_SIZE_BYTES = 16 * 1024 * 1024;  // 16 MiB
 // raising this much further.
 //
 // Time, not just memory: a broker forgets a client by taking it off each topic
-// it held, inline on the thread that routes, so this cap also sets how long
-// one disconnect stalls routing - measured at roughly 8 ms here, 25 ms at 50k,
-// 160 ms at 100k. The work is proportional to the topics held and cannot be
-// made cheaper per topic, so past ~50k the cap itself is the thing to
-// reconsider. A broker restart is the other pressure: every client re-sends
-// its whole set at once.
+// it held, on the thread that routes - roughly 8 ms at this cap, 25 ms at 50k,
+// 160 ms at 100k. That cost is per topic and irreducible, so past ~50k lower
+// the cap rather than look for a faster structure. A broker restart also makes
+// every client re-send its whole set at once.
 constexpr std::size_t MAX_TOPIC_LENGTH_BYTES = 512;
 constexpr std::size_t MAX_SUBSCRIPTIONS_PER_CLIENT = 10000;
 

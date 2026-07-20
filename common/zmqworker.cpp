@@ -83,9 +83,8 @@ void ZmqWorker::stop() {
 
 // Ping the run() loop only when the queue was empty: a non-empty queue means a
 // wakeup is already pending, so further pings would just be drained and
-// discarded. `timeout` bounds the wait for room - if the loop can't keep up the
-// message is dropped, as best-effort delivery does everywhere else in the
-// stack; a zero timeout never blocks the caller at all.
+// discarded. `timeout` bounds the wait for room; past it the message is
+// dropped, as best-effort delivery does everywhere else in the stack.
 template <typename T>
 bool ZmqWorker::enqueue(SafeQueue<T>& queue, T msg, std::chrono::milliseconds timeout) {
   bool wasEmpty = false;
@@ -109,12 +108,9 @@ bool ZmqWorker::writeControlMessage(Envelope msg) {
 /* Never waits for room, unlike the queues above.
 
    This is the fan-out path (see WorkerInterface::writeEncoded): one producer
-   hands the same message to many workers in turn. Waiting for room would
-   couple them - a worker whose link is down never drains, so once its queue
-   fills, every message costs the shared producer the full timeout, and every
-   other link is throttled to that rate along with it. A single dead link must
-   not be able to set the pace for the rest, so a full queue drops instead:
-   what travels here is data, best-effort like data everywhere else. */
+   hands the same message to many workers in turn, so waiting for room would
+   let one dead link set the pace for all the others. Forwarded traffic is
+   data, best-effort like data everywhere else, so a full queue drops it. */
 bool ZmqWorker::writeEncoded(wire::WireMessagePtr msg) {
   // Relaxed: the queue's own mutex synchronizes the message itself, and a
   // momentarily stale read only costs one extra poll cycle before the drain.

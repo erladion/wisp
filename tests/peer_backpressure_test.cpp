@@ -26,13 +26,10 @@ constexpr const char* DEAD_PEER_ADDRESS = "tcp://127.0.0.1:25596";
 }  // namespace
 
 /* The broker floods every routed message to every peer link from its one
-   thread, holding the peers lock. If handing a message to a link could block
-   waiting for room, an offline link - whose queue fills and never drains -
-   would cost the broker that wait on every single message, throttling it to a
-   few messages a second and starving the heartbeats its own clients rely on.
-
-   So this fixture keeps a broker with one permanently dead peer link and
-   checks that healthy local traffic is unaffected. */
+   thread, holding the peers lock. If handing a message over could block, an
+   offline link - whose queue fills and never drains - would cost the broker
+   that wait on every message, throttling it to a few a second and starving the
+   heartbeats its own clients rely on. */
 class PeerBackpressureTest : public ::testing::Test {
 protected:
   void SetUp() override {
@@ -84,17 +81,14 @@ protected:
     return seen;
   }
 
-  /* The peer link only starts refusing once its queue is full, so the tests
-     below have to get it there first.
+  /* Fill the peer link's queue, which is when it starts refusing.
 
-     Paced rather than fired in one burst: an unpaced burst outruns even a
-     healthy broker, the publisher sheds the overflow from its own queue, and
-     how much actually reaches the peer link varies run to run. Counting
-     arrivals at the subscriber makes it deterministic - every message it
-     receives is one the broker routed, and therefore also handed to the peer
-     link. The deadline is the give-up path: a broker that is stalling can
-     never reach the target, and the measurements below then fail on their own
-     terms instead of hanging here. */
+     Paced, not one burst: an unpaced burst outruns even a healthy broker and
+     the publisher sheds the overflow, so how much reaches the peer link varies
+     run to run. Counting arrivals is deterministic - every message the
+     subscriber sees is one the broker also handed to the peer link. The
+     deadline lets a stalling broker fall through to the measurement below,
+     which then fails on its own terms rather than hanging here. */
   void saturateThePeerLink() {
     const int needed = 6000;  // comfortably over the peer queue's capacity
     int routed = 0;

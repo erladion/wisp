@@ -265,14 +265,13 @@ class ConnectionManager {
 public:
   static void init(const ConnectionConfig& config);
 
-  /* Tears down the singleton: the processing thread and the connection worker
-     are stopped and joined before this returns. A getInstance() snapshot held
-     elsewhere (an in-flight send) keeps the object alive past this call, but it
-     is already inert by then.
+  /* Tears down the singleton: the processing thread and the worker are stopped
+     and joined before this returns. A getInstance() snapshot held elsewhere
+     keeps the object alive past this call, but it is inert by then.
 
-     Must not be called from inside a message callback - that would join the
-     processing thread from itself. It logs and does nothing in that case;
-     signal the thread that owns the connection and shut down from there. */
+     Not callable from inside a message callback - that would join the
+     processing thread from itself; it logs and does nothing. Shut down from
+     the thread that owns the connection. */
   static void shutdown();
 
   // True while the broker connection is up. init() returns before the

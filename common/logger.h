@@ -17,15 +17,13 @@ namespace TimeFormat {
 
 /* Wall-clock time as "HH:MM:SS.mmm", local time.
 
-   localtime_r, not localtime: localtime returns a pointer to a single std::tm
-   owned by the C library and shared process-wide, so two threads formatting a
-   timestamp at once overwrite each other's result. Callers reach this directly
-   and from any thread; the logger's mutex below orders only the lines the
-   logger itself writes, and is no help here. Writing into a local std::tm
-   removes the shared state, making this safe to call from anywhere.
+   localtime_r, not localtime: localtime returns a pointer to one std::tm
+   shared process-wide, so two threads formatting at once overwrite each
+   other. Callers reach this from any thread, and the logger's mutex below
+   covers only the lines the logger itself writes.
 
-   Currently the POSIX function, which the build already requires. C++26 adds
-   the same signature to <ctime>:
+   POSIX today, which the build already requires. C++26 adds the same
+   signature to <ctime>:
 
      std::tm* localtime_r( const std::time_t* time, std::tm* buf );  (2)
 
@@ -34,9 +32,8 @@ inline std::string hhmmssMillis(std::chrono::system_clock::time_point when) {
   const auto time = std::chrono::system_clock::to_time_t(when);
   const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch()) % 1000;
 
-  // Zero-initialized so a refused conversion (localtime_r returns null, and
-  // leaves the buffer unspecified) formats as zeros rather than reading
-  // uninitialized fields. put_time on the null return would have been worse.
+  // Zero-initialized: localtime_r leaves the buffer unspecified when it
+  // refuses, and put_time on localtime's null return would have been worse.
   std::tm local{};
   ::localtime_r(&time, &local);
 

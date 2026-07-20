@@ -45,11 +45,9 @@ void ConnectionManager::shutdown() {
       return;
     }
 
-    // Tearing down joins the processing thread, so from inside a message
-    // callback that thread would join itself - std::thread::join throws, and a
-    // throw out of the destructor is std::terminate. sendRequest() refuses from
-    // here for the same reason; a callback that wants to quit should signal the
-    // thread that owns the connection instead.
+    // From inside a message callback the processing thread would join itself:
+    // join throws, and a throw out of the destructor is terminate.
+    // sendRequest() refuses from here for the same reason.
     if (std::this_thread::get_id() == s_instance->m_processingThread.get_id()) {
       Logger::Log(Logger::Error, "shutdown() called from inside a message callback - it would deadlock joining its own thread. Shut down from the thread that called init().");
       return;
@@ -71,13 +69,10 @@ void ConnectionManager::shutdown() {
     s_instance.reset();
   }
 
-  /* Torn down here rather than left to the destructor. The destructor runs
-     whenever the last getInstance() snapshot is released, which can be the
-     processing thread - a callback that sends while another thread shuts down
-     holds the final reference - and joining from there is the same self-join
-     the guard above refuses. Doing it on this thread, which is known not to be
-     the processing thread, leaves the destructor nothing to join wherever it
-     eventually runs. */
+  // Torn down here, not in the destructor: that runs when the last
+  // getInstance() snapshot is released, which can be the processing thread
+  // itself - the self-join the guard above refuses. This thread is known not to
+  // be it, so the destructor is left with nothing to join.
   tmp->teardown();
 }
 

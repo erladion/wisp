@@ -116,17 +116,10 @@ class ZmqBroker {
   // Max envelopes drained from the client socket per poll wakeup, so a
   // sustained burst can't starve zombie cleanup and stats.
   static constexpr int MaxMessagesPerWake = 1000;
-  /* Max clients dropped per zombie sweep.
-
-     Forgetting a client costs time proportional to the topics it held - it has
-     to come off each one's subscriber list - which measures around 8 ms for a
-     client at MAX_SUBSCRIPTIONS_PER_CLIENT. That is unremarkable on its own,
-     but the sweep is where they arrive in bulk: anything that silences the
-     whole population at once (a partition, or this broker having been blocked)
-     expires all of them together, and clearing a hundred such clients in one
-     pass would stall routing for the best part of a second. Spreading them
-     over successive sweeps bounds the stall. The stragglers are already timed
-     out, so leaving them another interval costs only their memory. */
+  // Max clients dropped per zombie sweep. Forgetting one costs ~8 ms at
+  // MAX_SUBSCRIPTIONS_PER_CLIENT, and a partition expires the whole population
+  // at once - clearing a hundred in one pass would stall routing for most of a
+  // second. The rest are already timed out, so they can wait a sweep.
   static constexpr int MaxRemovalsPerSweep = 16;
   // Power of two > 2*MaxHistorySize, keeping the dedup sets' load factor
   // comfortably below 1/3.
@@ -219,13 +212,8 @@ private:
 
   void broadcastStats(zmq::socket_t &socket, zmq::socket_t &inspectorSocket);
 
-  /* Forget a client: its subscriptions and its session state.
-
-     `clientId` is taken by value deliberately. The zombie sweep reaches this
-     while iterating m_clients and naturally passes `it->first` - a reference
-     into the very node the erase inside destroys, which would leave the
-     parameter dangling mid-call. Owning the string here makes that impossible
-     whatever the call site does. */
+  // `clientId` by value, not by reference: the zombie sweep passes `it->first`,
+  // a reference into the very node the erase inside destroys.
   void removeClient(std::string clientId, const std::string& reason);
 
 private:
