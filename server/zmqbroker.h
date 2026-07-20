@@ -188,6 +188,10 @@ private:
   // broker-wide total.
   void noteDroppedTo(const std::string& clientId);
 
+  // Record a message a peer link refused, and report periodically (see
+  // LogThrottle).
+  void notePeerDrop(const std::string& peerKey);
+
   /* Whether `topic` may be added to `clientId`'s subscriptions.
 
      A topic the client already holds always passes: re-subscribing is
@@ -257,6 +261,7 @@ private:
 
   uint64_t m_totalMessages;
   uint64_t m_totalDropped;
+  LogThrottle m_peerDropThrottle;
 
   // SUBSCRIBEs refused for exceeding the caps in config.h. Surfaced in
   // SystemStats: a rejected subscription is otherwise invisible to the

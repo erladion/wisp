@@ -151,6 +151,11 @@ is a client whose identity starts with `BrokerLink-` and whose only
 subscription is the wildcard (`"*"`). Each broker floods every routed message
 to all of its peer links.
 
+Flooding is best-effort, like every other delivery: a link that falls behind —
+or one that is down, and so never drains at all — has further messages dropped
+rather than being allowed to slow the broker down. Those drops are counted in
+`SystemStats.total_dropped`.
+
 Loop protection: the stamped `message_uuid` is remembered by each broker
 (roughly the last 10–20K ids) and repeats are dropped, so a message crosses
 each broker once regardless of mesh shape. Control keys arriving over a peer

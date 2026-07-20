@@ -2,6 +2,7 @@
 #define ZMQWORKER_H
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -36,9 +37,10 @@ private:
   void runLoop();
   void sendHeartbeat(zmq::socket_t& socket);
   void wake();
-  // Queue `msg` and wake the run() loop if it may be asleep.
+  // Queue `msg` and wake the run() loop if it may be asleep. `timeout` bounds
+  // the wait for room; zero never blocks the caller.
   template <typename T>
-  bool enqueue(SafeQueue<T>& queue, T msg);
+  bool enqueue(SafeQueue<T>& queue, T msg, std::chrono::milliseconds timeout);
   // Worker thread only (m_dropLogThrottle is unsynchronized).
   void noteDroppedSend();
 

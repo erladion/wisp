@@ -133,6 +133,7 @@ ZmqBroker::ZmqBroker(std::chrono::milliseconds clientTimeout)
       m_seenPrevious(DedupSetCapacity),
       m_totalMessages(0),
       m_totalDropped(0),
+      m_peerDropThrottle(),
       m_rejectedSubscriptions(0),
       m_subRejectThrottle(),
       m_msgsInterval(0),
@@ -570,8 +571,24 @@ void ZmqBroker::floodPeers(const std::string& headerBytes, zmq::message_t& paylo
   // the same headerBytes the tap and local subscribers used.
   const wire::WireMessagePtr fwd = wire::makeWireMessage(headerBytes, std::string(payload.data<char>(), payload.size()));
   for (auto& entry : m_peers) {
-    entry.second.worker->writeEncoded(fwd);
+    if (!entry.second.worker->writeEncoded(fwd)) {
+      notePeerDrop(entry.first);
+    }
   }
+}
+
+// A peer link refuses forwarded traffic once its queue is full: the link is
+// down, or the remote is slower than this broker routes. The alternative -
+// waiting for room - would stall every client this broker serves, so the
+// message goes (see ZmqWorker::writeEncoded). Count it, because a mesh quietly
+// losing traffic is otherwise invisible from either end.
+void ZmqBroker::notePeerDrop(const std::string& peerKey) {
+  m_totalDropped++;
+  if (!m_peerDropThrottle.ready()) {
+    return;
+  }
+  Logger::Log(Logger::Warning, "Peer link '" + peerKey + "' is not keeping up - forwarded messages are being dropped (" +
+                                   std::to_string(m_totalDropped) + " drops broker-wide since startup)");
 }
 
 bool ZmqBroker::canSubscribe(const std::string& clientId, const std::string& topic) const {

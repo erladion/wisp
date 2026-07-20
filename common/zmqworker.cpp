@@ -21,6 +21,11 @@ constexpr const char* WAKE_ENDPOINT = "inproc://worker_wake";
    request/reply control traffic travelling alongside. */
 constexpr std::size_t CONTROL_BACKLOG_LIMIT = MAX_SUBSCRIPTIONS_PER_CLIENT + 1024;
 
+// How long a producer waits for room in a worker queue before giving up. Short
+// enough that a stalled worker can't hold a caller for long, long enough to
+// ride out a brief burst.
+constexpr std::chrono::milliseconds QUEUE_WAIT{100};
+
 // Lets one send loop serve both the envelope queues and the pre-encoded one.
 const Envelope& deref(const Envelope& env) {
   return env;
@@ -78,12 +83,13 @@ void ZmqWorker::stop() {
 
 // Ping the run() loop only when the queue was empty: a non-empty queue means a
 // wakeup is already pending, so further pings would just be drained and
-// discarded. A single timed attempt - if the loop can't keep up the message is
-// dropped, as best-effort delivery does everywhere else in the stack.
+// discarded. `timeout` bounds the wait for room - if the loop can't keep up the
+// message is dropped, as best-effort delivery does everywhere else in the
+// stack; a zero timeout never blocks the caller at all.
 template <typename T>
-bool ZmqWorker::enqueue(SafeQueue<T>& queue, T msg) {
+bool ZmqWorker::enqueue(SafeQueue<T>& queue, T msg, std::chrono::milliseconds timeout) {
   bool wasEmpty = false;
-  if (!queue.push(std::move(msg), std::chrono::milliseconds(100), wasEmpty)) {
+  if (!queue.push(std::move(msg), timeout, wasEmpty)) {
     return false;
   }
   if (wasEmpty) {
@@ -93,18 +99,27 @@ bool ZmqWorker::enqueue(SafeQueue<T>& queue, T msg) {
 }
 
 bool ZmqWorker::writeMessage(Envelope msg) {
-  return enqueue(m_outboundQueue, std::move(msg));
+  return enqueue(m_outboundQueue, std::move(msg), QUEUE_WAIT);
 }
 
 bool ZmqWorker::writeControlMessage(Envelope msg) {
-  return enqueue(m_controlQueue, std::move(msg));
+  return enqueue(m_controlQueue, std::move(msg), QUEUE_WAIT);
 }
 
+/* Never waits for room, unlike the queues above.
+
+   The broker floods every routed message to every peer link from its single
+   thread, holding its peers lock throughout. A peer link that is offline never
+   drains this queue, so once it fills, waiting for room would cost the broker
+   the full timeout per message - collapsing it to a handful of messages a
+   second and starving the heartbeats its own clients depend on. One
+   unreachable peer must not be able to do that, so forwarded traffic - which
+   is data, and best-effort like all data - is dropped instead. */
 bool ZmqWorker::writeEncoded(wire::WireMessagePtr msg) {
   // Relaxed: the queue's own mutex synchronizes the message itself, and a
   // momentarily stale read only costs one extra poll cycle before the drain.
   m_hasEncoded.store(true, std::memory_order_relaxed);
-  return enqueue(m_encodedQueue, std::move(msg));
+  return enqueue(m_encodedQueue, std::move(msg), std::chrono::milliseconds::zero());
 }
 
 // A refused send means the pipe to the broker is full: the client is

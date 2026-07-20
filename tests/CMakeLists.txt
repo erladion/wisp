@@ -25,6 +25,7 @@ set(BROKER_TEST_SOURCES
   handshake_test.cpp
   inspector_tap_test.cpp
   message_size_limit_test.cpp
+  peer_backpressure_test.cpp
   peer_link_test.cpp
   reply_to_sender_context_test.cpp
   request_reply_test.cpp
