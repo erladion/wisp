@@ -354,14 +354,17 @@ void ZmqBroker::run(const std::vector<std::string>& addresses) {
 
     auto now = std::chrono::steady_clock::now();
 
-    // Cleanup zombies
+    // Cleanup zombies, at most MaxRemovalsPerSweep of them - whatever is left
+    // over goes in the next sweep.
     if (now - lastCleanup > m_cleanupInterval) {
-      for (auto it = m_clients.begin(); it != m_clients.end();) {
+      int removed = 0;
+      for (auto it = m_clients.begin(); it != m_clients.end() && removed < MaxRemovalsPerSweep;) {
         auto elapsed = now - it->second.lastSeen;
 
         if (elapsed > m_clientTimeout) {
           auto nextIt = std::next(it);
           removeClient(it->first, "Timeout / Zombie");
+          ++removed;
           it = nextIt;  // Reset iterator safely after erasing
         } else {
           ++it;

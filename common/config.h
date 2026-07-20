@@ -41,9 +41,14 @@ constexpr int64_t MAX_MESSAGE_SIZE_BYTES = 16 * 1024 * 1024;  // 16 MiB
 // 1.7 KB with maximum-length ones (measured at this cap; the marginal cost
 // falls as the registry's fixed overhead amortizes). Budget the retained
 // worst case as subscription cap x connected clients x that figure before
-// raising this much further. Past ~50k, two costs stop being negligible:
-// dropping a client walks each of its topics' subscriber lists linearly, on
-// the same thread that routes, and a broker restart makes every client re-send
+// raising this much further.
+//
+// Time, not just memory: a broker forgets a client by taking it off each topic
+// it held, inline on the thread that routes, so this cap also sets how long
+// one disconnect stalls routing - measured at roughly 8 ms here, 25 ms at 50k,
+// 160 ms at 100k. The work is proportional to the topics held and cannot be
+// made cheaper per topic, so past ~50k the cap itself is the thing to
+// reconsider. A broker restart is the other pressure: every client re-sends
 // its whole set at once.
 constexpr std::size_t MAX_TOPIC_LENGTH_BYTES = 512;
 constexpr std::size_t MAX_SUBSCRIPTIONS_PER_CLIENT = 10000;
