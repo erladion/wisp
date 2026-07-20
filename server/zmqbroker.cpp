@@ -810,7 +810,7 @@ void ZmqBroker::removePeer(const std::string& key) {
   Logger::Log(Logger::Info, "Dropped peer: " + key);
 }
 
-void ZmqBroker::removeClient(const std::string& clientId, const std::string& reason) {
+void ZmqBroker::removeClient(std::string clientId, const std::string& reason) {
   Logger::Log(Logger::Info, "Removing Client: " + clientId + " (" + reason + ")");
 
   m_subscriptions.removeClient(clientId);

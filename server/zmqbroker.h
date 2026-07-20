@@ -207,7 +207,14 @@ private:
 
   void broadcastStats(zmq::socket_t &socket, zmq::socket_t &inspectorSocket);
 
-  void removeClient(const std::string &clientId, const std::string &reason);
+  /* Forget a client: its subscriptions and its session state.
+
+     `clientId` is taken by value deliberately. The zombie sweep reaches this
+     while iterating m_clients and naturally passes `it->first` - a reference
+     into the very node the erase inside destroys, which would leave the
+     parameter dangling mid-call. Owning the string here makes that impossible
+     whatever the call site does. */
+  void removeClient(std::string clientId, const std::string& reason);
 
 private:
   std::atomic<bool> m_running;
