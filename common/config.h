@@ -41,10 +41,10 @@ constexpr int64_t MAX_MESSAGE_SIZE_BYTES = 16 * 1024 * 1024;  // 16 MiB
 // 1.7 KB with maximum-length ones (measured at this cap; the marginal cost
 // falls as the registry's fixed overhead amortizes). Budget the retained
 // worst case as subscription cap x connected clients x that figure before
-// raising this much further. Past ~50k, two things need attention first:
-// SubscriptionRegistry::dropSubscriber scans a topic's subscribers linearly
-// while removing a client (inline on the broker thread), and a broker restart
-// makes every client re-send its whole set at once.
+// raising this much further. Past ~50k, two costs stop being negligible:
+// dropping a client walks each of its topics' subscriber lists linearly, on
+// the same thread that routes, and a broker restart makes every client re-send
+// its whole set at once.
 constexpr std::size_t MAX_TOPIC_LENGTH_BYTES = 512;
 constexpr std::size_t MAX_SUBSCRIPTIONS_PER_CLIENT = 10000;
 

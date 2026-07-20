@@ -108,13 +108,13 @@ bool ZmqWorker::writeControlMessage(Envelope msg) {
 
 /* Never waits for room, unlike the queues above.
 
-   The broker floods every routed message to every peer link from its single
-   thread, holding its peers lock throughout. A peer link that is offline never
-   drains this queue, so once it fills, waiting for room would cost the broker
-   the full timeout per message - collapsing it to a handful of messages a
-   second and starving the heartbeats its own clients depend on. One
-   unreachable peer must not be able to do that, so forwarded traffic - which
-   is data, and best-effort like all data - is dropped instead. */
+   This is the fan-out path (see WorkerInterface::writeEncoded): one producer
+   hands the same message to many workers in turn. Waiting for room would
+   couple them - a worker whose link is down never drains, so once its queue
+   fills, every message costs the shared producer the full timeout, and every
+   other link is throttled to that rate along with it. A single dead link must
+   not be able to set the pace for the rest, so a full queue drops instead:
+   what travels here is data, best-effort like data everywhere else. */
 bool ZmqWorker::writeEncoded(wire::WireMessagePtr msg) {
   // Relaxed: the queue's own mutex synchronizes the message itself, and a
   // momentarily stale read only costs one extra poll cycle before the drain.
