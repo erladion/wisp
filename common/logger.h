@@ -5,6 +5,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -14,14 +15,33 @@
 
 namespace TimeFormat {
 
-// Wall-clock time as "HH:MM:SS.mmm", local time. Used for log lines and for
-// the inspector's per-packet timestamps.
+/* Wall-clock time as "HH:MM:SS.mmm", local time.
+
+   localtime_r, not localtime: localtime returns a pointer to a single std::tm
+   owned by the C library and shared process-wide, so two threads formatting a
+   timestamp at once overwrite each other's result. Callers reach this directly
+   and from any thread; the logger's mutex below orders only the lines the
+   logger itself writes, and is no help here. Writing into a local std::tm
+   removes the shared state, making this safe to call from anywhere.
+
+   Currently the POSIX function, which the build already requires. C++26 adds
+   the same signature to <ctime>:
+
+     std::tm* localtime_r( const std::time_t* time, std::tm* buf );  (2)
+
+   so this needs no change to become portable then. */
 inline std::string hhmmssMillis(std::chrono::system_clock::time_point when) {
   const auto time = std::chrono::system_clock::to_time_t(when);
   const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(when.time_since_epoch()) % 1000;
 
+  // Zero-initialized so a refused conversion (localtime_r returns null, and
+  // leaves the buffer unspecified) formats as zeros rather than reading
+  // uninitialized fields. put_time on the null return would have been worse.
+  std::tm local{};
+  ::localtime_r(&time, &local);
+
   std::ostringstream out;
-  out << std::put_time(std::localtime(&time), "%H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << ms.count();
+  out << std::put_time(&local, "%H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << ms.count();
   return out.str();
 }
 
