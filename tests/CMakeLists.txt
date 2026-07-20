@@ -33,6 +33,7 @@ set(BROKER_TEST_SOURCES
   polling_adapter_test.cpp
   session_recovery_test.cpp
   stats_test.cpp
+  shutdown_from_callback_test.cpp
   shutdown_test.cpp
   subscription_limits_test.cpp
   subscriptionregistry_test.cpp

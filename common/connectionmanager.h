@@ -265,10 +265,14 @@ class ConnectionManager {
 public:
   static void init(const ConnectionConfig& config);
 
-  // Tears down the singleton. If another thread still holds a getInstance()
-  // snapshot (an in-flight send or sendRequest), the destructor - its thread
-  // joins included - runs when that snapshot is released, on that thread;
-  // shutdown() itself may return first.
+  /* Tears down the singleton: the processing thread and the connection worker
+     are stopped and joined before this returns. A getInstance() snapshot held
+     elsewhere (an in-flight send) keeps the object alive past this call, but it
+     is already inert by then.
+
+     Must not be called from inside a message callback - that would join the
+     processing thread from itself. It logs and does nothing in that case;
+     signal the thread that owns the connection and shut down from there. */
   static void shutdown();
 
   // True while the broker connection is up. init() returns before the
@@ -391,6 +395,10 @@ public:
 private:
   ConnectionManager(const ConnectionConfig& config);
   ~ConnectionManager();
+
+  // Stop and join the processing thread and the worker. Idempotent; must not
+  // run on the processing thread (see shutdown()).
+  void teardown();
 
   void resubscribeAll();
   static void registerInternal(const std::string& key, MessageCallback callback, void* instance);

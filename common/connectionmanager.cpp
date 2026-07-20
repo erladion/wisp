@@ -41,23 +41,44 @@ void ConnectionManager::shutdown() {
   std::shared_ptr<ConnectionManager> tmp;
   {
     std::lock_guard<std::mutex> lock(s_initMutex);
-    if (s_instance) {
-      {
-        // Under m_statusMutex + notify so waitForConnection() waiters wake
-        // promptly instead of sleeping out their timeout.
-        std::lock_guard<std::mutex> statusLock(s_instance->m_statusMutex);
-        s_instance->m_running = false;
-      }
-      s_instance->m_statusCv.notify_all();
-
-      if (s_instance->m_connected && s_instance->m_pWorker) {
-        s_instance->m_pWorker->writeControlMessage(s_instance->createControlEnvelope(Keys::DISCONNECT, ""));
-      }
-
-      tmp = s_instance;
-      s_instance.reset();
+    if (!s_instance) {
+      return;
     }
+
+    // Tearing down joins the processing thread, so from inside a message
+    // callback that thread would join itself - std::thread::join throws, and a
+    // throw out of the destructor is std::terminate. sendRequest() refuses from
+    // here for the same reason; a callback that wants to quit should signal the
+    // thread that owns the connection instead.
+    if (std::this_thread::get_id() == s_instance->m_processingThread.get_id()) {
+      Logger::Log(Logger::Error, "shutdown() called from inside a message callback - it would deadlock joining its own thread. Shut down from the thread that called init().");
+      return;
+    }
+
+    {
+      // Under m_statusMutex + notify so waitForConnection() waiters wake
+      // promptly instead of sleeping out their timeout.
+      std::lock_guard<std::mutex> statusLock(s_instance->m_statusMutex);
+      s_instance->m_running = false;
+    }
+    s_instance->m_statusCv.notify_all();
+
+    if (s_instance->m_connected && s_instance->m_pWorker) {
+      s_instance->m_pWorker->writeControlMessage(s_instance->createControlEnvelope(Keys::DISCONNECT, ""));
+    }
+
+    tmp = s_instance;
+    s_instance.reset();
   }
+
+  /* Torn down here rather than left to the destructor. The destructor runs
+     whenever the last getInstance() snapshot is released, which can be the
+     processing thread - a callback that sends while another thread shuts down
+     holds the final reference - and joining from there is the same self-join
+     the guard above refuses. Doing it on this thread, which is known not to be
+     the processing thread, leaves the destructor nothing to join wherever it
+     eventually runs. */
+  tmp->teardown();
 }
 
 std::shared_ptr<ConnectionManager> ConnectionManager::getInstance() {
@@ -213,6 +234,12 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
 }
 
 ConnectionManager::~ConnectionManager() {
+  teardown();
+}
+
+// Idempotent: shutdown() normally runs this, and the destructor repeats it for
+// an instance that was never shut down.
+void ConnectionManager::teardown() {
   m_running = false;
   m_queue.stop();
 
