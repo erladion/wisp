@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include <absl/log/globals.h>
+
 #include "logger.h"
 #include "zmqbroker.h"
 
@@ -38,6 +40,13 @@ void printUsage(const char* program) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  // Silence protobuf/abseil's own parse diagnostics. It logs straight to stderr
+  // on any malformed frame - once per bad string field - bypassing Logger and
+  // its throttle, on the very thread that routes. A peer feeding the broker
+  // garbage headers could otherwise flood stderr unbounded; our own decode
+  // already rejects and counts them. FATAL still gets through.
+  absl::SetMinLogLevel(absl::LogSeverityAtLeast::kFatal);
+
   std::vector<std::string> bindings;
   long inspectorPort = 0;
   for (int i = 1; i < argc; ++i) {
