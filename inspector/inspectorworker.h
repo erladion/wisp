@@ -28,6 +28,14 @@ public:
 
   InspectorWorker(QObject* parent = nullptr) : QThread(parent), m_endpoint(localTap().toStdString()), m_running(false) {}
 
+  // Set the run flag before the thread is scheduled, so a stopWorker() racing
+  // startup can't be overwritten by run(). Symmetric with stopWorker(); use
+  // this instead of QThread::start().
+  void startWorker() {
+    m_running = true;
+    start();
+  }
+
   void stopWorker() { m_running = false; }
 
   // Takes effect on the next start(); stop the worker first to switch taps.

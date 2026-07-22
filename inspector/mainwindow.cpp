@@ -28,7 +28,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   m_currentEndpoint = InspectorWorker::localTap();
   m_pWorker->setEndpoint(m_currentEndpoint);
-  m_pWorker->start();
+  m_pWorker->startWorker();
 
   // Listen for broker beacons so the selector can offer every broker on the
   // network. Listen-only by construction: an inspector that beaconed would be
@@ -194,7 +194,7 @@ void MainWindow::attachTo(const QString& endpoint, const QString& label) {
 
   m_pWorker->setEndpoint(endpoint);
   m_currentEndpoint = endpoint;
-  m_pWorker->start();
+  m_pWorker->startWorker();
 
   // Replay must inject into the broker now being inspected.
   retargetInjector(routerEndpointForTap(endpoint));

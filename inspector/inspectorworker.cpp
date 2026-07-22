@@ -5,7 +5,7 @@
 #include "wireframe.h"
 
 void InspectorWorker::run() {
-  m_running = true;
+  // m_running is set by startWorker() before this thread is scheduled.
   const std::string endpoint = this->endpoint().toStdString();
 
   zmq::context_t ctx(1);
