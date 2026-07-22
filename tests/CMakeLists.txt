@@ -38,6 +38,7 @@ set(BROKER_TEST_SOURCES
   subscription_limits_test.cpp
   subscriptionregistry_test.cpp
   unsubscribe_while_offline_test.cpp
+  uuid_test.cpp
   wildcard_subscription_test.cpp
 )
 

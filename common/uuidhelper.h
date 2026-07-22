@@ -1,6 +1,8 @@
 #ifndef UUIDHELPER_H
 #define UUIDHELPER_H
 
+#include <endian.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -66,14 +68,19 @@ inline std::string generateBinaryUUID() {
     return std::mt19937_64(seq);
   }();
 
-  std::uint64_t hi = gen();
-  std::uint64_t lo = gen();
-  hi = (hi & 0xffffffffffff0fffULL) | 0x0000000000004000ULL;  // version 4
-  lo = (lo & 0x3fffffffffffffffULL) | 0x8000000000000000ULL;  // variant 10
+  // Masks act on big-endian byte positions: 0x..0fff|0x4000 sets the version
+  // nibble in byte 6, 0x3fff..|0x8000 the variant bits in byte 8. So serialize
+  // big-endian, or those land in the wrong bytes on a little-endian host.
+  const std::uint64_t hi = (gen() & 0xffffffffffff0fffULL) | 0x0000000000004000ULL;  // version 4
+  const std::uint64_t lo = (gen() & 0x3fffffffffffffffULL) | 0x8000000000000000ULL;  // variant 10
 
+  // htobe64 is a no-op on a big-endian host and a single bswap on x86, so the
+  // fix costs nothing over the previous native-order memcpy.
+  const std::uint64_t hiBe = htobe64(hi);
+  const std::uint64_t loBe = htobe64(lo);
   char bytes[16];
-  std::memcpy(bytes, &hi, 8);
-  std::memcpy(bytes + 8, &lo, 8);
+  std::memcpy(bytes, &hiBe, 8);
+  std::memcpy(bytes + 8, &loBe, 8);
   return std::string(bytes, sizeof(bytes));
 }
 
