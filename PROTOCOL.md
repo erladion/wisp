@@ -183,6 +183,11 @@ dials: the broker with the **smaller uuid** (string comparison) connects to
 for **5 s** is dropped. Cluster names must not contain `|` and fit within the
 beacon's 512-byte read buffer.
 
+A broker dials at most a bounded number of discovered peers (64 in the stock
+build) and ignores further beacons once full, so an unauthenticated flood of
+beacons cannot make it open links without limit. Peers added explicitly (not
+via discovery) do not count against this.
+
 A running broker leaves its mesh and joins another when it receives
 `__SET_CLUSTER__`: beacons switch immediately and links *it* dialed drop at
 once, but links dialed *by* old-mesh peers persist until those peers' 5 s

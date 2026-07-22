@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "beacon.h"
+#include "logger.h"
 
 // LAN auto-discovery of peer brokers via periodic UDP broadcast beacons (the
 // format and a listen-only receiver live in common/beacon.h). On hearing a
@@ -28,6 +29,13 @@ public:
   using DropFn = std::function<void(const std::string& uuid)>;
 
   static constexpr std::uint16_t DefaultPort = beacon::DEFAULT_PORT;
+
+  // Ceiling on peers dialed from discovery. Beacons are unauthenticated UDP,
+  // and each dial spawns a peer worker (a thread and a zmq context), so without
+  // a bound one sender advertising many router ports makes the broker spawn
+  // workers without limit. A real mesh is far smaller. Manual connectToPeer is
+  // an explicit operator action and is not capped.
+  static constexpr std::size_t MaxDialedPeers = 64;
 
   // tapPort is advertised so tools can find this broker's inspector tap; 0
   // when no remote tap is exposed.
@@ -83,6 +91,10 @@ private:
 
   std::mutex m_mutex;
   std::unordered_map<std::string, PeerEntry> m_dialed;  // uuid -> link we initiated
+
+  // Touched only from onDatagram (the run thread, or a test), so unsynchronized
+  // is fine. Rate-limits the log when the dial cap is holding off new peers.
+  LogThrottle m_dialCapThrottle;
 };
 
 #endif  // DISCOVERY_H

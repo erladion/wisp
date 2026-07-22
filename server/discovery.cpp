@@ -43,6 +43,15 @@ void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, 
   }
   auto it = m_dialed.find(heard.uuid);
   if (it == m_dialed.end()) {
+    // Known peers still refresh below; only new ones are capped, so a flood of
+    // fresh uuids can't crowd out the links already established.
+    if (m_dialed.size() >= MaxDialedPeers) {
+      if (m_dialCapThrottle.ready()) {
+        Logger::Log(Logger::Warning, "Discovery peer cap (" + std::to_string(MaxDialedPeers) +
+                                         ") reached; not dialing new beacons. If this mesh is genuinely this large, raise MaxDialedPeers.");
+      }
+      return;
+    }
     m_dialed.emplace(heard.uuid, PeerEntry{address, now});
     // Dialed under the lock: a concurrent setCluster() must either run before
     // this entry exists or find it in m_dialed and drop it. Dialing after

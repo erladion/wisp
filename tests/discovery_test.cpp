@@ -115,6 +115,48 @@ TEST(DiscoveryTest, SwappingBackRedialsFormerPeer) {
   EXPECT_EQ(rec.dials.size(), 2u);
 }
 
+// Beacons are unauthenticated UDP, so one sender advertising a fresh uuid and
+// router port per packet would otherwise make the broker dial without bound -
+// a thread and a zmq context per dial. The dial count stops at MaxDialedPeers.
+TEST(DiscoveryTest, StopsDialingAtThePeerCap) {
+  Recorder rec;
+  auto disc = makeDiscovery("default", "aaa", rec);
+  const auto now = std::chrono::steady_clock::now();
+
+  // "zzz-..." all sort above self ("aaa"), so this side is always the dialer.
+  for (std::size_t i = 0; i < BrokerDiscovery::MaxDialedPeers + 200; ++i) {
+    feed(*disc, "10.0.0.5", "default", "zzz-" + std::to_string(i), static_cast<std::uint16_t>(6000 + i), now);
+  }
+
+  EXPECT_EQ(rec.dials.size(), BrokerDiscovery::MaxDialedPeers) << "the peer cap must bound how many beacons can make the broker dial";
+}
+
+// The cap only gates new peers; a peer already dialed keeps refreshing its
+// lastSeen even once the table is full, so a flood can't expire live links.
+TEST(DiscoveryTest, PeersAtTheCapStillRefresh) {
+  Recorder rec;
+  auto disc = makeDiscovery("default", "aaa", rec);
+  const auto now = std::chrono::steady_clock::now();
+
+  for (std::size_t i = 0; i < BrokerDiscovery::MaxDialedPeers; ++i) {
+    feed(*disc, "10.0.0.5", "default", "zzz-" + std::to_string(i), static_cast<std::uint16_t>(6000 + i), now);
+  }
+  ASSERT_EQ(rec.dials.size(), BrokerDiscovery::MaxDialedPeers);
+
+  // A fresh uuid past the cap is ignored (no new dial); an existing one still
+  // refreshes its lastSeen despite the full table.
+  feed(*disc, "10.0.0.5", "default", "zzz-overflow", 7000, now + 1s);
+  EXPECT_EQ(rec.dials.size(), BrokerDiscovery::MaxDialedPeers) << "the overflow beacon must not have dialed";
+
+  feed(*disc, "10.0.0.5", "default", "zzz-0", 6000, now + 4s);  // refresh one
+  disc->expireStale(now + 7s);  // the rest age out (7s > 5s); zzz-0 is only 3s old
+
+  ASSERT_EQ(rec.drops.size(), BrokerDiscovery::MaxDialedPeers - 1) << "every un-refreshed peer should have expired";
+  for (const auto& uuid : rec.drops) {
+    EXPECT_NE(uuid, "zzz-0") << "the refreshed peer must not have expired";
+  }
+}
+
 TEST(DiscoveryTest, DropsPeerThatGoesSilent) {
   Recorder rec;
   auto disc = makeDiscovery("default", "aaa", rec);

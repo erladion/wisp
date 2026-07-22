@@ -739,60 +739,70 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
   config.address = peerAddress;
   config.clientId = BrokerInternal::peerLinkId(m_brokerId, key);
 
-  auto worker = std::make_unique<ZmqWorker>(config, nullptr, nullptr);
-  ZmqWorker* link = worker.get();
+  // A peer link is a thread plus two zmq sockets and a context; constructing or
+  // starting one throws when the process is out of descriptors or threads.
+  // Discovery drives this from beacon traffic, so an unguarded throw here would
+  // ride up through the discovery thread and terminate the process. Log and
+  // skip the peer instead - the broker keeps serving everyone it already has.
+  try {
+    auto worker = std::make_unique<ZmqWorker>(config, nullptr, nullptr);
+    ZmqWorker* link = worker.get();
 
-  // Owned by the callback and used only on the worker thread (worker->start()
-  // provides the hand-off barrier zmq requires for socket migration).
-  auto wakeSocket = std::make_shared<zmq::socket_t>(m_context, ZMQ_PUSH);
-  wakeSocket->set(zmq::sockopt::linger, 0);
-  wakeSocket->connect(PEER_WAKE_ENDPOINT);
+    // Owned by the callback and used only on the worker thread (worker->start()
+    // provides the hand-off barrier zmq requires for socket migration).
+    auto wakeSocket = std::make_shared<zmq::socket_t>(m_context, ZMQ_PUSH);
+    wakeSocket->set(zmq::sockopt::linger, 0);
+    wakeSocket->connect(PEER_WAKE_ENDPOINT);
 
-  worker->setMessageCallback([this, link, linkId = config.clientId, wakeSocket](const Envelope& env) {
-    // The remote broker answers our first message (and any reappearance after
-    // it has timed us out) with a RESET request instead of processing it. The
-    // wildcard subscription must be (re-)sent in response, or the remote will
-    // never route anything to this link.
-    if (env.header.handler_key() == Keys::RESET) {
-      // Everything routes over the link
-      link->writeControlMessage(wire::makeControl(Keys::SUBSCRIBE, linkId, Keys::WILDCARD_TOPIC));
-      return;
-    }
-    // Ping the broker poll awake only when the queue was empty - a non-empty
-    // queue means a wakeup is already pending. A refused send is also fine:
-    // the broker isn't polling yet and its poll-timeout drain still delivers.
-    bool wasEmpty = false;
-    if (m_peerInboundQueue.push(env, wasEmpty) && wasEmpty) {
-      zmq::message_t ping;
-      (void)wakeSocket->send(ping, zmq::send_flags::dontwait);
-    }
-  });
-
-  // Subscribe the link to everything up front, queued right behind the
-  // worker's automatic CONNECT: a fresh session is registered silently by the
-  // remote, so the mesh must not depend on a RESET to trigger this. The
-  // RESET-driven re-subscribe in the callback above remains the recovery path
-  // for a remote broker restart.
-  worker->writeControlMessage(wire::makeControl(Keys::SUBSCRIBE, config.clientId, Keys::WILDCARD_TOPIC));
-
-  {
-    std::lock_guard<std::mutex> lock(m_peersMutex);
-    if (m_peers.count(key)) {
-      return;  // already linked; the unstarted worker is discarded here
-    }
-    // The same broker can be reached under two keys - dialed manually by
-    // address, then discovered by uuid. Both would deliver the same traffic,
-    // which the remote's dedup would discard, so keep only the first link.
-    for (const auto& [existingKey, existing] : m_peers) {
-      if (existing.address == peerAddress) {
-        Logger::Log(Logger::Info, "Already linked to " + peerAddress + " under key " + existingKey + "; ignoring the duplicate link");
+    worker->setMessageCallback([this, link, linkId = config.clientId, wakeSocket](const Envelope& env) {
+      // The remote broker answers our first message (and any reappearance after
+      // it has timed us out) with a RESET request instead of processing it. The
+      // wildcard subscription must be (re-)sent in response, or the remote will
+      // never route anything to this link.
+      if (env.header.handler_key() == Keys::RESET) {
+        // Everything routes over the link
+        link->writeControlMessage(wire::makeControl(Keys::SUBSCRIBE, linkId, Keys::WILDCARD_TOPIC));
         return;
       }
+      // Ping the broker poll awake only when the queue was empty - a non-empty
+      // queue means a wakeup is already pending. A refused send is also fine:
+      // the broker isn't polling yet and its poll-timeout drain still delivers.
+      bool wasEmpty = false;
+      if (m_peerInboundQueue.push(env, wasEmpty) && wasEmpty) {
+        zmq::message_t ping;
+        (void)wakeSocket->send(ping, zmq::send_flags::dontwait);
+      }
+    });
+
+    // Subscribe the link to everything up front, queued right behind the
+    // worker's automatic CONNECT: a fresh session is registered silently by the
+    // remote, so the mesh must not depend on a RESET to trigger this. The
+    // RESET-driven re-subscribe in the callback above remains the recovery path
+    // for a remote broker restart.
+    worker->writeControlMessage(wire::makeControl(Keys::SUBSCRIBE, config.clientId, Keys::WILDCARD_TOPIC));
+
+    {
+      std::lock_guard<std::mutex> lock(m_peersMutex);
+      if (m_peers.count(key)) {
+        return;  // already linked; the unstarted worker is discarded here
+      }
+      // The same broker can be reached under two keys - dialed manually by
+      // address, then discovered by uuid. Both would deliver the same traffic,
+      // which the remote's dedup would discard, so keep only the first link.
+      for (const auto& [existingKey, existing] : m_peers) {
+        if (existing.address == peerAddress) {
+          Logger::Log(Logger::Info, "Already linked to " + peerAddress + " under key " + existingKey + "; ignoring the duplicate link");
+          return;
+        }
+      }
+      worker->start();
+      m_peers.emplace(key, PeerLink{peerAddress, std::move(worker)});
     }
-    worker->start();
-    m_peers.emplace(key, PeerLink{peerAddress, std::move(worker)});
+    Logger::Log(Logger::Info, "Connected to Peer: " + peerAddress);
+  } catch (const std::exception& e) {
+    Logger::Log(Logger::Error, "Could not open a peer link to " + peerAddress + ": " + e.what() +
+                                   " - out of file descriptors or threads? Skipping this peer.");
   }
-  Logger::Log(Logger::Info, "Connected to Peer: " + peerAddress);
 }
 
 void ZmqBroker::removePeer(const std::string& key) {
