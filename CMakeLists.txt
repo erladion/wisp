@@ -43,6 +43,46 @@ find_package(Protobuf CONFIG QUIET)
 if (NOT Protobuf_FOUND)
     find_package(Protobuf REQUIRED)
 endif()
+
+# Protobuf writes its own parse diagnostics straight to stderr - one line per
+# malformed string field, bypassing Logger and its throttle - so a peer feeding
+# garbage headers can flood it. Silencing that needs a different API either side
+# of protobuf's abseil migration (v22 / C++ 4.22) and neither exists in both, so
+# probe by compiling rather than matching version strings, which the config and
+# module find modes report differently. Applied in the broker's and inspector's
+# main(); nothing else links it.
+include(CheckCXXSourceCompiles)
+
+set(CMAKE_REQUIRED_QUIET ON)
+set(CMAKE_REQUIRED_LIBRARIES protobuf::libprotobuf)
+check_cxx_source_compiles("
+    #include <google/protobuf/stubs/logging.h>
+    int main() { google::protobuf::LogSilencer silencer; return 0; }
+" WISP_HAVE_PROTOBUF_LOG_SILENCER)
+unset(CMAKE_REQUIRED_LIBRARIES)
+unset(CMAKE_REQUIRED_QUIET)
+
+set(WISP_PROTOBUF_LOG_DEFS "")
+set(WISP_PROTOBUF_LOG_LIBS "")
+if (WISP_HAVE_PROTOBUF_LOG_SILENCER)
+    set(WISP_PROTOBUF_LOG_DEFS WISP_HAVE_PROTOBUF_LOG_SILENCER)
+    message(STATUS "protobuf log silencing: google::protobuf::LogSilencer")
+else()
+    # The abseil-based releases dropped LogSilencer and log through abseil, which
+    # they also depend on publicly - so it is found here, never required.
+    find_package(absl CONFIG QUIET)
+    if (TARGET absl::log_globals)
+        set(WISP_PROTOBUF_LOG_DEFS WISP_HAVE_ABSL_LOG)
+        set(WISP_PROTOBUF_LOG_LIBS absl::log_globals)
+        message(STATUS "protobuf log silencing: absl::SetMinLogLevel")
+    else()
+        message(WARNING
+            "No protobuf log-silencing API found - malformed frames from a peer can write to "
+            "stderr unthrottled. Install abseil (absl::log_globals), or build against a "
+            "protobuf providing google::protobuf::LogSilencer.")
+    endif()
+endif()
+
 find_package(ZeroMQ QUIET)
 
 if (NOT ZeroMQ_FOUND)

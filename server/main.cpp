@@ -4,7 +4,13 @@
 #include <string>
 #include <vector>
 
+// Whichever protobuf log-silencing API this build found; see the top-level
+// CMakeLists. Neither exists across protobuf's abseil migration.
+#if defined(WISP_HAVE_ABSL_LOG)
 #include <absl/log/globals.h>
+#elif defined(WISP_HAVE_PROTOBUF_LOG_SILENCER)
+#include <google/protobuf/stubs/logging.h>
+#endif
 
 #include "logger.h"
 #include "zmqbroker.h"
@@ -40,12 +46,18 @@ void printUsage(const char* program) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
-  // Silence protobuf/abseil's own parse diagnostics. It logs straight to stderr
-  // on any malformed frame - once per bad string field - bypassing Logger and
-  // its throttle, on the very thread that routes. A peer feeding the broker
-  // garbage headers could otherwise flood stderr unbounded; our own decode
-  // already rejects and counts them. FATAL still gets through.
+  /* Silence protobuf's own parse diagnostics. It logs straight to stderr on any
+     malformed frame - once per bad string field - bypassing Logger and its
+     throttle, on the very thread that routes. A peer feeding the broker garbage
+     headers could otherwise flood stderr unbounded; our own decode already
+     rejects and counts them. FATAL still gets through either way. */
+#if defined(WISP_HAVE_ABSL_LOG)
   absl::SetMinLogLevel(absl::LogSeverityAtLeast::kFatal);
+#elif defined(WISP_HAVE_PROTOBUF_LOG_SILENCER)
+  // Suppresses non-fatal protobuf logging for as long as it is alive, so it has
+  // to outlive the broker below.
+  const google::protobuf::LogSilencer protobufLogSilencer;
+#endif
 
   std::vector<std::string> bindings;
   long inspectorPort = 0;

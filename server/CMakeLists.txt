@@ -56,7 +56,12 @@ add_executable(wisp-broker
   main.cpp
 )
 
-target_link_libraries(wisp-broker
+# PRIVATE: wisp-broker travels in the WispTargets export set, and nothing links
+# against an executable - keeping these off its interface keeps the protobuf
+# log-silencing dependency out of the exported package.
+target_link_libraries(wisp-broker PRIVATE
     zmq
     WispBroker
+    ${WISP_PROTOBUF_LOG_LIBS}
 )
+target_compile_definitions(wisp-broker PRIVATE ${WISP_PROTOBUF_LOG_DEFS})
