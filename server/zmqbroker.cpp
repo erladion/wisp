@@ -23,6 +23,10 @@ namespace {
 // timeout. Per-context namespace, so multiple brokers in one process don't clash.
 constexpr const char* PEER_WAKE_ENDPOINT = "inproc://peer_wake";
 
+// How long a peer worker waits for room in the broker's inbound queue before
+// dropping. Bounded on purpose - see the message callback in addPeer().
+constexpr std::chrono::milliseconds PEER_INBOUND_WAIT{100};
+
 // Binary uuids map directly onto the 128-bit dedup id; any other shape (e.g. a
 // 36-char text uuid from an older peer) is hashed down with two independent
 // FNV-1a streams.
@@ -754,7 +758,9 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
     wakeSocket->set(zmq::sockopt::linger, 0);
     wakeSocket->connect(PEER_WAKE_ENDPOINT);
 
-    worker->setMessageCallback([this, link, linkId = config.clientId, wakeSocket](const Envelope& env) {
+    // `mutable` so the throttle below can be updated; one instance per link, and
+    // a link's callback only ever runs on its own worker thread.
+    worker->setMessageCallback([this, link, linkId = config.clientId, wakeSocket, dropThrottle = LogThrottle()](const Envelope& env) mutable {
       // The remote broker answers our first message (and any reappearance after
       // it has timed us out) with a RESET request instead of processing it. The
       // wildcard subscription must be (re-)sent in response, or the remote will
@@ -764,11 +770,28 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
         link->writeControlMessage(wire::makeControl(Keys::SUBSCRIBE, linkId, Keys::WILDCARD_TOPIC));
         return;
       }
+
+      /* Bounded, never an unbounded wait.
+
+         This runs on the peer worker's thread and the broker thread is the only
+         drainer - and that same broker thread joins this worker in removePeer()
+         when a SET_CLUSTER swap drops every dialed link. Waiting here without a
+         bound deadlocks the two against each other: the broker waits for the
+         worker to exit, the worker waits for the broker to drain. The wait
+         rides out a burst; past it the message is dropped, as best-effort
+         delivery does everywhere else in the stack. */
+      bool wasEmpty = false;
+      if (!m_peerInboundQueue.push(env, PEER_INBOUND_WAIT, wasEmpty)) {
+        if (dropThrottle.ready()) {
+          Logger::Log(Logger::Warning, "Peer link '" + linkId + "' is delivering faster than this broker routes - inbound messages are being dropped");
+        }
+        return;
+      }
+
       // Ping the broker poll awake only when the queue was empty - a non-empty
       // queue means a wakeup is already pending. A refused send is also fine:
       // the broker isn't polling yet and its poll-timeout drain still delivers.
-      bool wasEmpty = false;
-      if (m_peerInboundQueue.push(env, wasEmpty) && wasEmpty) {
+      if (wasEmpty) {
         zmq::message_t ping;
         (void)wakeSocket->send(ping, zmq::send_flags::dontwait);
       }
