@@ -17,7 +17,7 @@ repository's `build/` tree, in that order.
 ## Demo
 
 ```sh
-../../build/server/server &   # a broker
+../../build/server/wisp-broker &   # a broker
 python3 demo.py listen &      # subscribes to demo.chat, answers demo.echo
 python3 demo.py send          # publishes, then requests an echo
 ```

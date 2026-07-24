@@ -1,7 +1,7 @@
 --  GNAT project for the Wisp Ada binding and its demo program.
 --
 --  Build through the Makefile, which appends the C link closure
---  (ZmqLib, zmq, protobuf + abseil) via pkg-config:
+--  (wispcore, zmq, protobuf + abseil) via pkg-config:
 --
 --      make
 --
