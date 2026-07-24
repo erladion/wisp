@@ -72,6 +72,8 @@ _lib.waitForConnection.argtypes = [ctypes.c_int]
 _lib.waitForConnection.restype = ctypes.c_int
 _lib.sendData.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
 _lib.sendData.restype = ctypes.c_int
+_lib.setCluster.argtypes = [ctypes.c_char_p]
+_lib.setCluster.restype = ctypes.c_int
 _lib.replyToSender.argtypes = [ctypes.c_char_p, ctypes.c_int]
 _lib.replyToSender.restype = ctypes.c_int
 _lib.sendRequest.argtypes = [
@@ -149,6 +151,17 @@ def send(topic, data):
     """Publish data on topic (fire and forget)."""
     payload = _as_bytes(data)
     _check(_lib.sendData(topic.encode(), payload, len(payload)), "send")
+
+
+def set_cluster(name):
+    """Move the broker to a different discovery cluster at runtime.
+
+    name must be 1-64 bytes without '|'; WispError is raised if it is
+    rejected or there is no connection. Any connected client may do this —
+    the broker re-targets its beacons and re-meshes. No effect on a broker
+    started without discovery.
+    """
+    _check(_lib.setCluster(name.encode()), "set_cluster")
 
 
 def reply(data):

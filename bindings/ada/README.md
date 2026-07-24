@@ -45,6 +45,7 @@ Wisp.Connect (Address => "tcp://127.0.0.1:5555", Client_Id => "sensor-1");
 Wisp.Subscribe ("commands", On_Command'Access);   --  library-level procedure
 Wisp.Send ("telemetry", Payload);                 --  fire and forget
 Reply : String := Wisp.Request ("config", "get"); --  blocking request/reply
+Wisp.Set_Cluster ("blue");                        --  swap discovery cluster
 
 Wisp.Set_Log_Level (Wisp.Warning);                --  quiet the library
 Wisp.Set_Log_Handler (On_Log'Access);             --  or route the output
