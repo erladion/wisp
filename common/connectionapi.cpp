@@ -1,4 +1,5 @@
 #include "connectionapi.h"
+#include "beacon.h"
 #include "connectionmanager.h"
 #include "logger.h"
 
@@ -114,6 +115,24 @@ int sendData(const char* topic, const char* data, int len) {
 
   return guard([&] {
     if (!ConnectionManager::sendDataRaw(topic, data, len)) {
+      return fail(ERROR_NO_CONNECTION, "no active connection");
+    }
+    return ok();
+  });
+}
+
+int setCluster(const char* name) {
+  if (!name) {
+    return fail(ERROR_INVALID_ARGS, "name must be non-null");
+  }
+  // Validated here too, so the caller gets ERROR_INVALID_ARGS with the reason
+  // rather than an ambiguous connection error from setCluster() below.
+  if (!beacon::isValidClusterName(name)) {
+    return fail(ERROR_INVALID_ARGS, "cluster name must be 1-64 bytes without '|'");
+  }
+
+  return guard([&] {
+    if (!ConnectionManager::setCluster(name)) {
       return fail(ERROR_NO_CONNECTION, "no active connection");
     }
     return ok();

@@ -4,6 +4,7 @@
 #include <deque>
 #include <future>
 
+#include "beacon.h"
 #include "logger.h"
 #include "messagekeys.h"
 #include "uuidhelper.h"
@@ -260,6 +261,18 @@ bool ConnectionManager::sendData(const std::string& key, const std::string_view&
     return false;
   }
   return self->sendDataInternal(key, data);
+}
+bool ConnectionManager::setCluster(const std::string& name) {
+  // Validate client-side: the broker also checks, but rejects silently (it only
+  // logs), so a bad name would otherwise fail with no signal to the caller.
+  if (!beacon::isValidClusterName(name)) {
+    Logger::Log(Logger::Warning, "setCluster rejected: cluster name must be 1-64 bytes without '|'");
+    return false;
+  }
+  // The new name travels as the payload; sendMessage routes it through the
+  // control queue (SET_CLUSTER is a control key), so it is sent regardless of
+  // online state, like every other control message.
+  return sendMessage(Keys::SET_CLUSTER, name);
 }
 bool ConnectionManager::sendDataRaw(const std::string& key, const char* data, int len) {
   std::shared_ptr<ConnectionManager> self = getInstance();

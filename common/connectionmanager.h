@@ -290,6 +290,13 @@ public:
   static bool sendData(const std::string& key, const std::string_view& data);
   static bool sendDataRaw(const std::string& key, const char* data, int len);
 
+  // Move the broker to a different discovery cluster at runtime (sends a
+  // __SET_CLUSTER__ message). `name` must be 1-64 bytes without '|'; an invalid
+  // name is refused here rather than dropped silently by the broker. False if
+  // the name is invalid or there is no active connection. Any connected client
+  // may do this - it is handled by the receiving broker only, never forwarded.
+  static bool setCluster(const std::string& name);
+
   // Pointers and arrays are excluded so string literals and char* still pick
   // the plain std::string overload above. Encoding rules live in
   // detail::encodePayload.

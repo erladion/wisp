@@ -52,6 +52,10 @@ public:
     return ConnectionManager::sendMessage(key.toStdString(), payload);
   }
 
+  // Move the broker to a different discovery cluster at runtime. `name` must be
+  // 1-64 bytes without '|'; false if invalid or offline.
+  static bool setCluster(const QString& name) { return ConnectionManager::setCluster(name.toStdString()); }
+
   template <typename T>
   static bool replyToSender(const T& payload) {
     return ConnectionManager::replyToSender(payload);

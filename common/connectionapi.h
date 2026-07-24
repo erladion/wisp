@@ -66,6 +66,13 @@ CONN_API int waitForConnection(int timeoutMs);
 CONN_API int sendData(const char* topic, const char* data, int len);
 CONN_API int sendMessage(const char* topic, const char* text);
 
+// Move the broker to a different discovery cluster at runtime. `name` must be
+// 1-64 bytes without '|' (ERROR_INVALID_ARGS otherwise) and the client must be
+// connected (ERROR_NO_CONNECTION otherwise). Any connected client may do this;
+// the receiving broker re-targets its beacons and re-meshes. No effect on a
+// broker started without discovery.
+CONN_API int setCluster(const char* name);
+
 CONN_API int replyToSender(const char* data, int len);
 
 // Blocks the calling thread for up to timeoutMs waiting on the reply. On success, fills outBuffer

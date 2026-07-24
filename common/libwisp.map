@@ -10,6 +10,7 @@
     waitForConnection;
     sendData;
     sendMessage;
+    setCluster;
     replyToSender;
     sendRequest;
     registerCallback;
