@@ -3,7 +3,7 @@
 --    bin/wisp_demo listen    subscribe to demo.chat and answer demo.echo
 --    bin/wisp_demo send      publish on demo.chat, then request demo.echo
 --
---  Start a broker (./build/server/server) and a listener first, then send.
+--  Start a broker (./build/server/wisp-broker) and a listener first, then send.
 --  Two processes are required: the broker never routes a message back to
 --  its sender.
 

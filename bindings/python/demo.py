@@ -3,7 +3,7 @@
     python3 demo.py listen    subscribe to demo.chat and answer demo.echo
     python3 demo.py send      publish on demo.chat, then request demo.echo
 
-Start a broker (./build/server/server) and a listener first, then send.
+Start a broker (./build/server/wisp-broker) and a listener first, then send.
 Two processes are required: the broker never routes a message back to
 its sender.
 """

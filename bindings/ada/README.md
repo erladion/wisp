@@ -12,7 +12,7 @@ An Ada binding for the Wisp client, layered over the C ABI in
 ## Build
 
 Requires GNAT and gprbuild (`apt install gnat gprbuild`) and a completed
-CMake build of the repository (for `libZmqLib.a`):
+CMake build of the repository (for `libwispcore.a`):
 
 ```sh
 cmake -S ../.. -B ../../build && cmake --build ../../build
@@ -26,7 +26,7 @@ pkg-config; set `PKG_CONFIG_PATH` if your protobuf is not under `~/.local`.
 ## Demo
 
 ```sh
-../../build/server/server &   # a broker
+../../build/server/wisp-broker &   # a broker
 ./bin/wisp_demo listen &      # subscribes to demo.chat, answers demo.echo
 ./bin/wisp_demo send          # publishes, then requests an echo
 ```
