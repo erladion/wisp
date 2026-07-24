@@ -19,7 +19,9 @@ set(BROKER_TEST_SOURCES
   any_payload_roundtrip_test.cpp
   beacon_test.cpp
   callback_shapes_test.cpp
+  client_id_correction_test.cpp
   cluster_swap_test.cpp
+  dedup_text_uuid_test.cpp
   delivery_test.cpp
   discovery_test.cpp
   handshake_test.cpp
