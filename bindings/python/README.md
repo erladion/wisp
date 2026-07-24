@@ -36,6 +36,7 @@ wisp.subscribe("commands", lambda topic, data: ...)      # data is bytes
 wisp.send("telemetry", payload)                          # str or bytes
 answer = wisp.request("config", "get", timeout_ms=2000)  # blocks, returns bytes
 wisp.reply(b"ack")                                       # inside a handler
+wisp.set_cluster("blue")                                 # swap discovery cluster
 
 wisp.set_log_level(wisp.LOG_WARNING)                     # quiet the library
 wisp.set_log_handler(lambda lvl, msg: ...)               # or route the output

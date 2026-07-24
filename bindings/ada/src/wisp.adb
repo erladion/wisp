@@ -94,6 +94,18 @@ package body Wisp is
       Check (Code, "Send");
    end Send;
 
+   -----------------
+   -- Set_Cluster --
+   -----------------
+
+   procedure Set_Cluster (Name : String) is
+      C_Name : chars_ptr   := New_String (Name);
+      Code   : constant int := C_API.Set_Cluster (C_Name);
+   begin
+      Free (C_Name);
+      Check (Code, "Set_Cluster");
+   end Set_Cluster;
+
    -----------
    -- Reply --
    -----------

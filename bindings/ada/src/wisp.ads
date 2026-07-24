@@ -33,6 +33,12 @@ package Wisp is
    procedure Send (Topic : String; Data : String);
    --  Publish Data on Topic (fire and forget).
 
+   procedure Set_Cluster (Name : String);
+   --  Move the broker to a different discovery cluster at runtime. Name must be
+   --  1-64 bytes without '|'; raises Wisp_Error if it is rejected or there is no
+   --  connection. Any connected client may do this — the broker re-targets its
+   --  beacons and re-meshes. No effect on a broker started without discovery.
+
    procedure Reply (Data : String);
    --  Reply to the sender of the message currently being handled; only
    --  meaningful from inside a subscription handler.

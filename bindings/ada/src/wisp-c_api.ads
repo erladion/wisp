@@ -82,6 +82,12 @@ package Wisp.C_API is
    function Send_Message (Topic : chars_ptr; Text : chars_ptr) return int
      with Import, Convention => C, External_Name => "sendMessage";
 
+   --  Move the broker to a different discovery cluster at runtime. Name must be
+   --  1-64 bytes without '|' (ERROR_INVALID_ARGS otherwise); the client must be
+   --  connected (ERROR_NO_CONNECTION otherwise).
+   function Set_Cluster (Name : chars_ptr) return int
+     with Import, Convention => C, External_Name => "setCluster";
+
    function Reply_To_Sender (Data : System.Address; Len : int) return int
      with Import, Convention => C, External_Name => "replyToSender";
 
