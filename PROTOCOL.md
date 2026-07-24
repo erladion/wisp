@@ -158,9 +158,19 @@ rather than being allowed to slow the broker down. Those drops are counted in
 
 Loop protection: the stamped `message_uuid` is remembered by each broker
 (roughly the last 10–20K ids) and repeats are dropped, so a message crosses
-each broker once regardless of mesh shape. Control keys arriving over a peer
-link (`__RESET__`, `__HEARTBEAT__`, `__HEARTBEAT_ACK__`, `__SET_CLUSTER__`)
-are ignored.
+each broker once regardless of mesh shape.
+
+Control keys are never relayed across the mesh as application traffic: a broker
+does not flood `__`-prefixed keys to its peers, and a control key it receives
+*back* over a link it dialed is dropped rather than re-routed — except
+`__RESET__`, which prompts it to re-send its wildcard subscription. The two ends
+of a link are not symmetric, though. Only the dialing broker sees its peer
+through this "arrived over a link I dialed" path; the broker on the *dialed* end
+has no such link object — its peer connected as an ordinary DEALER client, so it
+runs normal session handling on that traffic (`__CONNECT__`, `__SUBSCRIBE__`,
+`__HEARTBEAT__`, `__DISCONNECT__`), which is exactly what keeps the link alive. A
+`__SET_CLUSTER__` is likewise acted on by whichever broker receives it directly,
+just as it would be from any other client — it is never carried across a link.
 
 ## Discovery
 
