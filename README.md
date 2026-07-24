@@ -1,6 +1,6 @@
 <div align="center">
 
-[![build](https://github.com/erladion/wisp/actions/workflows/build.yml/badge.svg)](https://github.com/erladion/wisp/actions/workflows/build.yml)
+[![build](https://github.com/erladion/wisp/actions/workflows/build.yml/badge.svg)](https://github.com/erladion/wisp/actions/workflows/build.yml) [![codecov](https://codecov.io/gh/erladion/wisp/branch/main/graph/badge.svg)](https://codecov.io/gh/erladion/wisp)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="branding/wisp-mark-dark.svg">

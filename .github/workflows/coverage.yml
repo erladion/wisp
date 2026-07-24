@@ -1,0 +1,65 @@
+# Line coverage of the client library and broker, uploaded to Codecov.
+#
+# Mirrors the core (no-Qt) build with an instrumented compile (--coverage, -O0
+# for accurate line mapping), then reports with gcovr. The report is scoped to
+# common/ + server/ - generated protobuf, the test files themselves, and the
+# untested entry point (server/main.cpp) and Qt inspector are excluded, since
+# they would blend a meaningless ~0% into the number. A floor gate fails the job
+# if coverage slips below the threshold.
+name: coverage
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libzmq3-dev \
+            libprotobuf-dev protobuf-compiler \
+            libprotobuf-c-dev protobuf-c-compiler
+          pipx install 'gcovr>=7'
+
+      - name: Configure (instrumented)
+        run: >
+          cmake -S . -B build-cov -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="--coverage -O0 -g"
+          -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+
+      - name: Build
+        run: cmake --build build-cov -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build-cov --output-on-failure
+
+      - name: Coverage report
+        run: >
+          gcovr --root .
+          --filter 'common/' --filter 'server/'
+          --exclude '.*/generated/.*' --exclude '.*_test\.cpp'
+          --exclude 'server/main\.cpp' --exclude 'inspector/.*'
+          --cobertura coverage.xml --print-summary
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+      # After the upload, so Codecov still records a drop before the job goes red.
+      - name: Enforce coverage floor
+        run: >
+          gcovr --root .
+          --filter 'common/' --filter 'server/'
+          --exclude '.*/generated/.*' --exclude '.*_test\.cpp'
+          --exclude 'server/main\.cpp' --exclude 'inspector/.*'
+          --fail-under-line 85
