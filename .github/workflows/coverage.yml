@@ -49,6 +49,21 @@ jobs:
           --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
           --cobertura coverage.xml --print-summary
 
+      # Codecov counts a branch-incomplete line as a "partial" and excludes it
+      # from covered - which reads ~52% against gcovr's 87% line coverage. Strip
+      # the branch data so Codecov reports line coverage, the conventional badge
+      # metric. The gcovr summary above still logs branch coverage for reference.
+      - name: Reduce the report to line coverage for Codecov
+        run: |
+          python3 - <<'PY'
+          import re
+          xml = open('coverage.xml').read()
+          xml = re.sub(r'<conditions>.*?</conditions>', '', xml, flags=re.S)
+          xml = re.sub(r'\s+branch="(?:true|false)"', '', xml)
+          xml = re.sub(r'\s+condition-coverage="[^"]*"', '', xml)
+          open('coverage.xml', 'w').write(xml)
+          PY
+
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
