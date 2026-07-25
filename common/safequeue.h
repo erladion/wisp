@@ -68,6 +68,14 @@ public:
     return out.size();
   }
 
+  // A snapshot, true only until the next push. Callers that need it to mean
+  // something must establish that no producer can still enqueue ahead of what
+  // they are about to do.
+  bool empty() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_queue.empty();
+  }
+
   void stop() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_stop = true;
@@ -108,7 +116,7 @@ private:
   }
 
   std::deque<T> m_queue;
-  std::mutex m_mutex;
+  mutable std::mutex m_mutex;
   std::condition_variable m_condEmpty;
   std::condition_variable m_condFull;
   bool m_stop;

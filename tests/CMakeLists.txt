@@ -25,6 +25,7 @@ set(BROKER_TEST_SOURCES
   cli_session_test.cpp
   client_id_correction_test.cpp
   cluster_swap_test.cpp
+  control_ordering_test.cpp
   dedup_text_uuid_test.cpp
   delivery_test.cpp
   discovery_test.cpp

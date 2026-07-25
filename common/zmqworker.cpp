@@ -27,6 +27,13 @@ std::atomic<std::uint64_t> g_wakeCounter{0};
    request/reply control traffic travelling alongside. */
 constexpr std::size_t CONTROL_BACKLOG_LIMIT = MAX_SUBSCRIPTIONS_PER_CLIENT + 1024;
 
+/* The same for data held back while a control message is still on its way (see
+   the send ordering in runLoop). Losing data is what best-effort delivery
+   already permits, so this is only wide enough to ride out the poll iteration
+   or two that control takes to drain, and matches the outbound queue's own
+   depth rather than the subscription cap. */
+constexpr std::size_t DATA_BACKLOG_LIMIT = 5000;
+
 // How long a producer waits for room in a worker queue before giving up. Short
 // enough that a stalled worker can't hold a caller for long, long enough to
 // ride out a brief burst.
@@ -215,6 +222,9 @@ void ZmqWorker::runLoop() {
   std::deque<Wire::WireMessagePtr> encodedBatch;
   // Control messages waiting for room in the send pipe; see flushControl.
   std::deque<Envelope> controlBacklog;
+  // Data waiting for the control ahead of it to be sent; see the send ordering
+  // below.
+  std::deque<Envelope> dataBacklog;
 
   // Envelopes are serialized here; pre-encoded messages go straight out.
   const auto sendBatch = [&](auto& queued) {
@@ -328,12 +338,57 @@ void ZmqWorker::runLoop() {
     // holding just avoids pushing payloads at a broker that may not be
     // reachable. Messages queued while offline are held, not dropped.
     if (isOnline && m_outboundQueue.drainTo(batch) > 0) {
-      sendBatch(batch);
+      // Straight from the drain when there is nothing to be ordered against,
+      // which is the steady state: the control queue only fills when the
+      // application subscribes, and heartbeats bypass it. Only the case that
+      // has to wait pays for the move into the backlog.
+      if (dataBacklog.empty() && controlBacklog.empty() && m_controlQueue.empty()) {
+        sendBatch(batch);
+        didWork = true;
+      } else {
+        for (Envelope& queued : batch) {
+          dataBacklog.push_back(std::move(queued));
+        }
+        // Bounded like the control backlog: a producer must not be able to grow
+        // this without limit while the send is held.
+        while (dataBacklog.size() > DATA_BACKLOG_LIMIT) {
+          dataBacklog.pop_front();
+          noteDroppedSend();
+        }
+      }
+    }
+
+    /* Data leaves only once no control message is still waiting anywhere -
+       above for the common path, here for what had to wait.
+
+       Control carries state that data depends on: a publish arriving ahead of
+       its client's __SUBSCRIBE__ is routed by a broker that does not have the
+       subscription yet. A request loses its reply exactly that way, since the
+       reply topic is subscribed by a control message sent just before it.
+
+       Both conditions are needed. The backlog can hold a __SUBSCRIBE__
+       flushControl() could not place in a full pipe; the queue can hold one
+       pushed after this iteration's control drain, which is the wider window of
+       the two - a producer sending a control message and then a data message
+       lands either side of it in ordinary use. Checking the queue *after*
+       draining the data is what makes the order sound: anything enqueued before
+       the data now in hand is by then either sent or still in that queue.
+
+       Delaying costs a poll iteration at most, since control drains every one
+       of them. */
+    if (!dataBacklog.empty() && controlBacklog.empty() && m_controlQueue.empty()) {
+      sendBatch(dataBacklog);
+      dataBacklog.clear();
       didWork = true;
     }
 
-    // Pre-encoded data (peer links); same online rule as above.
-    if (isOnline && m_hasEncoded.load(std::memory_order_relaxed) && m_encodedQueue.drainTo(encodedBatch) > 0) {
+    /* Pre-encoded data (peer links). Gated on control the same way, but without
+       a backlog of its own: a peer link sends its one wildcard __SUBSCRIBE__ at
+       link setup and floods thereafter, so the narrow window this leaves can
+       only cost a flooded message at that instant - which peer delivery already
+       treats as droppable, unlike a client's request losing its reply. */
+    if (isOnline && controlBacklog.empty() && m_controlQueue.empty() && m_hasEncoded.load(std::memory_order_relaxed) &&
+        m_encodedQueue.drainTo(encodedBatch) > 0) {
       sendBatch(encodedBatch);
       didWork = true;
     }
