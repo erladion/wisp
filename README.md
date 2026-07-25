@@ -27,6 +27,8 @@ Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. E
 | `bindings/polling/` | Frame-loop adapter (`Wisp::MessagePoller`) for immediate-mode UIs and game loops |
 | `bindings/ada/` | Ada binding (`Wisp` package over the C ABI) |
 | `bindings/python/` | Python binding (`wisp.py`, ctypes over the C ABI) |
+| `bindings/rust/` | Rust binding (`wisp` crate over the C ABI) |
+| `bindings/go/` | Go binding (`wisp` package, cgo over the C ABI) |
 | `cli/` | `wisp-cli` — publish, subscribe, request, read stats, and tap from a terminal |
 | `inspector/` | Qt GUI that taps and displays live broker traffic |
 | `examples/` | Small demo clients exercising the C++ API |
@@ -173,4 +175,4 @@ Running several brokers on one host, give each one its own `WISP_INSPECTOR_SOCK`
 
 The log level and destination can also be changed at runtime — `Logger::setMinLevel`/`setHandler` from C++, `setLogLevel`/`setLogHandler` through the C ABI.
 
-The cluster can be swapped at runtime too: send the broker a `__SET_CLUSTER__` message whose payload is the new cluster name. Every client API wraps this in a `setCluster` call that validates the name before sending: `setCluster("blue")` on the C ABI and `ConnectionManager`, `set_cluster` in Python, `Set_Cluster` in Ada. The broker re-targets its beacons, drops the peer links it dialed, and tells the ones dialed *by* old-mesh peers to unlink — so the swap converges immediately rather than waiting for those peers to miss enough beacons. Any connected client may send this — consistent with the broker's open trust model.
+The cluster can be swapped at runtime too: send the broker a `__SET_CLUSTER__` message whose payload is the new cluster name. Every client API wraps this in a `setCluster` call that validates the name before sending: `setCluster("blue")` on the C ABI and `ConnectionManager`, `set_cluster` in Python and Rust, `Set_Cluster` in Ada, `SetCluster` in Go. The broker re-targets its beacons, drops the peer links it dialed, and tells the ones dialed *by* old-mesh peers to unlink — so the swap converges immediately rather than waiting for those peers to miss enough beacons. Any connected client may send this — consistent with the broker's open trust model.

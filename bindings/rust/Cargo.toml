@@ -1,0 +1,14 @@
+[package]
+name = "wisp"
+version = "0.1.0"
+edition = "2021"
+description = "Rust binding for the Wisp message broker client, over the C ABI"
+license = "MIT"
+repository = "https://github.com/erladion/wisp"
+
+[lib]
+# Rust-only crate; no need to build a C-ABI staticlib/cdylib.
+crate-type = ["rlib"]
+
+[[example]]
+name = "demo"
