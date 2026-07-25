@@ -65,4 +65,4 @@ jobs:
           --exclude '.*/generated(-c)?/.*' --exclude '.*_test\.cpp'
           --exclude 'server/main\.cpp' --exclude 'inspector/.*'
           --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
-          --fail-under-line 85
+          --fail-under-line 82

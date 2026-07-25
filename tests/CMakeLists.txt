@@ -18,6 +18,7 @@ set(BROKER_TEST_SOURCES
   any_frame_test.cpp
   any_payload_roundtrip_test.cpp
   beacon_test.cpp
+  c_api_test.cpp
   callback_shapes_test.cpp
   client_id_correction_test.cpp
   cluster_swap_test.cpp
