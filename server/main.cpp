@@ -12,6 +12,7 @@
 #include <google/protobuf/stubs/logging.h>
 #endif
 
+#include "config.h"
 #include "logger.h"
 #include "zmqbroker.h"
 
@@ -36,6 +37,9 @@ void printUsage(const char* program) {
       "Environment:\n"
       "  WISP_CLUSTER        discovery cluster name (default \"default\")\n"
       "  WISP_NO_DISCOVERY   set to disable LAN auto-discovery\n"
+      "  WISP_PEERS          comma-separated peer broker endpoints to dial directly,\n"
+      "                      for networks UDP discovery can't reach (subnets,\n"
+      "                      containers, k8s), e.g. tcp://10.0.0.2:5555,tcp://10.0.0.3:5555\n"
       "  WISP_LOG_LEVEL      minimum log severity: debug, info, warn, error\n"
       "  WISP_INSPECTOR_SOCK local inspector tap endpoint (default\n"
       "                      ipc:///tmp/broker_inspector.sock). Give each broker on\n"
@@ -112,6 +116,18 @@ int main(int argc, char* argv[]) {
   }
 
   broker.start(bindings);
+
+  // Explicit peer brokers to dial, for networks UDP discovery can't reach
+  // (across subnets, containers, Kubernetes). A peer link is bidirectional over
+  // one connection, so only one side need list the other; dialed directly and
+  // not counted against the discovery peer cap. libzmq keeps retrying a seed
+  // that is down or not yet resolvable, so ordering at startup doesn't matter.
+  if (const char* peers = std::getenv("WISP_PEERS")) {
+    for (const std::string& address : parsePeerList(peers)) {
+      Logger::Log(Logger::Info, "Dialing seed peer: " + address);
+      broker.connectToPeer(address);
+    }
+  }
 
   int received = 0;
   sigwait(&signals, &received);

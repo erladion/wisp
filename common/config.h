@@ -1,10 +1,12 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <string>
+#include <vector>
 
 // Parse a decimal port number. False when the text is not a number or falls
 // outside 1-65535; `zeroAllowed` additionally accepts 0, which beacons use to
@@ -20,6 +22,36 @@ inline bool parsePort(const std::string& text, bool zeroAllowed, std::uint16_t& 
   } catch (const std::exception&) {
     return false;
   }
+}
+
+// Split a comma-separated list of peer endpoints (the WISP_PEERS environment
+// variable) into individual addresses. Surrounding whitespace is trimmed and
+// empty entries are dropped, so "tcp://a:5555, tcp://b:5555," yields two
+// addresses. The endpoints are not validated here - a malformed one is refused
+// by the peer link that tries to dial it.
+inline std::vector<std::string> parsePeerList(const std::string& text) {
+  std::vector<std::string> peers;
+  std::size_t pos = 0;
+  while (pos <= text.size()) {
+    const std::size_t comma = text.find(',', pos);
+    const std::size_t end = (comma == std::string::npos) ? text.size() : comma;
+    std::size_t begin = pos;
+    while (begin < end && std::isspace(static_cast<unsigned char>(text[begin]))) {
+      ++begin;
+    }
+    std::size_t last = end;
+    while (last > begin && std::isspace(static_cast<unsigned char>(text[last - 1]))) {
+      --last;
+    }
+    if (last > begin) {
+      peers.push_back(text.substr(begin, last - begin));
+    }
+    if (comma == std::string::npos) {
+      break;
+    }
+    pos = comma + 1;
+  }
+  return peers;
 }
 
 // Incoming frames larger than this are rejected at the transport layer and
