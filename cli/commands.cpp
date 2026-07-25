@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -21,7 +22,6 @@
 #include "logger.h"
 #include "messagekeys.h"
 #include "payloadformat.h"
-#include "socketio.h"
 #include "uuidhelper.h"
 #include "wireframe.h"
 
@@ -35,6 +35,40 @@ using namespace std::chrono_literals;
 
 // Slice a streaming command waits before looking at its exit conditions again.
 constexpr auto RECEIVE_SLICE = 250ms;
+
+/* Socket waits that survive a signal, for the tap - the one place left that
+   reads a socket directly, a broker's inspector PUB being plain ZeroMQ rather
+   than a session. A SIGINT arriving mid-wait makes the call fail with EINTR,
+   which cppzmq reports by throwing; out of a loop with no handler that is
+   std::terminate instead of the clean shutdown the signal asked for. Treating
+   an interruption as "nothing arrived" leaves the loop's own interrupted()
+   check to end it. Any other ZeroMQ failure still throws - the socket is done.
+
+   Everything else in the tool waits on ZmqWorker's queue instead, and never
+   touches a socket. */
+bool waitReadable(zmq::socket_t& socket, std::chrono::milliseconds timeout) {
+  zmq::pollitem_t items[] = {{socket.handle(), 0, ZMQ_POLLIN, 0}};
+  try {
+    zmq::poll(items, 1, timeout);
+  } catch (const zmq::error_t& e) {
+    if (e.num() == EINTR) {
+      return false;
+    }
+    throw;
+  }
+  return (items[0].revents & ZMQ_POLLIN) != 0;
+}
+
+bool receiveEnvelope(zmq::socket_t& socket, Envelope& out, std::size_t* wireBytes) {
+  try {
+    return Wire::recv(socket, out, zmq::recv_flags::none, wireBytes);
+  } catch (const zmq::error_t& e) {
+    if (e.num() == EINTR) {
+      return false;
+    }
+    throw;
+  }
+}
 
 std::string defaultClientId() {
   // This becomes the session's ZMQ routing id, so two CLIs on one broker must

@@ -24,9 +24,6 @@ using TestSupport::testBrokerAddress;
 
 namespace {
 const std::string kTopic = "cli-session-topic";
-// Nothing is ever bound here; ZeroMQ connects to it happily and retries
-// forever, which is the case sync() exists to detect.
-const std::string kDeadAddress = "tcp://127.0.0.1:25999";
 }  // namespace
 
 class CliSessionTest : public ::testing::Test {
@@ -45,35 +42,10 @@ protected:
   std::unique_ptr<Broker> m_broker;
 };
 
-// A ZeroMQ connect succeeding proves nothing about anyone being there. sync()
-// is what the commands rely on to tell an unreachable broker from a quiet one,
-// so it has to fail - inside its deadline - when nothing answers.
-TEST_F(CliSessionTest, SyncFailsWhenNoBrokerIsListening) {
-  BrokerSession session;
-  std::string error;
-  ASSERT_TRUE(session.open(kDeadAddress, "cli-session-dead", error)) << error;
-
-  const auto started = std::chrono::steady_clock::now();
-  EXPECT_FALSE(session.sync(300ms)) << "sync() claimed a broker answered at an address nobody is serving";
-
-  const auto elapsed = std::chrono::steady_clock::now() - started;
-  EXPECT_LT(elapsed, 2s) << "sync() overran its own deadline";
-}
-
-TEST_F(CliSessionTest, SyncSucceedsAgainstALiveBroker) {
-  startBroker();
-
-  BrokerSession session;
-  std::string error;
-  ASSERT_TRUE(session.open(testBrokerAddress(), "cli-session-live", error)) << error;
-  EXPECT_TRUE(session.sync(2000ms));
-
-  // Repeatable: it is a barrier, not a one-time handshake.
-  EXPECT_TRUE(session.sync(2000ms));
-}
-
-/* The guarantee the whole session rests on, and the reason the tests around it
-   need no retry loop.
+/* What sync() guarantees is tested against the worker that provides it (see
+   worker_sync_test.cpp); BrokerSession only forwards to it. What is left here
+   is what the session itself adds: composing that barrier into a live
+   subscription, and leaving cleanly.
 
    Everywhere else in this suite a subscriber has to publish repeatedly until
    something lands, because a SUBSCRIBE is processed asynchronously and an early
@@ -111,43 +83,6 @@ TEST_F(CliSessionTest, SubscriptionIsLiveOnceSyncReturns) {
   EXPECT_EQ(received.payload, "published-once");
 
   publisher.stop();
-  session.close();
-}
-
-/* What `pub` reports its exit status from: a sync() after publishing cannot be
-   answered before the publish ahead of it was processed, so the message is
-   already routed by the time it returns. A subscriber that was listening
-   beforehand therefore has it waiting. */
-TEST_F(CliSessionTest, PublishIsRoutedBeforeTheFollowingSyncReturns) {
-  startBroker();
-
-  SafeQueue<Envelope> inbound;
-  ConnectionConfig subscriberConfig;
-  subscriberConfig.address = testBrokerAddress();
-  subscriberConfig.clientId = "cli-session-listener";
-  ZmqWorker subscriber(subscriberConfig, &inbound, nullptr);
-  subscriber.start();
-  completeHandshake(subscriber, subscriberConfig.clientId);
-  TestSupport::subscribe(subscriber, subscriberConfig.clientId, kTopic);
-
-  BrokerSession session;
-  std::string error;
-  ASSERT_TRUE(session.open(testBrokerAddress(), "cli-session-confirmed-publisher", error)) << error;
-  // The subscriber above is a plain worker with no barrier of its own, so this
-  // gives its SUBSCRIBE time to land before anything is published.
-  ASSERT_TRUE(session.sync(2000ms));
-  std::this_thread::sleep_for(200ms);
-
-  ASSERT_TRUE(session.publish(kTopic, "confirmed"));
-  ASSERT_TRUE(session.sync(2000ms)) << "the broker never confirmed the publish";
-
-  // The broker has routed it; only the delivery leg to the subscriber's own
-  // socket remains, so this wait is short by design.
-  Envelope received;
-  ASSERT_TRUE(popWithTimeout(inbound, received, 1000ms)) << "the message was not routed by the time sync() returned";
-  EXPECT_EQ(received.payload, "confirmed");
-
-  subscriber.stop();
   session.close();
 }
 

@@ -2,21 +2,17 @@
 # read stats, and tap a broker from a terminal. Deliberately Qt-free, so it
 # builds and installs on the machines that actually run brokers.
 
-# Everything except the commands themselves and main(): the session, the socket
-# waits, argument parsing and payload rendering. Compiled once and linked into
-# both the binary and the test suite, so the session's ordering guarantees are
+# The session and the pure helpers - argument parsing and payload rendering.
+# Compiled once and linked into both the binary and the test suite, so they are
 # tested directly rather than through the process.
 add_library(WispCliObjects OBJECT
   brokersession.h
   brokersession.cpp
   interrupt.h
-  interrupt.cpp
   options.h
   options.cpp
   payloadformat.h
   payloadformat.cpp
-  socketio.h
-  socketio.cpp
 )
 target_include_directories(WispCliObjects PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(WispCliObjects PUBLIC WispCore zmq)
