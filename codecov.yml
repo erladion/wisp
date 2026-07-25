@@ -1,0 +1,24 @@
+# What Codecov measures. Coverage is the product code in common/ (client
+# library + C ABI) and server/ (broker) - not the tests that exercise it, the
+# vendored third_party sources, the generated protobuf, the broker entry point,
+# or the Qt GUI. The CI report is already scoped with gcovr; this is the
+# authoritative filter for Codecov's own project total and PR annotations, and a
+# safety net in case raw gcov data is picked up alongside the report.
+ignore:
+  - "tests"
+  - "third_party"
+  - "common/generated"
+  - "common/generated-c"
+  - "server/main.cpp"
+  - "inspector"
+  - "examples"
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto        # don't drop below the base commit
+        threshold: 1%       # tolerate small run-to-run noise
+    patch:
+      default:
+        target: auto

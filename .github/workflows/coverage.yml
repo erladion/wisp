@@ -43,8 +43,8 @@ jobs:
       - name: Coverage report
         run: >
           gcovr --root .
-          --filter 'common/' --filter 'server/'
-          --exclude '.*/generated/.*' --exclude '.*_test\.cpp'
+          --filter 'common/' --filter 'server/' --filter 'bindings/polling/'
+          --exclude '.*/generated(-c)?/.*' --exclude '.*_test\.cpp'
           --exclude 'server/main\.cpp' --exclude 'inspector/.*'
           --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
           --cobertura coverage.xml --print-summary
@@ -53,6 +53,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
+          disable_search: true   # upload only the gcovr report, not the raw .gcov/.gcda tree
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
 
@@ -60,8 +61,8 @@ jobs:
       - name: Enforce coverage floor
         run: >
           gcovr --root .
-          --filter 'common/' --filter 'server/'
-          --exclude '.*/generated/.*' --exclude '.*_test\.cpp'
+          --filter 'common/' --filter 'server/' --filter 'bindings/polling/'
+          --exclude '.*/generated(-c)?/.*' --exclude '.*_test\.cpp'
           --exclude 'server/main\.cpp' --exclude 'inspector/.*'
           --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
           --fail-under-line 85
