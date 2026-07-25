@@ -25,6 +25,7 @@ Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. E
 | `common/` | Client library: `ConnectionManager` (C++) plus a C ABI (`connectionapi.h`) |
 | `bindings/qt/` | Optional Qt binding (`Wisp::QtConnectionAdapter`) |
 | `bindings/polling/` | Frame-loop adapter (`Wisp::MessagePoller`) for immediate-mode UIs and game loops |
+| `cli/` | `wisp-cli` — publish, subscribe, request, read stats, and tap from a terminal |
 | `inspector/` | Qt GUI that taps and displays live broker traffic |
 | `examples/` | Small demo clients exercising the C++ API |
 
@@ -38,9 +39,31 @@ ctest --test-dir build          # run the test suite
 
 Requires a POSIX system (Linux is what's tested — there is no Windows port), a C++17 compiler, ZeroMQ with the cppzmq headers (Debian/Ubuntu ship them in `libzmq3-dev`), and Protocol Buffers. Qt is optional — it enables the inspector, the Qt binding, and the demo clients; the broker and client library build without it. Builds default to `Release` when no `CMAKE_BUILD_TYPE` is given.
 
+## The command line
+
+`wisp-cli` is the headless counterpart to the inspector — no Qt, so it builds and installs wherever a broker runs, and it is the quickest way to see whether traffic is flowing:
+
+```sh
+wisp-cli sub '*'                          # watch every topic on a broker
+wisp-cli pub telemetry '{"temp":21}'      # publish (payload from stdin if omitted)
+wisp-cli req config/get name -t 1000      # request/reply; exits 1 if no reply arrives
+wisp-cli stats                            # one broker statistics report, then exit
+wisp-cli tap                              # every message a local broker processes, control traffic included
+```
+
+It talks to `tcp://127.0.0.1:5555` unless `--address` or `WISP_ADDRESS` says otherwise. Payloads render as decoded protobuf when the type is one Wisp knows, as text when they are printable, and as hex otherwise; `--format raw` writes the bytes verbatim so a payload can be piped into a file. `--count N` stops after N messages. `wisp-cli --help` lists the rest.
+
+**Exit status means something.** A ZeroMQ connect succeeds against an address nobody is serving, so "connected" on its own is not evidence of anything. Every command instead waits for the broker to answer a heartbeat before reporting success: since the protocol gives per-connection FIFO ordering, an acknowledgement proves the broker already processed everything sent ahead of it. So `wisp-cli pub` exits 0 only once its message has actually been routed, `wisp-cli sub` has its subscriptions live before it prints a word — nothing published after it starts can be lost to a race — and `req` exits 1 on an unanswered request. That is what makes these safe to put in a script:
+
+```sh
+wisp-cli pub deploy/start "$VERSION" || exit 1   # the broker had it, or this failed
+```
+
+`tap` reads a broker's inspector socket rather than joining as a client, so it sees control traffic — heartbeats, subscribes, resets — that no subscriber ever receives. It defaults to `$WISP_INSPECTOR_SOCK`; point it at `tcp://host:N` to read a broker started with `--inspector-port N`.
+
 ## Using Wisp from another project
 
-`make install` ships the broker, both client libraries, the public headers, and a CMake package:
+`make install` ships the broker, `wisp-cli`, both client libraries, the public headers, and a CMake package:
 
 ```cmake
 find_package(Wisp REQUIRED)
@@ -100,7 +123,8 @@ Everything else is optional and set through environment variables:
 | `WISP_NO_DISCOVERY` | broker | Set (to anything) to disable LAN auto-discovery |
 | `WISP_PEERS` | broker | Comma-separated peer broker endpoints to dial directly (e.g. `tcp://host-b:5555`), for networks UDP discovery can't reach — across subnets, containers, Kubernetes. A peer link is bidirectional, so only one side need list the other; these are not counted against the discovery peer cap. Seed only brokers discovery can't already reach: seeding one that is *also* discoverable forms a second, harmless link to it (the duplicate traffic is deduplicated), since a seed is matched by address string and discovery by broker id |
 | `WISP_LOG_LEVEL` | broker and any process embedding the client library | Minimum log severity: `debug`, `info`, `warn`, `error`; unset logs everything |
-| `WISP_INSPECTOR_SOCK` | broker and inspector | Local inspector tap endpoint (default `ipc:///tmp/broker_inspector.sock`). Give each broker on a host its own — see below |
+| `WISP_INSPECTOR_SOCK` | broker, inspector, and `wisp-cli tap` | Local inspector tap endpoint (default `ipc:///tmp/broker_inspector.sock`). Give each broker on a host its own — see below |
+| `WISP_ADDRESS` | `wisp-cli` | Broker endpoint the CLI connects to (default `tcp://127.0.0.1:5555`); `--address` overrides it |
 
 Running several brokers on one host, give each one its own `WISP_INSPECTOR_SOCK`. ZeroMQ's `ipc://` bind takes over an existing socket path instead of failing, so brokers sharing the default tap silently steal it from each other: every one of them reports the tap as active, but only the last to start is actually reachable there, and the others' traffic never shows up in the inspector. The broker warns when it takes over a path someone else is serving.
 

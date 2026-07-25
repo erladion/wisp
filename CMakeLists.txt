@@ -132,6 +132,7 @@ include_directories(common)
 
 add_subdirectory(common)
 add_subdirectory(server)
+add_subdirectory(cli)
 add_subdirectory(bindings/polling)
 
 # Everything below needs Qt; the broker and client library do not. A Qt-less

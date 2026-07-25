@@ -20,6 +20,9 @@ set(BROKER_TEST_SOURCES
   beacon_test.cpp
   c_api_test.cpp
   callback_shapes_test.cpp
+  cli_options_test.cpp
+  cli_payload_format_test.cpp
+  cli_session_test.cpp
   client_id_correction_test.cpp
   cluster_swap_test.cpp
   dedup_text_uuid_test.cpp
@@ -60,6 +63,7 @@ target_link_libraries(broker_tests PRIVATE
   GTest::gtest_main
   WispBroker
   WispPolling
+  WispCliObjects
   WispCore
   zmq
 )
