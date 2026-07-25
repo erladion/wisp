@@ -8,6 +8,7 @@
 
 #include "datamodel.h"
 
+
 class PacketTableModel : public QAbstractTableModel {
   Q_OBJECT
 public:

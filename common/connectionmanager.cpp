@@ -10,6 +10,8 @@
 #include "uuidhelper.h"
 #include "zmqworker.h"
 
+namespace Wisp {
+
 using namespace std::string_literals;
 
 namespace {
@@ -265,7 +267,7 @@ bool ConnectionManager::sendData(const std::string& key, const std::string_view&
 bool ConnectionManager::setCluster(const std::string& name) {
   // Validate client-side: the broker also checks, but rejects silently (it only
   // logs), so a bad name would otherwise fail with no signal to the caller.
-  if (!beacon::isValidClusterName(name)) {
+  if (!Beacon::isValidClusterName(name)) {
     Logger::Log(Logger::Warning, "setCluster rejected: cluster name must be 1-64 bytes without '|'");
     return false;
   }
@@ -334,7 +336,7 @@ bool ConnectionManager::replyToSender(const std::string& data) {
     return false;
   }
   Envelope reply;
-  reply.payload = detail::encodePayload(data);
+  reply.payload = Detail::encodePayload(data);
   return self->sendReplyEnvelope(std::move(reply));
 }
 
@@ -479,5 +481,7 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
 }
 
 Envelope ConnectionManager::createControlEnvelope(const std::string& controlKey, const std::string& topic) {
-  return wire::makeControl(controlKey, m_clientId, topic);
+  return Wire::makeControl(controlKey, m_clientId, topic);
 }
+
+}  // namespace Wisp

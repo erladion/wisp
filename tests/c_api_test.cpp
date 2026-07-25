@@ -12,10 +12,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -69,11 +71,11 @@ protected:
   }
 
   void startBroker() {
-    m_broker = std::make_unique<ZmqBroker>();
+    m_broker = std::make_unique<Broker>();
     m_broker->start({kBrokerAddress});
   }
 
-  std::unique_ptr<ZmqBroker> m_broker;
+  std::unique_ptr<Broker> m_broker;
 };
 
 // Every entry point validates its arguments and fails cleanly with no active

@@ -12,6 +12,8 @@
 
 #include "beacon.h"
 
+using namespace Wisp;
+
 using namespace std::chrono_literals;
 
 namespace {
@@ -21,10 +23,10 @@ constexpr std::uint16_t kTestPort = 25971;
 }  // namespace
 
 TEST(BeaconTest, RoundTripsEveryField) {
-  const std::string wire = beacon::encode("prod", "uuid-123", 5555, 5999);
+  const std::string wire = Beacon::encode("prod", "uuid-123", 5555, 5999);
 
-  beacon::Beacon decoded;
-  ASSERT_TRUE(beacon::decode(wire.data(), wire.size(), decoded));
+  Beacon::Beacon decoded;
+  ASSERT_TRUE(Beacon::decode(wire.data(), wire.size(), decoded));
   EXPECT_EQ(decoded.cluster, "prod");
   EXPECT_EQ(decoded.uuid, "uuid-123");
   EXPECT_EQ(decoded.routerPort, 5555);
@@ -34,17 +36,17 @@ TEST(BeaconTest, RoundTripsEveryField) {
 // A tap port of 0 is the normal "no remote tap exposed" case, unlike the
 // router port which must be usable.
 TEST(BeaconTest, ZeroTapPortIsValidButZeroRouterPortIsNot) {
-  const std::string noTap = beacon::encode("prod", "uuid-123", 5555, 0);
-  beacon::Beacon decoded;
-  ASSERT_TRUE(beacon::decode(noTap.data(), noTap.size(), decoded));
+  const std::string noTap = Beacon::encode("prod", "uuid-123", 5555, 0);
+  Beacon::Beacon decoded;
+  ASSERT_TRUE(Beacon::decode(noTap.data(), noTap.size(), decoded));
   EXPECT_EQ(decoded.tapPort, 0);
 
-  const std::string noRouter = beacon::encode("prod", "uuid-123", 0, 0);
-  EXPECT_FALSE(beacon::decode(noRouter.data(), noRouter.size(), decoded));
+  const std::string noRouter = Beacon::encode("prod", "uuid-123", 0, 0);
+  EXPECT_FALSE(Beacon::decode(noRouter.data(), noRouter.size(), decoded));
 }
 
 TEST(BeaconTest, DecodeRejectsMalformed) {
-  beacon::Beacon decoded;
+  Beacon::Beacon decoded;
   const char* cases[] = {
       "nope",
       "XXXX|1|c|u|5555|0",      // wrong magic
@@ -58,16 +60,16 @@ TEST(BeaconTest, DecodeRejectsMalformed) {
       "WISP|1|c|u|5555|99999",
   };
   for (const char* c : cases) {
-    EXPECT_FALSE(beacon::decode(c, std::char_traits<char>::length(c), decoded)) << "should reject: " << c;
+    EXPECT_FALSE(Beacon::decode(c, std::char_traits<char>::length(c), decoded)) << "should reject: " << c;
   }
 }
 
 TEST(BeaconTest, ClusterNameValidation) {
-  EXPECT_TRUE(beacon::isValidClusterName("default"));
-  EXPECT_TRUE(beacon::isValidClusterName(std::string(64, 'c')));
-  EXPECT_FALSE(beacon::isValidClusterName(""));
-  EXPECT_FALSE(beacon::isValidClusterName(std::string(65, 'c')));
-  EXPECT_FALSE(beacon::isValidClusterName("has|separator"));
+  EXPECT_TRUE(Beacon::isValidClusterName("default"));
+  EXPECT_TRUE(Beacon::isValidClusterName(std::string(64, 'c')));
+  EXPECT_FALSE(Beacon::isValidClusterName(""));
+  EXPECT_FALSE(Beacon::isValidClusterName(std::string(65, 'c')));
+  EXPECT_FALSE(Beacon::isValidClusterName("has|separator"));
 }
 
 // The listener reports beacons from every cluster - a monitoring tool wants
@@ -75,9 +77,9 @@ TEST(BeaconTest, ClusterNameValidation) {
 // mistake it for a peer.
 TEST(BeaconTest, ListenerReportsBeaconsFromEveryCluster) {
   std::mutex mutex;
-  std::vector<beacon::Beacon> heard;
+  std::vector<Beacon::Beacon> heard;
 
-  beacon::Listener listener(kTestPort, [&](const std::string& senderIp, const beacon::Beacon& b) {
+  Beacon::Listener listener(kTestPort, [&](const std::string& senderIp, const Beacon::Beacon& b) {
     EXPECT_FALSE(senderIp.empty());
     std::lock_guard<std::mutex> lock(mutex);
     heard.push_back(b);
@@ -93,8 +95,8 @@ TEST(BeaconTest, ListenerReportsBeaconsFromEveryCluster) {
   dest.sin_port = htons(kTestPort);
   ::inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);
 
-  const std::string blue = beacon::encode("blue", "uuid-blue", 5555, 5999);
-  const std::string green = beacon::encode("green", "uuid-green", 6555, 0);
+  const std::string blue = Beacon::encode("blue", "uuid-blue", 5555, 5999);
+  const std::string green = Beacon::encode("green", "uuid-green", 6555, 0);
   const std::string garbage = "not a beacon";
 
   const auto deadline = std::chrono::steady_clock::now() + 5s;

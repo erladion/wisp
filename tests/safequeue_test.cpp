@@ -7,6 +7,8 @@
 
 #include "safequeue.h"
 
+using namespace Wisp;
+
 using namespace std::chrono_literals;
 
 TEST(SafeQueueTest, PushThenPopPreservesFifoOrder) {

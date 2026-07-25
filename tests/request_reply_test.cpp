@@ -11,10 +11,12 @@
 #include "safequeue.h"
 #include "uuidhelper.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -26,7 +28,7 @@ namespace {
 const std::string kRequestTopic = "request-reply-test";
 
 // The broker never echoes a message back to whoever published it (see
-// ZmqBroker::processMessage's "Don't echo back to sender" check), so a single
+// Broker::processMessage's "Don't echo back to sender" check), so a single
 // ConnectionManager can't play both ends of a request/reply round trip with
 // itself - its own request would never reach its own handler. Each test below
 // instead pairs a ConnectionManager (exercising the API under test) with a
@@ -44,11 +46,11 @@ protected:
   }
 
   void startBroker() {
-    m_broker = std::make_unique<ZmqBroker>();
+    m_broker = std::make_unique<Broker>();
     m_broker->start({testBrokerAddress()});
   }
 
-  std::unique_ptr<ZmqBroker> m_broker;
+  std::unique_ptr<Broker> m_broker;
 };
 
 // replyToSender() is the new piece of API: a handler running on a

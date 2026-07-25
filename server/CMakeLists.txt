@@ -4,13 +4,13 @@
 set(WISP_BROKER_PUBLIC_HEADERS
     discovery.h
     subscriptionregistry.h
-    zmqbroker.h
+    broker.h
 )
 
 # Compiled once for both linkages, as the client library is.
 add_library(WispBrokerObjects OBJECT
-  zmqbroker.h
-  zmqbroker.cpp
+  broker.h
+  broker.cpp
   discovery.h
   discovery.cpp
 )

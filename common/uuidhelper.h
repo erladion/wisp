@@ -11,6 +11,8 @@
 #include <string>
 #include <thread>
 
+namespace Wisp {
+
 inline std::string generateUUID() {
   static const char hexChars[] = "0123456789abcdef";
   // Seeding mt19937 from a single 32-bit draw would allow only 2^32 possible
@@ -83,5 +85,7 @@ inline std::string generateBinaryUUID() {
   std::memcpy(bytes + 8, &loBe, 8);
   return std::string(bytes, sizeof(bytes));
 }
+
+}  // namespace Wisp
 
 #endif  // UUIDHELPER_H

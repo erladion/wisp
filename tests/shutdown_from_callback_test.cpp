@@ -8,10 +8,12 @@
 
 #include "connectionmanager.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -62,12 +64,12 @@ protected:
     (void)m_pSender->writeMessage(std::move(msg));
   }
 
-  std::unique_ptr<ZmqBroker> m_pBroker;
+  std::unique_ptr<Broker> m_pBroker;
   std::unique_ptr<ZmqWorker> m_pSender;
 };
 
 TEST_F(ShutdownFromCallbackTest, ShutdownInsideAHandlerIsRefusedInsteadOfSelfJoining) {
-  m_pBroker = std::make_unique<ZmqBroker>();
+  m_pBroker = std::make_unique<Broker>();
   m_pBroker->start({testBrokerAddress()});
 
   ConnectionConfig config;
@@ -91,7 +93,7 @@ TEST_F(ShutdownFromCallbackTest, ShutdownInsideAHandlerIsRefusedInsteadOfSelfJoi
 // The ordinary path stays intact: from any other thread shutdown() tears the
 // singleton fully down before returning.
 TEST_F(ShutdownFromCallbackTest, ShutdownFromAnotherThreadStillTearsDown) {
-  m_pBroker = std::make_unique<ZmqBroker>();
+  m_pBroker = std::make_unique<Broker>();
   m_pBroker->start({testBrokerAddress()});
 
   ConnectionConfig config;

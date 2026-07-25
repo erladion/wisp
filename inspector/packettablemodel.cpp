@@ -4,6 +4,8 @@
 
 #include "messagekeys.h"
 
+using namespace Wisp;
+
 static QString formatByteSize(size_t bytes) {
   if (bytes < 1024) {
     return QString::number(bytes) + " B";

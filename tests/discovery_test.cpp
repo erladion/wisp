@@ -8,6 +8,8 @@
 
 #include "discovery.h"
 
+using namespace Wisp;
+
 using namespace std::chrono_literals;
 
 namespace {
@@ -28,7 +30,7 @@ std::unique_ptr<BrokerDiscovery> makeDiscovery(const std::string& cluster, const
 
 void feed(BrokerDiscovery& disc, const std::string& ip, const std::string& cluster, const std::string& uuid, std::uint16_t port,
           std::chrono::steady_clock::time_point now) {
-  const std::string wire = beacon::encode(cluster, uuid, port, /*tapPort=*/0);
+  const std::string wire = Beacon::encode(cluster, uuid, port, /*tapPort=*/0);
   disc.onDatagram(ip, wire.data(), wire.size(), now);
 }
 

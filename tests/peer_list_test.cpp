@@ -5,6 +5,8 @@
 
 #include "config.h"
 
+using namespace Wisp;
+
 // parsePeerList splits the WISP_PEERS environment variable into individual
 // endpoints for the broker to dial directly (see server/main.cpp).
 

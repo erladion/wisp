@@ -10,6 +10,7 @@
 #include <zmq.hpp>
 #include "datamodel.h"
 
+
 class InspectorWorker : public QThread {
   Q_OBJECT
 

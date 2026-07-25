@@ -10,6 +10,8 @@
 #include "wireframe.h"
 #include "zmqworker.h"
 
+using namespace Wisp;
+
 namespace TestSupport {
 
 // A high, unusual port so test runs don't collide with a broker the developer
@@ -50,11 +52,11 @@ bool popWithTimeout(SafeQueue<T>& queue, T& out, std::chrono::milliseconds timeo
 // is required anymore. Kept because an extra CONNECT is a harmless keep-alive
 // and many tests still call it.
 inline void completeHandshake(ZmqWorker& worker, const std::string& clientId) {
-  worker.writeControlMessage(wire::makeControl(Keys::CONNECT, clientId));
+  worker.writeControlMessage(Wire::makeControl(Keys::CONNECT, clientId));
 }
 
 inline void subscribe(ZmqWorker& worker, const std::string& clientId, const std::string& topic) {
-  worker.writeControlMessage(wire::makeControl(Keys::SUBSCRIBE, clientId, topic));
+  worker.writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, clientId, topic));
 }
 
 }  // namespace TestSupport

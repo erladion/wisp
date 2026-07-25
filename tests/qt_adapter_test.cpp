@@ -14,10 +14,12 @@
 
 #include "qtconnectionadapter.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -67,7 +69,7 @@ TEST(QtAdapterSerializerTest, QJsonObjectRoundTrip) {
 // --- End-to-end: typed delivery, marshaled onto the context's thread ---------
 
 TEST(QtAdapterE2ETest, DeliversTypedMessageOnContextThread) {
-  ZmqBroker broker;
+  Broker broker;
   broker.start({testBrokerAddress()});
 
   QObject context;  // lives on this (the test's main) thread

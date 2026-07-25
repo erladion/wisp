@@ -11,10 +11,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::popWithTimeout;
@@ -26,7 +28,7 @@ using TestSupport::testBrokerAddress;
 // stops reading and its pipes fill, the broker's forced drops have to show up
 // in SYS_STATS - per client and in the total - instead of vanishing silently.
 TEST(StatsTest, DroppedDeliveriesAreCounted) {
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   // The slow consumer: subscribes, then never reads a single message. Small
@@ -44,13 +46,13 @@ TEST(StatsTest, DroppedDeliveriesAreCounted) {
   broker::MessageHeader hello;
   hello.set_handler_key(Keys::CONNECT);
   hello.set_sender_id("slow-consumer");
-  (void)wire::send(slow, hello, std::string());
+  (void)Wire::send(slow, hello, std::string());
 
   broker::MessageHeader sub;
   sub.set_handler_key(Keys::SUBSCRIBE);
   sub.set_sender_id("slow-consumer");
   sub.set_topic("flood-topic");
-  (void)wire::send(slow, sub, std::string());
+  (void)Wire::send(slow, sub, std::string());
 
   // A healthy client watching the broker's stats broadcasts.
   SafeQueue<Envelope> statsInbound;
@@ -93,7 +95,7 @@ TEST(StatsTest, DroppedDeliveriesAreCounted) {
           broker::MessageHeader heartbeat;
           heartbeat.set_handler_key(Keys::HEARTBEAT);
           heartbeat.set_sender_id("slow-consumer");
-          (void)wire::send(slow, heartbeat, std::string());
+          (void)Wire::send(slow, heartbeat, std::string());
           lastKeepalive = std::chrono::steady_clock::now();
         }
         if (!popWithTimeout(statsInbound, env, 50ms) || env.header.handler_key() != Keys::SYS_STATS) {

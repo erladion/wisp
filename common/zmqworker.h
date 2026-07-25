@@ -15,6 +15,8 @@
 #include "wireframe.h"
 #include "workerinterface.h"
 
+namespace Wisp {
+
 class ZmqWorker final : public WorkerInterface {
 public:
   ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboundQueue, WorkerStatusCallback statusCb);
@@ -24,7 +26,7 @@ public:
   void stop() override;
   bool writeMessage(Envelope msg) override;
   bool writeControlMessage(Envelope msg) override;
-  bool writeEncoded(wire::WireMessagePtr msg) override;
+  bool writeEncoded(Wire::WireMessagePtr msg) override;
   void setMessageCallback(WorkerMessageCallback callback) override;
   std::uint64_t droppedSends() const override { return m_droppedSends.load(std::memory_order_relaxed); }
 
@@ -65,7 +67,7 @@ private:
   // Data messages that arrived already encoded (see writeEncoded). A worker
   // uses this or m_outboundQueue, never both: the broker's peer links publish
   // only pre-encoded messages, client links only envelopes.
-  SafeQueue<wire::WireMessagePtr> m_encodedQueue;
+  SafeQueue<Wire::WireMessagePtr> m_encodedQueue;
   // Set once this worker is handed a pre-encoded message, and never cleared.
   // Draining a queue takes its mutex, so without this every client worker
   // would pay a lock per loop iteration for a queue that is always empty.
@@ -75,5 +77,7 @@ private:
   std::atomic<std::uint64_t> m_droppedSends;
   LogThrottle m_dropLogThrottle;
 };
+
+}  // namespace Wisp
 
 #endif  // ZMQWORKER_H

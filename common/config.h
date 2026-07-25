@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+namespace Wisp {
+
 // Parse a decimal port number. False when the text is not a number or falls
 // outside 1-65535; `zeroAllowed` additionally accepts 0, which beacons use to
 // mean "no inspector tap".
@@ -97,5 +99,7 @@ struct ConnectionConfig {
   // connection is reported offline (and recovers on the next reply).
   int keepAliveTimeout = 10000;
 };
+
+}  // namespace Wisp
 
 #endif  // CONFIG_H

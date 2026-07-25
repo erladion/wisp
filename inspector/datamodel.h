@@ -6,6 +6,7 @@
 
 #include "broker.pb.h"
 
+
 struct InspectorPacket {
   std::string timestamp;
   std::string senderId;

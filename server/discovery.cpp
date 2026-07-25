@@ -4,6 +4,8 @@
 
 #include <vector>
 
+namespace Wisp {
+
 BrokerDiscovery::BrokerDiscovery(std::string cluster, std::string selfUuid, std::uint16_t routerPort, std::uint16_t tapPort, std::uint16_t discoveryPort,
                                  DialFn dial, DropFn drop)
     : m_cluster(std::move(cluster)),
@@ -22,8 +24,8 @@ BrokerDiscovery::~BrokerDiscovery() {
 }
 
 void BrokerDiscovery::onDatagram(const std::string& senderIp, const char* data, std::size_t size, std::chrono::steady_clock::time_point now) {
-  beacon::Beacon heard;
-  if (!beacon::decode(data, size, heard)) {
+  Beacon::Beacon heard;
+  if (!Beacon::decode(data, size, heard)) {
     return;
   }
   if (heard.uuid == m_selfUuid) {
@@ -126,7 +128,7 @@ void BrokerDiscovery::stop() {
 }
 
 void BrokerDiscovery::run() {
-  beacon::UdpSocket socket;
+  Beacon::UdpSocket socket;
   if (!socket.open(m_discoveryPort, "Discovery")) {
     Logger::Log(Logger::Error, "Discovery: auto-mesh disabled");
     return;
@@ -145,14 +147,14 @@ void BrokerDiscovery::run() {
       std::string wire;
       {
         std::lock_guard<std::mutex> lock(m_mutex);
-        wire = beacon::encode(m_cluster, m_selfUuid, m_routerPort, m_tapPort);
+        wire = Beacon::encode(m_cluster, m_selfUuid, m_routerPort, m_tapPort);
       }
       socket.broadcast(wire, m_discoveryPort);
       expireStale(now);
       nextBeacon = now + m_beaconInterval;
     }
 
-    char buf[beacon::MAX_DATAGRAM_SIZE];
+    char buf[Beacon::MAX_DATAGRAM_SIZE];
     std::string senderIp;
     const std::size_t n = socket.receive(buf, sizeof(buf), 200, senderIp);
     if (n > 0) {
@@ -160,3 +162,5 @@ void BrokerDiscovery::run() {
     }
   }
 }
+
+}  // namespace Wisp

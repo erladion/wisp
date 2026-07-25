@@ -11,7 +11,9 @@
 #include "config.h"
 #include "logger.h"
 
-namespace beacon {
+namespace Wisp {
+
+namespace Beacon {
 namespace {
 
 constexpr char MAGIC[] = "WISP";
@@ -174,4 +176,6 @@ void Listener::run() {
   }
 }
 
-}  // namespace beacon
+}  // namespace Beacon
+
+}  // namespace Wisp

@@ -14,11 +14,13 @@
 #include "beacon.h"
 #include "logger.h"
 
+namespace Wisp {
+
 // LAN auto-discovery of peer brokers via periodic UDP broadcast beacons (the
 // format and a listen-only receiver live in common/beacon.h). On hearing a
 // beacon from a peer in the same cluster, the broker with the smaller uuid
 // dials the other - one bidirectional DEALER link per pair (see
-// ZmqBroker::connectToPeer). Peers that go silent are dropped.
+// Broker::connectToPeer). Peers that go silent are dropped.
 //
 // The UDP socket is a thin loop around onDatagram() / expireStale(), which hold
 // all the decision logic and are unit-testable without a network.
@@ -28,7 +30,7 @@ public:
   using DialFn = std::function<void(const std::string& uuid, const std::string& address)>;
   using DropFn = std::function<void(const std::string& uuid)>;
 
-  static constexpr std::uint16_t DefaultPort = beacon::DEFAULT_PORT;
+  static constexpr std::uint16_t DefaultPort = Beacon::DEFAULT_PORT;
 
   // Ceiling on peers dialed from discovery. Beacons are unauthenticated UDP,
   // and each dial spawns a peer worker (a thread and a zmq context), so without
@@ -96,5 +98,7 @@ private:
   // is fine. Rate-limits the log when the dial cap is holding off new peers.
   LogThrottle m_dialCapThrottle;
 };
+
+}  // namespace Wisp
 
 #endif  // DISCOVERY_H

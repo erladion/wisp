@@ -8,10 +8,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::popWithTimeout;
@@ -22,7 +24,7 @@ using TestSupport::testBrokerAddress;
 // treats it as an unknown session and answers __RESET__; after re-subscribing
 // (what ConnectionManager does on RESET), traffic flows again.
 TEST(SessionRecoveryTest, ClientRecoversAfterBrokerRestart) {
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   SafeQueue<Envelope> inbound;
@@ -64,7 +66,7 @@ TEST(SessionRecoveryTest, ClientRecoversAfterBrokerRestart) {
 
   // Restart the broker: all session state is gone, the clients never stop.
   broker->stop();
-  broker = std::make_unique<ZmqBroker>();
+  broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   // The subscriber's next heartbeat reveals the lost session.
@@ -91,7 +93,7 @@ TEST(SessionRecoveryTest, ClientRecoversAfterBrokerRestart) {
 // client that goes silent past the timeout is forgotten, and its next
 // liveness probe is answered with __RESET__.
 TEST(SessionRecoveryTest, SilentClientIsForgottenAndToldToReset) {
-  auto broker = std::make_unique<ZmqBroker>(400ms);
+  auto broker = std::make_unique<Broker>(400ms);
   broker->start({testBrokerAddress()});
 
   zmq::context_t ctx(1);
@@ -105,7 +107,7 @@ TEST(SessionRecoveryTest, SilentClientIsForgottenAndToldToReset) {
   broker::MessageHeader hello;
   hello.set_handler_key(Keys::CONNECT);
   hello.set_sender_id("silent-client");
-  (void)wire::send(dealer, hello, std::string());
+  (void)Wire::send(dealer, hello, std::string());
   std::this_thread::sleep_for(1200ms);
 
   bool gotReset = false;
@@ -113,10 +115,10 @@ TEST(SessionRecoveryTest, SilentClientIsForgottenAndToldToReset) {
     broker::MessageHeader heartbeat;
     heartbeat.set_handler_key(Keys::HEARTBEAT);
     heartbeat.set_sender_id("silent-client");
-    (void)wire::send(dealer, heartbeat, std::string());
+    (void)Wire::send(dealer, heartbeat, std::string());
 
     Envelope reply;
-    while (wire::recv(dealer, reply, zmq::recv_flags::none)) {
+    while (Wire::recv(dealer, reply, zmq::recv_flags::none)) {
       if (reply.header.handler_key() == Keys::RESET) {
         gotReset = true;
         break;

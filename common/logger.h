@@ -13,6 +13,8 @@
 #include <sstream>
 #include <string>
 
+namespace Wisp {
+
 namespace TimeFormat {
 
 /* Wall-clock time as "HH:MM:SS.mmm", local time.
@@ -182,5 +184,7 @@ private:
   std::atomic<Level> m_minLevel;
   Handler m_handler;
 };
+
+}  // namespace Wisp
 
 #endif  // LOGGER_H

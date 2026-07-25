@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 
+
 namespace HexUtils {
 
 inline std::string generateHexDump(const std::string& rawData) {

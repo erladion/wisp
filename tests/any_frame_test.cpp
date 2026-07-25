@@ -8,7 +8,9 @@
 #include "broker.pb.h"
 #include "connectionmanager.h"
 
-/* detail::readAnyFrame is a hand-rolled protobuf wire parser: it reads a
+using namespace Wisp;
+
+/* Detail::readAnyFrame is a hand-rolled protobuf wire parser: it reads a
    serialized google.protobuf.Any in place rather than materializing an Any and
    copying the payload out of it. Measured, that is worth roughly 1.3 us per
    decoded message - most of a small message's decode cost - which is why it
@@ -48,7 +50,7 @@ broker::SystemStats makeStats() {
 TEST(AnyFrameTest, HandBuiltFrameIsWireIdenticalToARealAny) {
   const broker::SystemStats stats = makeStats();
 
-  const std::string ours = detail::encodePayload(stats);
+  const std::string ours = Detail::encodePayload(stats);
 
   google::protobuf::Any reference;
   reference.PackFrom(stats);
@@ -65,11 +67,11 @@ TEST(AnyFrameTest, HandBuiltFrameIsWireIdenticalToARealAny) {
 // Every wire type the reader knows how to skip, exercised through one message.
 TEST(AnyFrameTest, ReaderAgreesWithProtobufAcrossWireTypes) {
   const broker::SystemStats stats = makeStats();
-  const std::string raw = detail::encodePayload(stats);
+  const std::string raw = Detail::encodePayload(stats);
 
   broker::SystemStats viaReader;
   broker::SystemStats viaProtobuf;
-  ASSERT_TRUE(detail::tryUnpack(raw, viaReader));
+  ASSERT_TRUE(Detail::tryUnpack(raw, viaReader));
   ASSERT_TRUE(referenceUnpack(raw, viaProtobuf));
 
   EXPECT_EQ(viaReader.SerializeAsString(), viaProtobuf.SerializeAsString());
@@ -82,23 +84,23 @@ TEST(AnyFrameTest, ReaderAgreesWithProtobufAcrossWireTypes) {
 // A type_url naming a different message must be a hard failure, not a
 // permissive reinterpretation of the bytes as T.
 TEST(AnyFrameTest, TypeMismatchIsRefused) {
-  const std::string raw = detail::encodePayload(makeStats());
+  const std::string raw = Detail::encodePayload(makeStats());
 
   broker::ClientInfo wrongType;
-  EXPECT_FALSE(detail::tryUnpack(raw, wrongType)) << "an Any of the wrong type was accepted";
+  EXPECT_FALSE(Detail::tryUnpack(raw, wrongType)) << "an Any of the wrong type was accepted";
 }
 
 // Truncation at every possible offset: none may crash, over-read, or report
 // success with a type_url the bytes do not actually contain.
 TEST(AnyFrameTest, TruncatedFramesAreRejectedNotOverRead) {
-  const std::string raw = detail::encodePayload(makeStats());
+  const std::string raw = Detail::encodePayload(makeStats());
 
   for (std::size_t len = 0; len < raw.size(); ++len) {
     const std::string truncated = raw.substr(0, len);
 
     std::string_view typeUrl;
     std::string_view valueBytes;
-    const bool ok = detail::readAnyFrame(truncated, typeUrl, valueBytes);
+    const bool ok = Detail::readAnyFrame(truncated, typeUrl, valueBytes);
 
     // Whatever it decides, the views it hands back must point inside the input.
     if (ok && !typeUrl.empty()) {
@@ -112,7 +114,7 @@ TEST(AnyFrameTest, TruncatedFramesAreRejectedNotOverRead) {
 
     // And tryUnpack must never hand a caller a half-parsed message it claims is good.
     broker::SystemStats out;
-    if (detail::tryUnpack(truncated, out)) {
+    if (Detail::tryUnpack(truncated, out)) {
       // The only truncation that may legitimately succeed is one protobuf
       // itself would also accept.
       broker::SystemStats reference;
@@ -135,7 +137,7 @@ TEST(AnyFrameTest, GarbageIsRejected) {
   for (const std::string& bytes : garbage) {
     std::string_view typeUrl;
     std::string_view valueBytes;
-    EXPECT_FALSE(detail::readAnyFrame(bytes, typeUrl, valueBytes)) << "accepted malformed bytes as a valid frame";
+    EXPECT_FALSE(Detail::readAnyFrame(bytes, typeUrl, valueBytes)) << "accepted malformed bytes as a valid frame";
   }
 }
 
@@ -148,7 +150,7 @@ TEST(AnyFrameTest, NonAnyPayloadFallsBackToABareParse) {
   const std::string raw = bare.SerializeAsString();
 
   broker::ClientInfo out;
-  ASSERT_TRUE(detail::tryUnpack(raw, out));
+  ASSERT_TRUE(Detail::tryUnpack(raw, out));
   EXPECT_EQ(out.id(), "not-wrapped");
   EXPECT_EQ(out.dropped_messages(), 3u);
 }

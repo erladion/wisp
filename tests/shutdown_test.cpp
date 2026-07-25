@@ -7,10 +7,12 @@
 #include <thread>
 
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::testBrokerAddress;
@@ -81,25 +83,25 @@ TEST(ShutdownTest, WorkerStopsPromptlyWithUnreachableBrokerAndFullSendPipe) {
 // practical here, so this pins the prompt-shutdown property for a broker
 // with a live peer link plus the stop() ordering around the queue.
 TEST(ShutdownTest, BrokerWithPeerLinkStopsPromptly) {
-  auto remote = std::make_unique<ZmqBroker>();
+  auto remote = std::make_unique<Broker>();
   remote->start({testBrokerAddress()});
 
-  auto local = std::make_unique<ZmqBroker>();
+  auto local = std::make_unique<Broker>();
   local->start({"tcp://127.0.0.1:25597"});
   local->connectToPeer(testBrokerAddress());
 
   // Let the link finish its RESET/subscribe handshake before tearing down.
   std::this_thread::sleep_for(300ms);
 
-  EXPECT_TRUE(stopWithin(local, 5s)) << "ZmqBroker::stop() hung with a live peer link";
-  EXPECT_TRUE(stopWithin(remote, 5s)) << "ZmqBroker::stop() hung on the remote broker";
+  EXPECT_TRUE(stopWithin(local, 5s)) << "Broker::stop() hung with a live peer link";
+  EXPECT_TRUE(stopWithin(remote, 5s)) << "Broker::stop() hung on the remote broker";
 }
 
 // A stopped worker must come back fully on a second start(): in particular
 // its wake pipe has to be re-established (inproc pipes die with the bound
 // peer), or sends from the restarted worker silently lose their wakeups.
 TEST(ShutdownTest, RestartedWorkerStillDeliversMessages) {
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   SafeQueue<Envelope> inbound;

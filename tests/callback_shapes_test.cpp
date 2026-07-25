@@ -5,6 +5,8 @@
 
 #include "connectionmanager.h"
 
+using namespace Wisp;
+
 /* registerCallback() accepts several callable shapes, and picking the wrong
    overload is a *compile* error rather than a test failure - so what these
    cases mostly assert is that they build at all.

@@ -2,6 +2,8 @@
 
 #include "subscriptionregistry.h"
 
+using namespace Wisp;
+
 TEST(SubscriptionRegistryTest, SubscribeIsIdempotent) {
   SubscriptionRegistry registry;
 

@@ -4,6 +4,8 @@
 #include <string>
 #include <string_view>
 
+namespace Wisp {
+
 // Keys are std::string (not string_view) so they can be passed straight into
 // protobuf's generated setters on every protobuf version: older releases
 // (e.g. the 3.21 that distros ship) accept only std::string/const char*
@@ -49,5 +51,7 @@ inline bool isControlMessage(std::string_view key) {
 }
 
 }  // namespace Keys
+
+}  // namespace Wisp
 
 #endif  // MESSAGEKEYS_H

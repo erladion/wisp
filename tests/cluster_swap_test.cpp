@@ -9,10 +9,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -30,7 +32,7 @@ constexpr std::uint16_t kDiscoveryPort = 25995;
 // active cluster is observable through the SYS_STATS broadcast. An invalid
 // name ('|' is the beacon separator) must be rejected and never take effect.
 TEST(ClusterSwapTest, SetClusterMessageSwapsTheAdvertisedCluster) {
-  ZmqBroker broker;
+  Broker broker;
   broker.enableDiscovery("initial-cluster", kDiscoveryPort);
   broker.start({kBrokerAddress});
 

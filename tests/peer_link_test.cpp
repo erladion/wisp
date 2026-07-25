@@ -11,10 +11,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::popWithTimeout;
@@ -62,7 +64,7 @@ int peerCountFromStats(SafeQueue<Envelope>& inbound) {
    which is not guaranteed (a hand-typed "tcp://localhost:5555" and a
    discovered "tcp://127.0.0.1:5555" name the same broker but differ here). */
 TEST(PeerLinkTest, LinkIdsDifferPerPeerKey) {
-  using BrokerInternal::peerLinkId;
+  using Detail::peerLinkId;
   const std::string brokerId = "3f2a91c4-7b6d-4e15-9a80-2c5d1e8f4b7a";
 
   // The two keys the same remote can arrive under.
@@ -84,11 +86,11 @@ TEST(PeerLinkTest, LinkIdsDifferPerPeerKey) {
 // connectToPeer keys a link by its address, so dialing one twice must be
 // idempotent rather than building a second link to the same broker.
 TEST(PeerLinkTest, DialingTheSameAddressTwiceBuildsOneLink) {
-  auto remote = std::make_unique<ZmqBroker>();
+  auto remote = std::make_unique<Broker>();
   remote->setInspectorEndpoint("ipc:///tmp/wisp_test_peerlink_remote.sock");
   remote->start({kRemoteAddress});
 
-  auto local = std::make_unique<ZmqBroker>();
+  auto local = std::make_unique<Broker>();
   local->setInspectorEndpoint("ipc:///tmp/wisp_test_peerlink_local.sock");
   local->start({kLocalAddress});
   std::this_thread::sleep_for(300ms);
@@ -116,11 +118,11 @@ TEST(PeerLinkTest, DialingTheSameAddressTwiceBuildsOneLink) {
 // Traffic still crosses a link that was dialed twice: the refused duplicate
 // must not disturb the link that was actually kept.
 TEST(PeerLinkTest, RedialedPeerStillForwardsTraffic) {
-  auto remote = std::make_unique<ZmqBroker>();
+  auto remote = std::make_unique<Broker>();
   remote->setInspectorEndpoint("ipc:///tmp/wisp_test_peerlink_remote2.sock");
   remote->start({kRemoteAddress});
 
-  auto local = std::make_unique<ZmqBroker>();
+  auto local = std::make_unique<Broker>();
   local->setInspectorEndpoint("ipc:///tmp/wisp_test_peerlink_local2.sock");
   local->start({kLocalAddress});
   std::this_thread::sleep_for(300ms);

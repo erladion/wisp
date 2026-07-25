@@ -11,10 +11,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -31,7 +33,7 @@ using TestSupport::waitFor;
 class SubscriptionLimitsTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_pBroker = std::make_unique<ZmqBroker>();
+    m_pBroker = std::make_unique<Broker>();
     m_pBroker->start({testBrokerAddress()});
   }
 
@@ -117,7 +119,7 @@ protected:
     return true;
   }
 
-  std::unique_ptr<ZmqBroker> m_pBroker;
+  std::unique_ptr<Broker> m_pBroker;
   std::unique_ptr<ZmqWorker> m_pSubscriber;
   std::unique_ptr<ZmqWorker> m_pPublisher;
 };

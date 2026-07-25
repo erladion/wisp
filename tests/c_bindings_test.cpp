@@ -7,6 +7,8 @@
 #include "broker.pb.h"    // C++ generated (protobuf)
 #include "broker.pb-c.h"  // C generated (protobuf-c)
 
+using namespace Wisp;
+
 // The protobuf-c bindings exist so a pure-C client can speak the broker's
 // protocol. That only works if they are wire-compatible with the C++
 // MessageHeader the broker uses - bytes packed by one side must parse on the

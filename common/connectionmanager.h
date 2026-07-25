@@ -27,6 +27,8 @@
 #include "wireframe.h"
 #include "workerinterface.h"
 
+namespace Wisp {
+
 using MessageCallback = std::function<void(const std::string&)>;
 
 struct CallbackEntry {
@@ -86,7 +88,7 @@ struct CallableTraits<ReturnType (ClassType::*)()> {};
 template <typename ReturnType>
 struct CallableTraits<ReturnType (*)()> {};
 
-namespace detail {
+namespace Detail {
 
 inline constexpr std::string_view ANY_TYPE_URL_PREFIX = "type.googleapis.com/";
 
@@ -259,7 +261,7 @@ bool decodePayload(const std::string& raw, T& out) {
   }
 }
 
-}  // namespace detail
+}  // namespace Detail
 
 class ConnectionManager {
 public:
@@ -299,7 +301,7 @@ public:
 
   // Pointers and arrays are excluded so string literals and char* still pick
   // the plain std::string overload above. Encoding rules live in
-  // detail::encodePayload.
+  // Detail::encodePayload.
   template <typename T, typename std::enable_if<!std::is_pointer<T>::value && !std::is_array<T>::value, int>::type = 0>
   static bool sendMessage(const std::string& key, const T& value) {
     std::shared_ptr<ConnectionManager> self = getInstance();
@@ -310,14 +312,14 @@ public:
     envelope.header.set_handler_key(key);
     envelope.header.set_sender_id(self->m_clientId);
     envelope.header.set_topic(key);
-    envelope.payload = detail::encodePayload(value);
+    envelope.payload = Detail::encodePayload(value);
     return self->sendRawEnvelope(std::move(envelope));
   }
 
   // Dispatches on the callback's argument type. The BaseT default argument
   // doubles as SFINAE: callables without a single-argument signature (e.g.
   // void() lambdas) fail substitution and fall through to the overloads below.
-  // Decoding rules live in detail::decodePayload.
+  // Decoding rules live in Detail::decodePayload.
   template <typename Callable, typename BaseT = typename std::decay<typename CallableTraits<Callable>::ArgType>::type>
   static void registerCallback(const std::string& key, Callable func, void* instance = nullptr) {
     // mutable so a `mutable` user callable (whose operator() is non-const) can
@@ -326,7 +328,7 @@ public:
         key,
         [func, key](const std::string& raw) mutable {
           BaseT value;
-          if (detail::decodePayload(raw, value)) {
+          if (Detail::decodePayload(raw, value)) {
             func(value);
           } else {
             Logger::Log(Logger::Error, "Failed to decode message for key: " + key);
@@ -365,7 +367,7 @@ public:
 
   template <typename T>
   static bool tryUnpack(const std::string& raw, T& outMsg) {
-    return detail::tryUnpack(raw, outMsg);
+    return Detail::tryUnpack(raw, outMsg);
   }
 
   static void unregisterCallback(const std::string& key, void* instance);
@@ -378,7 +380,7 @@ public:
     std::string rawResponse;
 
     if (sendRequest(requestTopic, payloadData, rawResponse, timeoutMs)) {
-      return detail::decodePayload(rawResponse, outResponse);
+      return Detail::decodePayload(rawResponse, outResponse);
     }
     return false;
   }
@@ -394,7 +396,7 @@ public:
       return false;
     }
     Envelope reply;
-    reply.payload = detail::encodePayload(value);
+    reply.payload = Detail::encodePayload(value);
     return self->sendReplyEnvelope(std::move(reply));
   }
 
@@ -452,5 +454,7 @@ private:
 
   static std::vector<std::tuple<std::string, MessageCallback, void*>> s_pendingMsgCallbacks;
 };
+
+}  // namespace Wisp
 
 #endif  // CONNECTIONMANAGER_H

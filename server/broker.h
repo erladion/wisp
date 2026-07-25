@@ -1,5 +1,5 @@
-#ifndef ZMQBROKER_H
-#define ZMQBROKER_H
+#ifndef BROKER_H
+#define BROKER_H
 
 #include <zmq.hpp>
 
@@ -20,6 +20,8 @@
 #include "wireframe.h"
 
 #include "broker.pb.h"
+
+namespace Wisp {
 
 struct ClientState {
   std::chrono::steady_clock::time_point lastSeen;
@@ -95,7 +97,7 @@ struct PeerLink {
   std::unique_ptr<ZmqWorker> worker;
 };
 
-namespace BrokerInternal {
+namespace Detail {
 
 /* The ZMQ routing id a peer link presents on the remote's ROUTER.
 
@@ -109,9 +111,9 @@ namespace BrokerInternal {
    public surface. */
 std::string peerLinkId(const std::string& brokerId, const std::string& key);
 
-}  // namespace BrokerInternal
+}  // namespace Detail
 
-class ZmqBroker {
+class Broker {
   static constexpr size_t MaxHistorySize = 10000;
   // Max envelopes drained from the client socket per poll wakeup, so a
   // sustained burst can't starve zombie cleanup and stats.
@@ -135,8 +137,8 @@ public:
   // clientTimeout: silence after which a client is forgotten (its next message
   // is then treated as an unknown session). Injectable so tests can run the
   // zombie/recovery cycle in milliseconds instead of the 10 s default.
-  explicit ZmqBroker(std::chrono::milliseconds clientTimeout = std::chrono::seconds(10));
-  ~ZmqBroker();
+  explicit Broker(std::chrono::milliseconds clientTimeout = std::chrono::seconds(10));
+  ~Broker();
 
   void start(const std::vector<std::string> &bindAddresses);
   void stop();
@@ -280,5 +282,7 @@ private:
   uint64_t m_msgsInterval;
   uint64_t m_bytesInterval;
 };
+
+}  // namespace Wisp
 
 #endif

@@ -23,8 +23,8 @@ Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. E
 |---|---|
 | `server/` | The broker — topic routing, pub/sub, request/reply, auto-meshing |
 | `common/` | Client library: `ConnectionManager` (C++) plus a C ABI (`connectionapi.h`) |
-| `bindings/qt/` | Optional Qt binding (`QtConnectionAdapter`) |
-| `bindings/polling/` | Frame-loop adapter (`wisp::MessagePoller`) for immediate-mode UIs and game loops |
+| `bindings/qt/` | Optional Qt binding (`Wisp::QtConnectionAdapter`) |
+| `bindings/polling/` | Frame-loop adapter (`Wisp::MessagePoller`) for immediate-mode UIs and game loops |
 | `inspector/` | Qt GUI that taps and displays live broker traffic |
 | `examples/` | Small demo clients exercising the C++ API |
 
@@ -50,11 +50,11 @@ target_link_libraries(myapp PRIVATE Wisp::Core)   # or Wisp::CoreShared
 ```cpp
 #include <wisp/connectionmanager.h>
 
-ConnectionConfig config;
+Wisp::ConnectionConfig config;
 config.address = "tcp://localhost:5555";
 config.clientId = "my-app";
-ConnectionManager::init(config);
-ConnectionManager::sendMessage("telemetry", myProtobufMessage);
+Wisp::ConnectionManager::init(config);
+Wisp::ConnectionManager::sendMessage("telemetry", myProtobufMessage);
 ```
 
 | Target | What |
@@ -63,16 +63,16 @@ ConnectionManager::sendMessage("telemetry", myProtobufMessage);
 | `Wisp::CoreShared` | C++ client library, shared (`libwispcore.so`) |
 | `Wisp::Broker` | Broker as a library, static (`libwispbroker.a`) — run one in-process |
 | `Wisp::BrokerShared` | Broker as a library, shared (`libwispbroker.so`) |
-| `Wisp::Polling` | Header-only frame-loop adapter (`wisp::MessagePoller`) |
+| `Wisp::Polling` | Header-only frame-loop adapter (`Wisp::MessagePoller`) |
 | `Wisp::Qt` | Qt binding — present only if Wisp was built with Qt |
 | `Wisp::wisp` | The C ABI (`libwisp.so`), for FFI callers |
 
 Linking `Wisp::Broker` embeds a broker in your own process, so a self-contained application needs no separate `wisp-broker`:
 
 ```cpp
-#include <wisp/zmqbroker.h>
+#include <wisp/broker.h>
 
-ZmqBroker broker;
+Wisp::Broker broker;
 broker.start({"tcp://*:5555"});
 ```
 

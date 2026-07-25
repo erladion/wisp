@@ -8,10 +8,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::popWithTimeout;
@@ -22,7 +24,7 @@ using TestSupport::testBrokerAddress;
 // is registered silently: it must become fully functional - subscribed and
 // receiving - without the broker ever sending it a __RESET__.
 TEST(HandshakeTest, FreshSessionIsRegisteredWithoutReset) {
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   SafeQueue<Envelope> inbound;
@@ -73,7 +75,7 @@ TEST(HandshakeTest, FreshSessionIsRegisteredWithoutReset) {
 // means a lost session: the broker must answer __RESET__ *and* still process
 // the message - a publish routes to subscribers, nothing is sacrificed.
 TEST(HandshakeTest, UnknownSessionPublishIsRoutedAndDrawsReset) {
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   SafeQueue<Envelope> inbound;
@@ -100,10 +102,10 @@ TEST(HandshakeTest, UnknownSessionPublishIsRoutedAndDrawsReset) {
     header.set_handler_key("lost-data");
     header.set_sender_id("lost-session-publisher");
     header.set_topic("lost-topic");
-    (void)wire::send(dealer, header, "publish-" + std::to_string(attempt));
+    (void)Wire::send(dealer, header, "publish-" + std::to_string(attempt));
 
     Envelope fromBroker;
-    if (wire::recv(dealer, fromBroker, zmq::recv_flags::none) && fromBroker.header.handler_key() == Keys::RESET) {
+    if (Wire::recv(dealer, fromBroker, zmq::recv_flags::none) && fromBroker.header.handler_key() == Keys::RESET) {
       gotReset = true;
     }
 
@@ -121,7 +123,7 @@ TEST(HandshakeTest, UnknownSessionPublishIsRoutedAndDrawsReset) {
   // RESET is guaranteed sent, so give it a bounded grace to arrive.
   for (int attempt = 0; attempt < 20 && !gotReset; ++attempt) {
     Envelope fromBroker;
-    if (wire::recv(dealer, fromBroker, zmq::recv_flags::none) && fromBroker.header.handler_key() == Keys::RESET) {
+    if (Wire::recv(dealer, fromBroker, zmq::recv_flags::none) && fromBroker.header.handler_key() == Keys::RESET) {
       gotReset = true;
     }
   }

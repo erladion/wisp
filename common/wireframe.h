@@ -11,6 +11,8 @@
 
 #include "broker.pb.h"
 
+namespace Wisp {
+
 // A message as it travels in-process: a routing header plus an opaque payload.
 // On the wire these are two ZMQ frames; the payload frame is omitted when
 // `payload` is empty. The broker only ever touches `header`.
@@ -19,7 +21,7 @@ struct Envelope {
   std::string payload;
 };
 
-namespace wire {
+namespace Wire {
 
 /* A message already encoded for the wire: the header frame bytes (format tag
    included) plus the opaque payload.
@@ -140,7 +142,7 @@ inline void drainMultipart(zmq::socket_t& sock) {
   }
 }
 
-namespace detail {
+namespace Detail {
 
 // A payload frame may come from raw bytes (copied) or from an existing zmq
 // message (shared via reference counting, so fanning one payload out to N
@@ -164,7 +166,7 @@ inline zmq::message_t payloadFrame(zmq::message_t& payload) {
   return frame;
 }
 
-}  // namespace detail
+}  // namespace Detail
 
 /* Send an already-encoded header frame, plus a payload frame when non-empty,
    as one multipart group.
@@ -172,7 +174,7 @@ inline zmq::message_t payloadFrame(zmq::message_t& payload) {
    `identity` prepends a routing-id frame for ROUTER sockets; pass nullptr for
    sockets that carry none (DEALER, PUB). `payload` is either raw bytes or a
    zmq::message_t whose bytes are shared rather than copied - see
-   detail::payloadFrame.
+   Detail::payloadFrame.
 
    Non-blocking: a slow client with a full pipe must stall its own messages,
    not the sending loop. False when the group was refused - a full pipe, or an
@@ -182,7 +184,7 @@ inline zmq::message_t payloadFrame(zmq::message_t& payload) {
    can never be torn apart.  */
 template <typename Payload>
 bool sendFrames(zmq::socket_t& sock, const std::string* identity, const std::string& headerFrame, Payload&& payload) {
-  const bool hasPayload = detail::payloadSize(payload) > 0;
+  const bool hasPayload = Detail::payloadSize(payload) > 0;
 
   try {
     if (identity) {
@@ -203,7 +205,7 @@ bool sendFrames(zmq::socket_t& sock, const std::string* identity, const std::str
     }
 
     if (hasPayload) {
-      zmq::message_t frame = detail::payloadFrame(payload);
+      zmq::message_t frame = Detail::payloadFrame(payload);
       (void)sock.send(frame, zmq::send_flags::dontwait);
     }
     return true;
@@ -269,6 +271,8 @@ inline bool recv(zmq::socket_t& sock, Envelope& env, zmq::recv_flags flags, std:
   return true;
 }
 
-}  // namespace wire
+}  // namespace Wire
+
+}  // namespace Wisp
 
 #endif  // WIREFRAME_H

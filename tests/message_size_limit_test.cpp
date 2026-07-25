@@ -10,10 +10,12 @@
 #include "logger.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -27,7 +29,7 @@ using TestSupport::testBrokerAddress;
 // disconnected by zmq and reconnects automatically, which the retry loop
 // below absorbs.
 TEST(MessageSizeLimitTest, OversizedMessageIsRejectedAndBrokerSurvives) {
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   const std::string topic = "size-limit-topic";
@@ -101,7 +103,7 @@ TEST(MessageSizeLimitTest, MalformedFloodProducesAtMostOneWarningPerWindow) {
     }
   });
 
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   // Raw DEALER sending single-part garbage (no header frame at all).

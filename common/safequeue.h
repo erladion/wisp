@@ -6,6 +6,8 @@
 #include <deque>
 #include <mutex>
 
+namespace Wisp {
+
 template <typename T>
 class SafeQueue {
 public:
@@ -112,5 +114,7 @@ private:
   bool m_stop;
   size_t m_maxSize;
 };
+
+}  // namespace Wisp
 
 #endif

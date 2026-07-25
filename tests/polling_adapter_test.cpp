@@ -9,10 +9,12 @@
 #include "connectionmanager.h"
 #include "wireframe.h"
 #include "wisppoller.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::testBrokerAddress;
@@ -28,7 +30,7 @@ const std::string kTopic = "polling-topic";
 class PollingAdapterTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_broker = std::make_unique<ZmqBroker>();
+    m_broker = std::make_unique<Broker>();
     m_broker->start({testBrokerAddress()});
 
     // The poller's client subscribes; a separate worker publishes, because the
@@ -67,7 +69,7 @@ protected:
 
   // Publishes until the poller has captured something, since a subscription
   // goes live asynchronously.
-  void publishUntilCaptured(wisp::MessagePoller& poller, int expected, const std::string& payloadPrefix) {
+  void publishUntilCaptured(Wisp::MessagePoller& poller, int expected, const std::string& payloadPrefix) {
     int sent = 0;
     waitFor(
         [&] {
@@ -77,24 +79,24 @@ protected:
         5s, 20ms);
   }
 
-  std::unique_ptr<ZmqBroker> m_broker;
+  std::unique_ptr<Broker> m_broker;
   std::unique_ptr<ZmqWorker> m_publisher;
 };
 
 TEST_F(PollingAdapterTest, CapturedMessagesAreHandedOverOnPoll) {
-  wisp::MessagePoller poller;
+  Wisp::MessagePoller poller;
   poller.subscribe(kTopic);
 
   publishUntilCaptured(poller, 1, "frame-");
 
-  std::vector<wisp::PolledMessage> batch{{"stale", "content"}};  // must be cleared
+  std::vector<Wisp::PolledMessage> batch{{"stale", "content"}};  // must be cleared
   ASSERT_GT(poller.poll(batch), 0u) << "nothing was captured for the frame loop to drain";
   EXPECT_EQ(batch[0].topic, kTopic);
   EXPECT_EQ(batch[0].payload.rfind("frame-", 0), 0u) << "payload did not survive the hand-off";
   EXPECT_EQ(poller.dropped(), 0u);
 
   // A drained poller yields nothing until more arrives.
-  std::vector<wisp::PolledMessage> second;
+  std::vector<Wisp::PolledMessage> second;
   EXPECT_EQ(poller.poll(second), 0u);
   EXPECT_TRUE(second.empty());
 }
@@ -102,7 +104,7 @@ TEST_F(PollingAdapterTest, CapturedMessagesAreHandedOverOnPoll) {
 // A loop that stalls must not stall delivery: the buffer is bounded, and it is
 // the oldest messages that go, so the loop resumes on recent traffic.
 TEST_F(PollingAdapterTest, FullBufferDiscardsOldestAndCountsIt) {
-  wisp::MessagePoller poller(4);
+  Wisp::MessagePoller poller(4);
   poller.subscribe(kTopic);
 
   // Publish well past the capacity without polling once - the stalled-loop case.
@@ -119,18 +121,18 @@ TEST_F(PollingAdapterTest, FullBufferDiscardsOldestAndCountsIt) {
   EXPECT_GT(poller.dropped(), 0u) << "an overflowing buffer did not report dropping anything";
   EXPECT_LE(poller.pending(), 4u) << "the buffer grew past its capacity";
 
-  std::vector<wisp::PolledMessage> batch;
+  std::vector<Wisp::PolledMessage> batch;
   poller.poll(batch);
   ASSERT_FALSE(batch.empty());
   EXPECT_LE(batch.size(), 4u);
 }
 
 TEST_F(PollingAdapterTest, UnsubscribeStopsCapturing) {
-  wisp::MessagePoller poller;
+  Wisp::MessagePoller poller;
   poller.subscribe(kTopic);
   publishUntilCaptured(poller, 1, "before-");
 
-  std::vector<wisp::PolledMessage> batch;
+  std::vector<Wisp::PolledMessage> batch;
   ASSERT_GT(poller.poll(batch), 0u);
 
   poller.unsubscribe(kTopic);

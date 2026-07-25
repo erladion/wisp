@@ -10,10 +10,12 @@
 
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -25,7 +27,7 @@ namespace {
 const std::string kTopic = "any-payload-test";
 }
 
-// Spins up a real ZmqBroker plus one publisher and one subscriber connected to
+// Spins up a real Broker plus one publisher and one subscriber connected to
 // it, then verifies that arbitrary protobuf types survive a round trip through
 // the broker's opaque payload frame intact - exercising the same dynamic
 // pack/unpack path the Inspector relies on (ProtoUtils::dynamicallyUnpack) and
@@ -34,7 +36,7 @@ const std::string kTopic = "any-payload-test";
 class AnyPayloadRoundtripTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_broker = std::make_unique<ZmqBroker>();
+    m_broker = std::make_unique<Broker>();
     m_broker->start({testBrokerAddress()});
 
     ConnectionConfig subConfig;
@@ -148,7 +150,7 @@ protected:
         << "  received: " << unpacked.ShortDebugString();
   }
 
-  std::unique_ptr<ZmqBroker> m_broker;
+  std::unique_ptr<Broker> m_broker;
   std::unique_ptr<ZmqWorker> m_subscriber;
   std::unique_ptr<ZmqWorker> m_publisher;
   SafeQueue<Envelope> m_inbound;

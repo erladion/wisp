@@ -29,6 +29,7 @@
 
 #include "packettablemodel.h"
 
+
 class MainWindow : public QMainWindow {
   Q_OBJECT
 
@@ -67,7 +68,7 @@ private:
     std::chrono::steady_clock::time_point lastSeen;
   };
 
-  void onBeaconHeard(const QString& senderIp, const beacon::Beacon& heard);
+  void onBeaconHeard(const QString& senderIp, const Wisp::Beacon::Beacon& heard);
   void refreshBrokerList();
   void attachTo(const QString& endpoint, const QString& label);
   void clearCapture();
@@ -76,7 +77,7 @@ private:
 
 private:
   InspectorWorker* m_pWorker;
-  std::unique_ptr<ZmqWorker> m_pInjector;
+  std::unique_ptr<Wisp::ZmqWorker> m_pInjector;
   QString m_injectorAddress;
 
   std::deque<InspectorPacket> m_packetHistory;
@@ -108,7 +109,7 @@ private:
 
   // Broker discovery: beacons arrive on the listener's own thread and are
   // marshalled onto the UI thread before touching any of this state.
-  std::unique_ptr<beacon::Listener> m_pBeaconListener;
+  std::unique_ptr<Wisp::Beacon::Listener> m_pBeaconListener;
   QMap<QString, DiscoveredBroker> m_discoveredBrokers;  // keyed by uuid
   QComboBox* m_pBrokerSelector;
   QTimer* m_pBrokerExpiryTimer;

@@ -7,10 +7,12 @@
 
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -33,13 +35,13 @@ protected:
     }
   }
 
-  ZmqBroker& startBroker(const std::string& address) {
-    m_brokers.push_back(std::make_unique<ZmqBroker>());
+  Broker& startBroker(const std::string& address) {
+    m_brokers.push_back(std::make_unique<Broker>());
     m_brokers.back()->start({address});
     return *m_brokers.back();
   }
 
-  std::vector<std::unique_ptr<ZmqBroker>> m_brokers;
+  std::vector<std::unique_ptr<Broker>> m_brokers;
 };
 
 // A "*" subscription is the broker's wildcard: the subscriber must receive
@@ -258,7 +260,7 @@ TEST_F(WildcardSubscriptionTest, OverlappingExactAndWildcardSubscriptionsDeliver
 // connected to A.
 TEST_F(WildcardSubscriptionTest, PeerLinkForwardsRemoteMessagesToLocalSubscribers) {
   startBroker(testBrokerAddress());                       // broker B (remote)
-  ZmqBroker& brokerA = startBroker(kPeerBrokerAddress);   // broker A (local)
+  Broker& brokerA = startBroker(kPeerBrokerAddress);   // broker A (local)
   brokerA.connectToPeer(testBrokerAddress());
 
   const std::string topic = "peer-topic";

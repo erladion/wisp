@@ -10,6 +10,8 @@
 
 #include "mainwindow.h"
 
+using namespace Wisp;
+
 int main(int argc, char* argv[]) {
   /* The inspector parses tap traffic the same way the broker parses the wire,
      so it inherits the same exposure: protobuf logs straight to stderr on a

@@ -6,10 +6,12 @@
 #include <thread>
 
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 
@@ -45,7 +47,7 @@ bool tapSees(const std::string& brokerAddress, const std::string& tap, const std
         publisher.writeMessage(std::move(msg));
 
         Envelope tapped;
-        while (wire::recv(sub, tapped, zmq::recv_flags::none)) {
+        while (Wire::recv(sub, tapped, zmq::recv_flags::none)) {
           if (tapped.header.handler_key() == key) {
             return true;
           }
@@ -64,11 +66,11 @@ bool tapSees(const std::string& brokerAddress, const std::string& tap, const std
 // loser's traffic becomes invisible to the inspector. Giving each its own
 // endpoint has to keep them fully separate.
 TEST(InspectorTapTest, BrokersWithDistinctTapsStayIsolated) {
-  ZmqBroker brokerA;
+  Broker brokerA;
   brokerA.setInspectorEndpoint(kTapA);
   brokerA.start({kBrokerA});
 
-  ZmqBroker brokerB;
+  Broker brokerB;
   brokerB.setInspectorEndpoint(kTapB);
   brokerB.start({kBrokerB});
   std::this_thread::sleep_for(300ms);

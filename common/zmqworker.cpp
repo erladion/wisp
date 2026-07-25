@@ -6,6 +6,8 @@
 
 #include <deque>
 
+namespace Wisp {
+
 namespace {
 // In-process wake channel between producer threads and the run() loop. The
 // name is per-context (each worker owns its context), so instances don't clash.
@@ -31,7 +33,7 @@ const Envelope& deref(const Envelope& env) {
   return env;
 }
 
-const wire::WireMessage& deref(const wire::WireMessagePtr& msg) {
+const Wire::WireMessage& deref(const Wire::WireMessagePtr& msg) {
   return *msg;
 }
 }  // namespace
@@ -111,7 +113,7 @@ bool ZmqWorker::writeControlMessage(Envelope msg) {
    hands the same message to many workers in turn, so waiting for room would
    let one dead link set the pace for all the others. Forwarded traffic is
    data, best-effort like data everywhere else, so a full queue drops it. */
-bool ZmqWorker::writeEncoded(wire::WireMessagePtr msg) {
+bool ZmqWorker::writeEncoded(Wire::WireMessagePtr msg) {
   // Relaxed: the queue's own mutex synchronizes the message itself, and a
   // momentarily stale read only costs one extra poll cycle before the drain.
   m_hasEncoded.store(true, std::memory_order_relaxed);
@@ -176,7 +178,7 @@ void ZmqWorker::runLoop() {
   // Lead with CONNECT before anything else on the socket: a session that
   // announces itself is registered silently, while any other first message
   // from an unknown identity draws a __RESET__ (see PROTOCOL.md, Sessions).
-  (void)wire::send(socket, wire::makeControlHeader(Keys::CONNECT, m_config.clientId), std::string());
+  (void)Wire::send(socket, Wire::makeControlHeader(Keys::CONNECT, m_config.clientId), std::string());
 
   // Heartbeat cadence and offline detection come from the connection config;
   // non-positive values fall back to the defaults. The silence window must
@@ -202,14 +204,14 @@ void ZmqWorker::runLoop() {
   }
 
   std::deque<Envelope> batch;
-  std::deque<wire::WireMessagePtr> encodedBatch;
+  std::deque<Wire::WireMessagePtr> encodedBatch;
   // Control messages waiting for room in the send pipe; see flushControl.
   std::deque<Envelope> controlBacklog;
 
   // Envelopes are serialized here; pre-encoded messages go straight out.
   const auto sendBatch = [&](auto& queued) {
     for (const auto& msg : queued) {
-      const bool sent = wire::send(socket, deref(msg));
+      const bool sent = Wire::send(socket, deref(msg));
       if (!sent) {
         noteDroppedSend();
       }
@@ -227,7 +229,7 @@ void ZmqWorker::runLoop() {
      high-water mark long before it exceeds anything else. */
   const auto flushControl = [&] {
     while (!controlBacklog.empty()) {
-      if (!wire::send(socket, controlBacklog.front())) {
+      if (!Wire::send(socket, controlBacklog.front())) {
         return false;
       }
       controlBacklog.pop_front();
@@ -267,8 +269,8 @@ void ZmqWorker::runLoop() {
 
     if (items[0].revents & ZMQ_POLLIN) {
       // DEALER never carries the routing-id frame, so the first frame is the
-      // header - wire::recv reads it plus any payload continuation frame.
-      if (wire::recv(socket, inbound, zmq::recv_flags::none)) {
+      // header - Wire::recv reads it plus any payload continuation frame.
+      if (Wire::recv(socket, inbound, zmq::recv_flags::none)) {
         didWork = true;
         lastRxTime = std::chrono::steady_clock::now();
 
@@ -360,5 +362,7 @@ void ZmqWorker::runLoop() {
 }
 
 void ZmqWorker::sendHeartbeat(zmq::socket_t& socket) {
-  (void)wire::send(socket, wire::makeControlHeader(Keys::HEARTBEAT, m_config.clientId), std::string());
+  (void)Wire::send(socket, Wire::makeControlHeader(Keys::HEARTBEAT, m_config.clientId), std::string());
 }
+
+}  // namespace Wisp

@@ -6,6 +6,8 @@
 #include <cstring>
 #include <string>
 
+using namespace Wisp;
+
 // Every entry point validates its arguments and catches all exceptions:
 // this is an extern "C" ABI and callers (C, Python ctypes, Ada, ...) cannot
 // unwind C++ exceptions. Failures leave a description in t_lastError for
@@ -127,7 +129,7 @@ int setCluster(const char* name) {
   }
   // Validated here too, so the caller gets ERROR_INVALID_ARGS with the reason
   // rather than an ambiguous connection error from setCluster() below.
-  if (!beacon::isValidClusterName(name)) {
+  if (!Beacon::isValidClusterName(name)) {
     return fail(ERROR_INVALID_ARGS, "cluster name must be 1-64 bytes without '|'");
   }
 

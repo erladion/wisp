@@ -9,10 +9,12 @@
 #include "connectionmanager.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -32,11 +34,11 @@ protected:
   }
 
   void startBroker() {
-    m_broker = std::make_unique<ZmqBroker>();
+    m_broker = std::make_unique<Broker>();
     m_broker->start({testBrokerAddress()});
   }
 
-  std::unique_ptr<ZmqBroker> m_broker;
+  std::unique_ptr<Broker> m_broker;
 };
 
 // replyToSenderInternal() bails out (logs a warning, returns false) whenever

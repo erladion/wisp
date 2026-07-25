@@ -17,6 +17,8 @@
 
 #include "logger.h"
 
+using namespace Wisp;
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   qRegisterMetaType<InspectorPacket>("InspectorPacket");
 
@@ -33,7 +35,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   // Listen for broker beacons so the selector can offer every broker on the
   // network. Listen-only by construction: an inspector that beaconed would be
   // dialed by brokers as if it were a peer broker.
-  m_pBeaconListener = std::make_unique<beacon::Listener>(beacon::DEFAULT_PORT, [this](const std::string& senderIp, const beacon::Beacon& heard) {
+  m_pBeaconListener = std::make_unique<Beacon::Listener>(Beacon::DEFAULT_PORT, [this](const std::string& senderIp, const Beacon::Beacon& heard) {
     // Hop to the UI thread before touching any widget or the broker map.
     const QString ip = QString::fromStdString(senderIp);
     QMetaObject::invokeMethod(
@@ -94,7 +96,7 @@ QString MainWindow::routerEndpointForTap(const QString& tapEndpoint) const {
   return QStringLiteral("tcp://localhost:5555");
 }
 
-void MainWindow::onBeaconHeard(const QString& senderIp, const beacon::Beacon& heard) {
+void MainWindow::onBeaconHeard(const QString& senderIp, const Beacon::Beacon& heard) {
   const QString uuid = QString::fromStdString(heard.uuid);
 
   DiscoveredBroker broker;

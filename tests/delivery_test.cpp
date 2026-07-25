@@ -9,10 +9,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::subscribe;
@@ -27,7 +29,7 @@ const std::string kTopic = "delivery-topic";
 // below capacity every published message has to arrive. This is the guarantee
 // the throughput benchmark cannot show, because it deliberately saturates.
 TEST(DeliveryTest, NothingIsLostBelowCapacity) {
-  auto broker = std::make_unique<ZmqBroker>();
+  auto broker = std::make_unique<Broker>();
   broker->start({testBrokerAddress()});
 
   SafeQueue<Envelope> inbound;

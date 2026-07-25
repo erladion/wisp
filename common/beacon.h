@@ -8,11 +8,13 @@
 #include <string>
 #include <thread>
 
+namespace Wisp {
+
 // LAN presence beacons: brokers broadcast these over UDP so that peers can
 // mesh without configuration (server/discovery.h drives that) and so tools
 // can enumerate the brokers reachable on the network. The format and the
 // listen-only receiver live here, in common, so a tool needs no broker code.
-namespace beacon {
+namespace Beacon {
 
 constexpr std::uint16_t DEFAULT_PORT = 5670;
 
@@ -93,6 +95,8 @@ private:
   std::thread m_thread;
 };
 
-}  // namespace beacon
+}  // namespace Beacon
+
+}  // namespace Wisp
 
 #endif  // BEACON_H

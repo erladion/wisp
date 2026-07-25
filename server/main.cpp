@@ -14,7 +14,9 @@
 
 #include "config.h"
 #include "logger.h"
-#include "zmqbroker.h"
+#include "broker.h"
+
+using namespace Wisp;
 
 namespace {
 
@@ -97,7 +99,7 @@ int main(int argc, char* argv[]) {
   sigaddset(&signals, SIGTERM);
   pthread_sigmask(SIG_BLOCK, &signals, nullptr);
 
-  ZmqBroker broker;
+  Broker broker;
 
   // Auto-mesh on the LAN unless disabled. Brokers sharing a cluster name
   // (WISP_CLUSTER, default "default") discover and link to each other with no

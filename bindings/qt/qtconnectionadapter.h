@@ -11,6 +11,8 @@
 
 #include "connectionmanager.h"
 
+namespace Wisp {
+
 template <>
 struct DataSerializer<QString> {
   static constexpr bool is_specialized = true;
@@ -148,5 +150,7 @@ private:
     QObject::connect(context, &QObject::destroyed, [key, context]() { ConnectionManager::unregisterCallback(key, context); });
   }
 };
+
+}  // namespace Wisp
 
 #endif  // QTCONNECTIONADAPTER_H

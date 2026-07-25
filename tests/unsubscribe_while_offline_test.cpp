@@ -15,6 +15,8 @@
 
 #include "support/test_helpers.h"
 
+using namespace Wisp;
+
 using TestSupport::waitFor;
 
 using namespace std::chrono_literals;
@@ -85,8 +87,8 @@ private:
         continue;
       }
       broker::MessageHeader header;
-      const bool decoded = wire::decodeHeaderFrame(headerFrame.data(), headerFrame.size(), header);
-      wire::drainMultipart(m_socket);
+      const bool decoded = Wire::decodeHeaderFrame(headerFrame.data(), headerFrame.size(), header);
+      Wire::drainMultipart(m_socket);
       if (!decoded) {
         continue;
       }
@@ -99,7 +101,7 @@ private:
       // Answering anything at all is what puts the client online; withholding
       // it later is what takes it back offline.
       if (m_acking && header.handler_key() == Keys::HEARTBEAT) {
-        wire::sendTo(m_socket, identity.to_string(), wire::encodeHeader(wire::makeControlHeader(Keys::HEARTBEAT_ACK, "")), std::string());
+        Wire::sendTo(m_socket, identity.to_string(), Wire::encodeHeader(Wire::makeControlHeader(Keys::HEARTBEAT_ACK, "")), std::string());
       }
     }
   }

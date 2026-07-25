@@ -14,7 +14,8 @@
 #include <string>
 
 #include "broker.pb.h"
-#include "connectionmanager.h"  // detail::ANY_TYPE_URL_PREFIX - the same prefix the client library writes
+#include "connectionmanager.h"  // Wisp::Detail::ANY_TYPE_URL_PREFIX - the same prefix the client library writes
+
 
 namespace ProtoUtils {
 
@@ -137,7 +138,7 @@ inline void drawEnvelopeAndPayload(const broker::MessageHeader& header, const st
   // broker's stats) arrive as a packed Any; try that first and fall back to a
   // raw byte view for anything else (JSON, structs, plain strings).
   google::protobuf::Any any;
-  if (any.ParseFromString(payload) && any.type_url().rfind(std::string(detail::ANY_TYPE_URL_PREFIX), 0) == 0) {
+  if (any.ParseFromString(payload) && any.type_url().rfind(std::string(Wisp::Detail::ANY_TYPE_URL_PREFIX), 0) == 0) {
     auto dynamicPayload = dynamicallyUnpack(any);
     if (dynamicPayload) {
       QTreeWidgetItem* payloadRoot = new QTreeWidgetItem(treeWidget);

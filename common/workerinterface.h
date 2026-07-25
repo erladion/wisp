@@ -7,6 +7,8 @@
 
 #include "wireframe.h"
 
+namespace Wisp {
+
 using WorkerMessageCallback = std::function<void(const Envelope&)>;
 using WorkerStatusCallback = std::function<void(bool)>;
 
@@ -28,7 +30,7 @@ public:
   // each additional link costs a refcount bump instead of an encode and a
   // copy. The broker floods peers this way; a client publishing to its one
   // broker has nothing to fan out and uses writeMessage above.
-  virtual bool writeEncoded(wire::WireMessagePtr msg) = 0;
+  virtual bool writeEncoded(Wire::WireMessagePtr msg) = 0;
 
   virtual void setMessageCallback(WorkerMessageCallback cb) = 0;
 
@@ -39,5 +41,7 @@ public:
   // finds out it is over-publishing.
   virtual std::uint64_t droppedSends() const = 0;
 };
+
+}  // namespace Wisp
 
 #endif  // WORKERINTERFACE_H

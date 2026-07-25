@@ -4,6 +4,8 @@
 #include "logger.h"
 #include "wireframe.h"
 
+using namespace Wisp;
+
 void InspectorWorker::run() {
   // m_running is set by startWorker() before this thread is scheduled.
   const std::string endpoint = this->endpoint().toStdString();
@@ -26,11 +28,11 @@ void InspectorWorker::run() {
 
   while (m_running) {
     // The broker's inspector PUB socket carries no routing-id frame, so
-    // wire::recv reads the header frame and any payload continuation frame
+    // Wire::recv reads the header frame and any payload continuation frame
     // directly.
     Envelope env;
     std::size_t wireBytes = 0;
-    if (wire::recv(inspector, env, zmq::recv_flags::none, &wireBytes)) {
+    if (Wire::recv(inspector, env, zmq::recv_flags::none, &wireBytes)) {
       InspectorPacket p;
       p.timestamp = TimeFormat::hhmmssMillisNow();
       p.senderId = env.header.sender_id();

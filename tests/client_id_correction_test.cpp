@@ -12,10 +12,12 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -77,7 +79,7 @@ protected:
     return false;
   }
 
-  ZmqBroker m_broker;
+  Broker m_broker;
   SafeQueue<Envelope> m_statsInbound;
   std::unique_ptr<ZmqWorker> m_pObserver;
 };

@@ -1,5 +1,5 @@
 // Standalone load generator for the broker mesh: spins up a real in-process
-// ZmqBroker plus a configurable number of publisher/subscriber ZmqWorkers,
+// Broker plus a configurable number of publisher/subscriber ZmqWorkers,
 // drives sustained pub/sub traffic over a fixed measurement window, and
 // reports throughput (msgs/sec, MB/sec) and end-to-end latency percentiles.
 //
@@ -35,7 +35,7 @@
 #include "config.h"
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
@@ -451,7 +451,7 @@ void printSweepTable(const BenchConfig& config, const std::vector<RunSummary>& r
 // clients, subscription sync, warmup, timed window, drain, teardown. Throws
 // when the mesh never becomes ready.
 RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
-  ZmqBroker broker;
+  Broker broker;
   broker.setInspectorEndpoint(kBenchTapPrefix + "hub.sock");
   broker.start({kBenchBrokerAddress});
   std::this_thread::sleep_for(100ms);
@@ -460,9 +460,9 @@ RunSummary runOnce(const BenchConfig& config, int payloadBytes) {
   // flooded to all of them. They have no clients of their own: the point is
   // the cost the fan-out imposes on the bench broker's thread, not what the
   // far side does with the traffic.
-  std::vector<std::unique_ptr<ZmqBroker>> peers;
+  std::vector<std::unique_ptr<Broker>> peers;
   for (int i = 0; i < config.peerCount; ++i) {
-    auto peer = std::make_unique<ZmqBroker>();
+    auto peer = std::make_unique<Broker>();
     peer->setInspectorEndpoint(kBenchTapPrefix + "peer" + std::to_string(i) + ".sock");
     peer->start({"tcp://127.0.0.1:" + std::to_string(kBenchPeerBasePort + i)});
     peers.push_back(std::move(peer));

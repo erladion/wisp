@@ -10,6 +10,8 @@
 #include "broker.pb.h"
 #include "logger.h"
 
+using namespace Wisp;
+
 struct TestStruct {
   int d;
   double dd;

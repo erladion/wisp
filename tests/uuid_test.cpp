@@ -5,6 +5,8 @@
 
 #include "uuidhelper.h"
 
+using namespace Wisp;
+
 // The binary uuid is 16 raw bytes in RFC 4122 layout. Nothing in Wisp decodes
 // those bits today - the broker treats the value opaquely for dedup - but the
 // wire contract calls them UUIDv4 bytes, so the version and variant markers

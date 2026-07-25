@@ -7,10 +7,12 @@
 
 #include "safequeue.h"
 #include "wireframe.h"
-#include "zmqbroker.h"
+#include "broker.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"
+
+using namespace Wisp;
 
 using namespace std::chrono_literals;
 using TestSupport::completeHandshake;
@@ -33,7 +35,7 @@ constexpr const char* DEAD_PEER_ADDRESS = "tcp://127.0.0.1:25596";
 class PeerBackpressureTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    m_pBroker = std::make_unique<ZmqBroker>();
+    m_pBroker = std::make_unique<Broker>();
     m_pBroker->connectToPeer(DEAD_PEER_ADDRESS);
     m_pBroker->start({testBrokerAddress()});
 
@@ -100,7 +102,7 @@ protected:
     }
   }
 
-  std::unique_ptr<ZmqBroker> m_pBroker;
+  std::unique_ptr<Broker> m_pBroker;
   std::unique_ptr<ZmqWorker> m_pSubscriber;
   std::unique_ptr<ZmqWorker> m_pPublisher;
   SafeQueue<Envelope> m_inbound;

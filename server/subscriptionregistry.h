@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Wisp {
+
 // Owns the bidirectional client <-> topic subscription mapping so the two
 // sides can never drift apart. Not thread-safe by design: like the rest of
 // the broker state it is owned exclusively by the broker thread.
@@ -79,5 +81,7 @@ private:
   std::unordered_map<std::string, std::set<std::string>> m_clientTopics;
   std::unordered_map<std::string, std::vector<std::string>> m_topicSubscribers;
 };
+
+}  // namespace Wisp
 
 #endif  // SUBSCRIPTIONREGISTRY_H

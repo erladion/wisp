@@ -12,7 +12,7 @@
 
 #include "connectionmanager.h"
 
-namespace wisp {
+namespace Wisp {
 
 // A message captured by MessagePoller, waiting to be consumed by the polling
 // thread. `payload` holds the raw payload bytes - decode protobuf payloads
@@ -31,10 +31,10 @@ struct PolledMessage {
    loop. This adapter parks incoming messages in a bounded buffer that the loop
    drains once per frame:
 
-       wisp::MessagePoller poller;
+       Wisp::MessagePoller poller;
        poller.subscribe("telemetry");
 
-       std::vector<wisp::PolledMessage> batch;
+       std::vector<Wisp::PolledMessage> batch;
        while (running) {                 // your frame loop
          poller.poll(batch);
          for (const auto& msg : batch) { applyToUiState(msg); }
@@ -146,6 +146,6 @@ private:
   std::uint64_t m_dropped;
 };
 
-}  // namespace wisp
+}  // namespace Wisp
 
 #endif  // WISPPOLLER_H
