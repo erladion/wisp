@@ -19,21 +19,23 @@ procedure Wisp_Demo is
      (if Argument_Count > 0 then Argument (1) else "send");
 begin
    if Role = "listen" then
-      Wisp.Connect (Address => Broker, Client_Id => "ada-listener");
-      Wisp.Subscribe ("demo.chat", Demo_Handlers.Print'Access);
-      Wisp.Subscribe ("demo.echo", Demo_Handlers.Echo'Access);
+      Wisp.Init_Connection (Address => Broker, Client_Id => "ada-listener");
+      Wisp.Wait_For_Connection;
+      Wisp.Register_Callback ("demo.chat", Demo_Handlers.Print'Access);
+      Wisp.Register_Callback ("demo.echo", Demo_Handlers.Echo'Access);
       Put_Line ("listening on demo.chat / demo.echo (Ctrl-C to stop)");
       loop
          delay 3600.0;
       end loop;
    else
-      Wisp.Connect (Address => Broker, Client_Id => "ada-sender");
+      Wisp.Init_Connection (Address => Broker, Client_Id => "ada-sender");
+      Wisp.Wait_For_Connection;
 
-      Wisp.Send ("demo.chat", "hello from Ada");
+      Wisp.Send_Message ("demo.chat", "hello from Ada");
       Put_Line
         ("request answered: "
-         & Wisp.Request ("demo.echo", "ping", Timeout_Ms => 2_000));
+         & Wisp.Send_Request ("demo.echo", "ping", Timeout_Ms => 2_000));
 
-      Wisp.Shutdown;
+      Wisp.Shutdown_Connection;
    end if;
 end Wisp_Demo;

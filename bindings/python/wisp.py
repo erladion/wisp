@@ -4,9 +4,11 @@ Loads libwisp.so (the wisp CMake target). Search order: the WISP_LIB
 environment variable, the system loader path, then the repository build tree
 next to this file.
 
-The connection is process-global, like the underlying C API: connect() once,
-use freely from any thread, shutdown() at exit. Topics are str; payloads are
-bytes (str is accepted and UTF-8 encoded on the way in).
+Function names mirror the C ABI's, adjusted to snake_case, so the header
+documentation applies 1:1. The connection is process-global, like the
+underlying C API: init_connection() once, use freely from any thread,
+shutdown_connection() at exit. Topics are str; payloads are bytes (str is
+accepted and UTF-8 encoded on the way in).
 """
 
 import ctypes
@@ -72,6 +74,8 @@ _lib.waitForConnection.argtypes = [ctypes.c_int]
 _lib.waitForConnection.restype = ctypes.c_int
 _lib.sendData.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
 _lib.sendData.restype = ctypes.c_int
+_lib.sendMessage.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+_lib.sendMessage.restype = ctypes.c_int
 _lib.setCluster.argtypes = [ctypes.c_char_p]
 _lib.setCluster.restype = ctypes.c_int
 _lib.replyToSender.argtypes = [ctypes.c_char_p, ctypes.c_int]
@@ -118,13 +122,12 @@ def _as_bytes(data):
     return data.encode() if isinstance(data, str) else bytes(data)
 
 
-def connect(address, client_id=None, keepalive_time_ms=3000,
-            keepalive_timeout_ms=10000, timeout_ms=5000):
-    """Connect to a broker, e.g. connect("tcp://127.0.0.1:5555").
+def init_connection(address, client_id=None, keepalive_time_ms=3000,
+                    keepalive_timeout_ms=10000):
+    """Open the connection, e.g. init_connection("tcp://127.0.0.1:5555").
 
-    Blocks until the connection is up, raising WispError if the broker
-    cannot be reached within timeout_ms. timeout_ms=0 skips the wait (the
-    connection then comes up in the background; see is_connected()).
+    Returns before the connection finishes coming online; use
+    wait_for_connection() to block for it (see also is_connected()).
 
     keepalive_time_ms is the heartbeat interval (keep it below the broker's
     10 s zombie timeout); keepalive_timeout_ms is how long broker silence is
@@ -133,12 +136,17 @@ def connect(address, client_id=None, keepalive_time_ms=3000,
                   client_id.encode() if client_id else None,
                   0,  # PROTOCOL_ZMQ
                   keepalive_time_ms, keepalive_timeout_ms)
-    _check(_lib.initConnection(ctypes.byref(cfg)), "connect")
-    if timeout_ms:
-        _check(_lib.waitForConnection(timeout_ms), "connect")
+    _check(_lib.initConnection(ctypes.byref(cfg)), "init_connection")
 
 
-def shutdown():
+def wait_for_connection(timeout_ms=5000):
+    """Block until the connection is up, raising WispError if the broker
+    cannot be reached within timeout_ms. A timeout is not terminal - the
+    connection keeps being retried in the background."""
+    _check(_lib.waitForConnection(timeout_ms), "wait_for_connection")
+
+
+def shutdown_connection():
     _lib.shutdownConnection()
 
 
@@ -147,10 +155,16 @@ def is_connected():
     return bool(_lib.isConnected())
 
 
-def send(topic, data):
+def send_data(topic, data):
     """Publish data on topic (fire and forget)."""
     payload = _as_bytes(data)
-    _check(_lib.sendData(topic.encode(), payload, len(payload)), "send")
+    _check(_lib.sendData(topic.encode(), payload, len(payload)), "send_data")
+
+
+def send_message(topic, text):
+    """Publish text on topic (fire and forget). Convenience over
+    send_data for NUL-free text payloads."""
+    _check(_lib.sendMessage(topic.encode(), text.encode()), "send_message")
 
 
 def set_cluster(name):
@@ -164,14 +178,14 @@ def set_cluster(name):
     _check(_lib.setCluster(name.encode()), "set_cluster")
 
 
-def reply(data):
+def reply_to_sender(data):
     """Reply to the sender of the message currently being handled;
     only meaningful inside a subscription handler."""
     payload = _as_bytes(data)
-    _check(_lib.replyToSender(payload, len(payload)), "reply")
+    _check(_lib.replyToSender(payload, len(payload)), "reply_to_sender")
 
 
-def request(topic, payload, timeout_ms=5000, max_response=65536):
+def send_request(topic, payload, timeout_ms=5000, max_response=65536):
     """Send payload on topic and block for the reply; returns bytes.
 
     Raises WispError on timeout, when offline, or if the response exceeds
@@ -185,11 +199,11 @@ def request(topic, payload, timeout_ms=5000, max_response=65536):
     _check(_lib.sendRequest(topic.encode(), payload, len(payload),
                             buf, max_response, ctypes.byref(out_len),
                             timeout_ms),
-           "request")
+           "send_request")
     return buf.raw[:out_len.value]
 
 
-def subscribe(topic, handler):
+def register_callback(topic, handler):
     """Register handler(topic: str, data: bytes) for topic.
 
     Handlers run on the library's worker thread: keep them short and
@@ -212,9 +226,9 @@ def subscribe(topic, handler):
                           ctypes.cast(callback, ctypes.c_void_p))
 
 
-def unsubscribe(topic, handler):
-    """Remove a registration made with subscribe. A handler already running
-    when this returns may still complete its current message."""
+def unregister_callback(topic, handler):
+    """Remove a registration made with register_callback. A handler already
+    running when this returns may still complete its current message."""
     callback = _registrations.pop((topic, handler), None)
     if callback is None:
         raise WispError(f"not subscribed to {topic!r} with this handler")

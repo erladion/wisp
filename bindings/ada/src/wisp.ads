@@ -2,11 +2,13 @@
 --
 --  A thick wrapper over the C ABI in common/connectionapi.h: Ada strings,
 --  exceptions instead of error codes, and plain Ada procedures as
---  subscription callbacks. The thin 1:1 mapping lives in Wisp.C_API.
+--  subscription callbacks. Subprogram names mirror the C ABI's, so the
+--  header documentation applies 1:1; the thin mapping lives in Wisp.C_API.
 --
---  The connection is process-global, like the underlying C API: Connect
---  once, use freely from any task, Shutdown at exit. Payload Strings are
---  treated as raw bytes (binary-safe, no encoding assumed).
+--  The connection is process-global, like the underlying C API:
+--  Init_Connection once, use freely from any task, Shutdown_Connection at
+--  exit. Payload Strings are treated as raw bytes (binary-safe, no encoding
+--  assumed).
 
 package Wisp is
 
@@ -14,24 +16,30 @@ package Wisp is
    --  Raised when the underlying library reports failure. The exception
    --  message names the operation and the C error code.
 
-   procedure Connect
+   procedure Init_Connection
      (Address              : String;            --  e.g. "tcp://127.0.0.1:5555"
       Client_Id            : String   := "";    --  "" lets the library choose
       Keepalive_Time_Ms    : Positive := 3_000;   --  heartbeat interval; keep below the broker's 10 s zombie timeout
-      Keepalive_Timeout_Ms : Positive := 10_000;  --  offline after this much broker silence
-      Connect_Timeout_Ms   : Natural  := 5_000);
-   --  Connect and block until the connection is up, raising Wisp_Error if
-   --  the broker cannot be reached within Connect_Timeout_Ms. Zero skips
-   --  the wait (the connection then comes up in the background; see
-   --  Is_Connected).
+      Keepalive_Timeout_Ms : Positive := 10_000); --  offline after this much broker silence
+   --  Open the connection. Returns before it finishes coming online; use
+   --  Wait_For_Connection to block for it (see also Is_Connected).
 
-   procedure Shutdown;
+   procedure Wait_For_Connection (Timeout_Ms : Positive := 5_000);
+   --  Block until the connection is up, raising Wisp_Error if the broker
+   --  cannot be reached within Timeout_Ms. A timeout is not terminal - the
+   --  connection keeps being retried in the background.
+
+   procedure Shutdown_Connection;
 
    function Is_Connected return Boolean;
    --  True while the broker connection is up.
 
-   procedure Send (Topic : String; Data : String);
+   procedure Send_Data (Topic : String; Data : String);
    --  Publish Data on Topic (fire and forget).
+
+   procedure Send_Message (Topic : String; Text : String);
+   --  Publish Text on Topic (fire and forget). Convenience over Send_Data
+   --  for NUL-free text payloads.
 
    procedure Set_Cluster (Name : String);
    --  Move the broker to a different discovery cluster at runtime. Name must be
@@ -39,11 +47,11 @@ package Wisp is
    --  connection. Any connected client may do this — the broker re-targets its
    --  beacons and re-meshes. No effect on a broker started without discovery.
 
-   procedure Reply (Data : String);
+   procedure Reply_To_Sender (Data : String);
    --  Reply to the sender of the message currently being handled; only
    --  meaningful from inside a subscription handler.
 
-   function Request
+   function Send_Request
      (Topic        : String;
       Payload      : String;
       Timeout_Ms   : Positive := 5_000;
@@ -58,12 +66,12 @@ package Wisp is
    --  synchronize access to shared state. Exceptions raised inside a
    --  handler are discarded (they must not propagate into C).
 
-   procedure Subscribe (Topic : String; Callback : not null Handler);
+   procedure Register_Callback (Topic : String; Callback : not null Handler);
    --  Register Callback for Topic.
 
-   procedure Unsubscribe (Topic : String; Callback : not null Handler);
-   --  Remove a registration made with Subscribe. A handler already running
-   --  when this returns may still complete its current message.
+   procedure Unregister_Callback (Topic : String; Callback : not null Handler);
+   --  Remove a registration made with Register_Callback. A handler already
+   --  running when this returns may still complete its current message.
 
    type Log_Level is (Debug, Info, Warning, Error);
 

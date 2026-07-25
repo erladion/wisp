@@ -32,16 +32,15 @@ package body Wisp is
       end if;
    end Check;
 
-   -------------
-   -- Connect --
-   -------------
+   ---------------------
+   -- Init_Connection --
+   ---------------------
 
-   procedure Connect
+   procedure Init_Connection
      (Address              : String;
       Client_Id            : String   := "";
       Keepalive_Time_Ms    : Positive := 3_000;
-      Keepalive_Timeout_Ms : Positive := 10_000;
-      Connect_Timeout_Ms   : Natural  := 5_000)
+      Keepalive_Timeout_Ms : Positive := 10_000)
    is
       C_Address : chars_ptr := New_String (Address);
       C_Client  : chars_ptr :=
@@ -56,21 +55,27 @@ package body Wisp is
    begin
       Free (C_Address);
       Free (C_Client);
-      Check (Code, "Connect");
+      Check (Code, "Init_Connection");
+   end Init_Connection;
 
-      if Connect_Timeout_Ms > 0 then
-         Check (C_API.Wait_For_Connection (int (Connect_Timeout_Ms)), "Connect");
-      end if;
-   end Connect;
+   -------------------------
+   -- Wait_For_Connection --
+   -------------------------
 
-   --------------
-   -- Shutdown --
-   --------------
+   procedure Wait_For_Connection (Timeout_Ms : Positive := 5_000) is
+   begin
+      Check (C_API.Wait_For_Connection (int (Timeout_Ms)),
+             "Wait_For_Connection");
+   end Wait_For_Connection;
 
-   procedure Shutdown is
+   -------------------------
+   -- Shutdown_Connection --
+   -------------------------
+
+   procedure Shutdown_Connection is
    begin
       C_API.Shutdown_Connection;
-   end Shutdown;
+   end Shutdown_Connection;
 
    ------------------
    -- Is_Connected --
@@ -81,18 +86,32 @@ package body Wisp is
       return C_API.Is_Connected /= 0;
    end Is_Connected;
 
-   ----------
-   -- Send --
-   ----------
+   ---------------
+   -- Send_Data --
+   ---------------
 
-   procedure Send (Topic : String; Data : String) is
+   procedure Send_Data (Topic : String; Data : String) is
       C_Topic : chars_ptr := New_String (Topic);
       Code    : constant int :=
         C_API.Send_Data (C_Topic, Data'Address, Data'Length);
    begin
       Free (C_Topic);
-      Check (Code, "Send");
-   end Send;
+      Check (Code, "Send_Data");
+   end Send_Data;
+
+   ------------------
+   -- Send_Message --
+   ------------------
+
+   procedure Send_Message (Topic : String; Text : String) is
+      C_Topic : chars_ptr := New_String (Topic);
+      C_Text  : chars_ptr := New_String (Text);
+      Code    : constant int := C_API.Send_Message (C_Topic, C_Text);
+   begin
+      Free (C_Topic);
+      Free (C_Text);
+      Check (Code, "Send_Message");
+   end Send_Message;
 
    -----------------
    -- Set_Cluster --
@@ -106,22 +125,22 @@ package body Wisp is
       Check (Code, "Set_Cluster");
    end Set_Cluster;
 
-   -----------
-   -- Reply --
-   -----------
+   ---------------------
+   -- Reply_To_Sender --
+   ---------------------
 
-   procedure Reply (Data : String) is
+   procedure Reply_To_Sender (Data : String) is
       Code : constant int :=
         C_API.Reply_To_Sender (Data'Address, Data'Length);
    begin
-      Check (Code, "Reply");
-   end Reply;
+      Check (Code, "Reply_To_Sender");
+   end Reply_To_Sender;
 
-   -------------
-   -- Request --
-   -------------
+   ------------------
+   -- Send_Request --
+   ------------------
 
-   function Request
+   function Send_Request
      (Topic        : String;
       Payload      : String;
       Timeout_Ms   : Positive := 5_000;
@@ -148,7 +167,7 @@ package body Wisp is
 
       if Code /= C_API.SUCCESS then
          Free_Buffer (Buffer);
-         Check (Code, "Request");
+         Check (Code, "Send_Request");
       end if;
 
       declare
@@ -157,16 +176,16 @@ package body Wisp is
          Free_Buffer (Buffer);
          return Response;
       end;
-   end Request;
+   end Send_Request;
 
-   -------------------------------
-   -- Subscribe and Unsubscribe --
-   -------------------------------
+   --------------------------------------------------
+   -- Register_Callback and Unregister_Callback --
+   --------------------------------------------------
 
    --  A Handler value is a library-level code pointer, so it can serve
    --  directly as the C-side User_Data: Dispatch converts it back to call
-   --  it, and it doubles as the registration identity for Unsubscribe.
-   --  No allocation, nothing to free.
+   --  it, and it doubles as the registration identity for
+   --  Unregister_Callback. No allocation, nothing to free.
 
    function To_Handler is new Ada.Unchecked_Conversion (System.Address, Handler);
    function To_Address is new Ada.Unchecked_Conversion (Handler, System.Address);
@@ -194,19 +213,19 @@ package body Wisp is
          null;  --  exceptions must not cross the C boundary
    end Dispatch;
 
-   procedure Subscribe (Topic : String; Callback : not null Handler) is
+   procedure Register_Callback (Topic : String; Callback : not null Handler) is
       C_Topic : chars_ptr := New_String (Topic);
    begin
       C_API.Register_Callback (C_Topic, Dispatch'Access, To_Address (Callback));
       Free (C_Topic);
-   end Subscribe;
+   end Register_Callback;
 
-   procedure Unsubscribe (Topic : String; Callback : not null Handler) is
+   procedure Unregister_Callback (Topic : String; Callback : not null Handler) is
       C_Topic : chars_ptr := New_String (Topic);
    begin
       C_API.Unregister_Callback (C_Topic, To_Address (Callback));
       Free (C_Topic);
-   end Unsubscribe;
+   end Unregister_Callback;
 
    -------------
    -- Logging --

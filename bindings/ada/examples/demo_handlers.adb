@@ -12,7 +12,7 @@ package body Demo_Handlers is
    procedure Echo (Topic : String; Data : String) is
       pragma Unreferenced (Topic);
    begin
-      Wisp.Reply ("echo: " & Data);
+      Wisp.Reply_To_Sender ("echo: " & Data);
    end Echo;
 
 end Demo_Handlers;

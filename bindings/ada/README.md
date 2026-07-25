@@ -5,7 +5,8 @@ An Ada binding for the Wisp client, layered over the C ABI in
 
 - **`Wisp`** ([src/wisp.ads](src/wisp.ads)) — thick, idiomatic API: Ada
   strings, exceptions instead of error codes, plain Ada procedures as
-  subscription handlers.
+  subscription handlers. Subprogram names mirror the C ABI's, so the header
+  documentation applies 1:1.
 - **`Wisp.C_API`** ([src/wisp-c_api.ads](src/wisp-c_api.ads)) — thin 1:1
   mapping of the C header, if you need the raw ABI.
 
@@ -40,31 +41,34 @@ never routes a message back to its sender.
 ```ada
 with Wisp;
 
-Wisp.Connect (Address => "tcp://127.0.0.1:5555", Client_Id => "sensor-1");
+Wisp.Init_Connection (Address => "tcp://127.0.0.1:5555", Client_Id => "sensor-1");
+Wisp.Wait_For_Connection;                         --  block for the link
 
-Wisp.Subscribe ("commands", On_Command'Access);   --  library-level procedure
-Wisp.Send ("telemetry", Payload);                 --  fire and forget
-Reply : String := Wisp.Request ("config", "get"); --  blocking request/reply
-Wisp.Set_Cluster ("blue");                        --  swap discovery cluster
+Wisp.Register_Callback ("commands", On_Command'Access);  --  library-level procedure
+Wisp.Send_Data ("telemetry", Payload);                   --  fire and forget
+Wisp.Send_Message ("chat", "hello");                     --  text convenience
+Reply : String := Wisp.Send_Request ("config", "get");   --  blocking request/reply
+Wisp.Reply_To_Sender ("ack");                            --  inside a handler
+Wisp.Set_Cluster ("blue");                               --  swap discovery cluster
 
 Wisp.Set_Log_Level (Wisp.Warning);                --  quiet the library
 Wisp.Set_Log_Handler (On_Log'Access);             --  or route the output
                                                   --  (null restores stdout)
-Wisp.Shutdown;
+Wisp.Shutdown_Connection;
 ```
 
 Things to know:
 
 - Payload `String`s are raw bytes — binary-safe, no encoding assumed.
-- `Connect` blocks until the connection is up (raising `Wisp_Error` after
-  `Connect_Timeout_Ms`); pass `Connect_Timeout_Ms => 0` to skip the wait
-  and poll `Is_Connected` yourself.
+- `Init_Connection` returns before the link is up; `Wait_For_Connection`
+  blocks for it (raising `Wisp_Error` after `Timeout_Ms`), or poll
+  `Is_Connected` yourself.
 - Handlers run on the library's worker thread, not on an Ada task: keep
   them short and synchronize access to shared state. Exceptions raised in
   a handler are discarded at the C boundary.
 - Handlers must be library-level procedures (the compiler enforces this).
-- `Unsubscribe (Topic, Handler)` removes a registration; a handler already
-  running when it returns may still complete its current message.
+- `Unregister_Callback (Topic, Handler)` removes a registration; a handler
+  already running when it returns may still complete its current message.
 - The library logs to stdout/stderr by default. `Set_Log_Level` filters by
   severity (the `WISP_LOG_LEVEL` environment variable sets the starting
   level) and `Set_Log_Handler` routes the output into your own code. Log
