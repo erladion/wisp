@@ -27,7 +27,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # count. Set WISP_WARNINGS=OFF to opt out.
 option(WISP_WARNINGS "Build with the project's warning set" ON)
 if (WISP_WARNINGS AND (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
-    add_compile_options(-Wall -Wextra -Wshadow)
+    add_compile_options(-Wall -Wextra -Wshadow
+        -Wnon-virtual-dtor -Woverloaded-virtual -Wformat=2)
+    # Bug-finders GCC has but Clang does not spell the same way. (-Wnull-dereference
+    # is left off: it only fires false positives inside gtest and libstdc++ here.)
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        add_compile_options(-Wduplicated-cond -Wduplicated-branches -Wlogical-op)
+    endif()
+endif()
+
+# Optional sanitizers, applied to compile and link (e.g. cmake -DWISP_SANITIZE=address,undefined).
+# Off by default; a CI job runs the suite under ASan+UBSan.
+set(WISP_SANITIZE "" CACHE STRING "Comma-separated sanitizers to build with (e.g. address,undefined)")
+if (WISP_SANITIZE)
+    add_compile_options(-fsanitize=${WISP_SANITIZE} -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=${WISP_SANITIZE})
 endif()
 
 # Needed while the subdirectories are configured, since they attach their own

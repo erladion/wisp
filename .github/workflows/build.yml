@@ -56,3 +56,33 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  sanitizers:
+    name: sanitizers (asan+ubsan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libzmq3-dev \
+            libprotobuf-dev protobuf-compiler \
+            libprotobuf-c-dev protobuf-c-compiler
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DWISP_SANITIZE=address,undefined
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+        env:
+          # detect_stack_use_after_return is off: the integration tests stop their
+          # worker threads in TearDown(), after a test body's local queues have gone
+          # out of scope, so that ordering trips the check without being a library
+          # defect. Heap use-after-free, overflows, leaks, and all of UBSan stay on.
+          ASAN_OPTIONS: detect_leaks=1:detect_stack_use_after_return=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
