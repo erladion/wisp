@@ -49,6 +49,7 @@ set(BROKER_TEST_SOURCES
   unsubscribe_while_offline_test.cpp
   uuid_test.cpp
   wildcard_subscription_test.cpp
+  worker_sync_test.cpp
 )
 
 # Only exercise the C bindings when they were actually built (libprotobuf-c present).

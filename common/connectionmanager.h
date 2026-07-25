@@ -288,6 +288,22 @@ public:
   // keeps retrying in the background.
   static bool waitForConnection(int timeoutMs);
 
+  /* Block until the broker has processed everything sent from this client so
+     far, or timeoutMs elapses.
+
+     Sending is asynchronous - the calls below queue, and a worker thread puts
+     the bytes on the wire - so on their own they say nothing about what the
+     broker has actually seen. This waits for the broker to answer a heartbeat
+     sent behind that traffic, which (deliveries being ordered) is evidence it
+     has already routed all of it. Use it where that matters: confirming a
+     publish before exiting, or knowing a subscription is live before provoking
+     the traffic it is meant to catch.
+
+     False on timeout or while offline; neither loses anything queued. Safe from
+     a message callback - it waits on the worker thread, not the one dispatching
+     callbacks. */
+  static bool flush(int timeoutMs);
+
   static bool sendMessage(const std::string& key, const std::string& message);
   static bool sendData(const std::string& key, const std::string_view& data);
   static bool sendDataRaw(const std::string& key, const char* data, int len);

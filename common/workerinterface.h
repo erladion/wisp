@@ -1,6 +1,7 @@
 #ifndef WORKERINTERFACE_H
 #define WORKERINTERFACE_H
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -33,6 +34,19 @@ public:
   virtual bool writeEncoded(Wire::WireMessagePtr msg) = 0;
 
   virtual void setMessageCallback(WorkerMessageCallback cb) = 0;
+
+  /* Block until the broker has processed everything handed to this worker
+     before the call, or `timeout` elapses.
+
+     The broker answers every __HEARTBEAT__ with a __HEARTBEAT_ACK__, and a
+     connection delivers in order, so an ack is evidence that what went out
+     ahead of the heartbeat drawing it has already been routed. That is what
+     makes a publish confirmable and a subscription usable the moment this
+     returns, rather than at some unknown later point.
+
+     False on timeout, or when the worker is stopped or offline - neither is
+     terminal, and nothing queued is lost either way. */
+  virtual bool sync(std::chrono::milliseconds timeout) = 0;
 
   // Messages this worker accepted but could not put on the wire, because the
   // send pipe to the broker was full (publishing faster than the broker

@@ -3,6 +3,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -29,6 +31,10 @@ public:
   bool writeEncoded(Wire::WireMessagePtr msg) override;
   void setMessageCallback(WorkerMessageCallback callback) override;
   std::uint64_t droppedSends() const override { return m_droppedSends.load(std::memory_order_relaxed); }
+
+  // Serialized: the run loop tracks one pending request, so concurrent callers
+  // wait their turn rather than sharing an answer.
+  bool sync(std::chrono::milliseconds timeout) override;
 
 private:
   // Thread entry: runs runLoop() behind an exception barrier. A zmq::error_t
@@ -78,6 +84,29 @@ private:
   // Written by the worker thread, read by anyone (see droppedSends()).
   std::atomic<std::uint64_t> m_droppedSends;
   LogThrottle m_dropLogThrottle;
+
+  /* sync() state, all guarded by m_syncMutex.
+
+     Heartbeats and their acks pair up in order on one connection, so counting
+     both is enough to recognize a particular heartbeat's answer: the Nth ack
+     belongs to the Nth heartbeat. Counting acks alone would not do - the run
+     loop's own periodic heartbeats draw acks too, and one of those arriving
+     says nothing about a caller's messages.
+
+     The request is handed to the run loop rather than sent here, because only
+     the loop knows when everything queued ahead of it has actually gone out.
+     A heartbeat sent from this side would travel the control queue, which is
+     drained ahead of data - its ack would then prove nothing about a publish
+     still waiting in the outbound one. */
+  std::mutex m_syncMutex;
+  std::condition_variable m_syncCv;
+  std::uint64_t m_heartbeatsSent;
+  std::uint64_t m_acksReceived;
+  bool m_syncRequested;
+  // Heartbeat index that answers the pending request; 0 until the loop sends it.
+  std::uint64_t m_syncTarget;
+  // Held for the whole of sync(), so one request is outstanding at a time.
+  std::mutex m_syncCallMutex;
 };
 
 }  // namespace Wisp

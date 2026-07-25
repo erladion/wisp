@@ -123,6 +123,14 @@ void ConnectionManager::unregisterCallback(const std::string& key, void* instanc
   }
 }
 
+bool ConnectionManager::flush(int timeoutMs) {
+  std::shared_ptr<ConnectionManager> self = getInstance();
+  if (!self || !self->m_pWorker) {
+    return false;
+  }
+  return self->m_pWorker->sync(std::chrono::milliseconds(timeoutMs));
+}
+
 bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::string& payload, std::string& outResponse, int timeoutMs) {
   std::shared_ptr<ConnectionManager> self = getInstance();
   if (!self) {

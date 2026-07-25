@@ -59,7 +59,11 @@ ZmqWorker::ZmqWorker(const ConnectionConfig& config, SafeQueue<Envelope>* inboun
       m_controlQueue(CONTROL_BACKLOG_LIMIT),
       m_hasEncoded(false),
       m_droppedSends(0),
-      m_dropLogThrottle() {}
+      m_dropLogThrottle(),
+      m_heartbeatsSent(0),
+      m_acksReceived(0),
+      m_syncRequested(false),
+      m_syncTarget(0) {}
 
 ZmqWorker::~ZmqWorker() {
   stop();
@@ -90,9 +94,54 @@ void ZmqWorker::start() {
 
 void ZmqWorker::stop() {
   m_running = false;
+  /* A sync() waiting on an ack that can no longer come must fail now rather
+     than sleep out its timeout against a stopped worker. The lock is taken and
+     dropped rather than held: m_running is not guarded by it, so without
+     passing through it a waiter sitting between its predicate check and its
+     wait would miss this notify entirely. */
+  {
+    std::lock_guard<std::mutex> lock(m_syncMutex);
+  }
+  m_syncCv.notify_all();
   if (m_workerThread.joinable()) {
     m_workerThread.join();
   }
+}
+
+bool ZmqWorker::sync(std::chrono::milliseconds timeout) {
+  std::lock_guard<std::mutex> callLock(m_syncCallMutex);
+  if (!m_running) {
+    return false;
+  }
+
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+  std::unique_lock<std::mutex> lock(m_syncMutex);
+  m_syncTarget = 0;
+  m_syncRequested = true;
+  lock.unlock();
+  // The loop may be asleep on its poll timeout; the request is only useful once
+  // it looks.
+  wake();
+  lock.lock();
+
+  /* The loop sends the heartbeat once everything queued before this call is on
+     the wire, and reports which one it was. Withdrawing the request on failure
+     is safe under the lock: either the loop has already set a target, or its
+     own check of m_syncRequested has yet to run and will now find it false. */
+  m_syncCv.wait_until(lock, deadline, [this] { return m_syncTarget != 0 || !m_running; });
+  if (m_syncTarget == 0) {
+    m_syncRequested = false;
+    return false;
+  }
+
+  /* Acks pair with heartbeats in order, so reaching this index means ours came
+     back - and with it, everything sent ahead of it. The answer is that fact
+     alone: a worker stopping immediately after the ack arrived does not undo
+     what the broker had already processed. */
+  const std::uint64_t target = m_syncTarget;
+  m_syncCv.wait_until(lock, deadline, [this, target] { return m_acksReceived >= target || !m_running; });
+  return m_acksReceived >= target;
 }
 
 // Ping the run() loop only when the queue was empty: a non-empty queue means a
@@ -300,7 +349,13 @@ void ZmqWorker::runLoop() {
         }
 
         if (inbound.header.handler_key() == Keys::HEARTBEAT_ACK) {
-          // Liveness only - lastRxTime was already updated above
+          // Liveness (lastRxTime was updated above), and the evidence sync()
+          // waits on: the Nth ack answers the Nth heartbeat.
+          {
+            std::lock_guard<std::mutex> syncLock(m_syncMutex);
+            m_acksReceived++;
+          }
+          m_syncCv.notify_all();
         } else if (m_pInboundQueue) {
           // Single timed attempt: if the consumer can't keep up, drop -
           // delivery is best-effort everywhere else in the stack too.
@@ -393,6 +448,28 @@ void ZmqWorker::runLoop() {
       didWork = true;
     }
 
+    /* A pending sync()'s heartbeat, sent from here rather than by the caller
+       because this is the only place that knows everything queued ahead of it
+       has gone out. Every queue and backlog being empty is that condition; the
+       ack it draws is then evidence for all of it.
+
+       An offline worker holds its data, so a queue stays non-empty and no
+       heartbeat is sent - the waiting sync() times out, which is the honest
+       answer while there is no broker to have processed anything. */
+    if (isOnline && controlBacklog.empty() && dataBacklog.empty() && m_controlQueue.empty() && m_outboundQueue.empty() && m_encodedQueue.empty()) {
+      std::unique_lock<std::mutex> syncLock(m_syncMutex);
+      if (m_syncRequested) {
+        m_syncRequested = false;
+        syncLock.unlock();
+        sendHeartbeat(socket);
+        lastHeartbeat = std::chrono::steady_clock::now();
+        syncLock.lock();
+        m_syncTarget = m_heartbeatsSent;
+        syncLock.unlock();
+        m_syncCv.notify_all();
+      }
+    }
+
     auto now = std::chrono::steady_clock::now();
     if (now - lastHeartbeat > heartbeatInterval) {
       sendHeartbeat(socket);
@@ -426,6 +503,10 @@ void ZmqWorker::runLoop() {
 
 void ZmqWorker::sendHeartbeat(zmq::socket_t& socket) {
   (void)Wire::send(socket, Wire::makeControlHeader(Keys::HEARTBEAT, m_config.clientId), std::string());
+  // Counted whoever asked for it: sync() identifies its own ack by position,
+  // so every heartbeat on the wire has to advance the count.
+  std::lock_guard<std::mutex> lock(m_syncMutex);
+  m_heartbeatsSent++;
 }
 
 }  // namespace Wisp
