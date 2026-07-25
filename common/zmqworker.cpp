@@ -9,9 +9,13 @@
 namespace Wisp {
 
 namespace {
-// In-process wake channel between producer threads and the run() loop. The
-// name is per-context (each worker owns its context), so instances don't clash.
-constexpr const char* WAKE_ENDPOINT = "inproc://worker_wake";
+// In-process wake channel between producer threads and the run() loop. A fresh
+// endpoint name is minted per start() (see below) rather than using a fixed one:
+// a stop()/start() restart reuses the worker's context, and rebinding the same
+// inproc name can race the previous bind's teardown - surfacing as "Address
+// already in use" on the rebind.
+constexpr const char* WAKE_ENDPOINT_PREFIX = "inproc://worker_wake_";
+std::atomic<std::uint64_t> g_wakeCounter{0};
 
 /* How many control messages the client can have in flight before any are
    lost, on the queue and again in the send backlog.
@@ -67,9 +71,10 @@ void ZmqWorker::start() {
     // void and sends would silently regress to poll-timeout latency. run()
     // binds the PULL end; connect-before-bind is fine on inproc (zmq >= 4.2).
     std::lock_guard<std::mutex> lock(m_wakeMutex);
+    m_wakeEndpoint = WAKE_ENDPOINT_PREFIX + std::to_string(g_wakeCounter.fetch_add(1, std::memory_order_relaxed));
     m_wakePush = zmq::socket_t(m_context, ZMQ_PUSH);
     m_wakePush.set(zmq::sockopt::linger, 0);
-    m_wakePush.connect(WAKE_ENDPOINT);
+    m_wakePush.connect(m_wakeEndpoint);
   }
 
   m_running = true;
@@ -173,7 +178,10 @@ void ZmqWorker::runLoop() {
 
   zmq::socket_t wakePull(m_context, ZMQ_PULL);
   wakePull.set(zmq::sockopt::linger, 0);
-  wakePull.bind(WAKE_ENDPOINT);
+  // m_wakeEndpoint was set in start() before this thread launched, and is only
+  // reassigned by the next start() (after this thread is joined), so reading it
+  // here without the lock is safe.
+  wakePull.bind(m_wakeEndpoint);
 
   // Lead with CONNECT before anything else on the socket: a session that
   // announces itself is registered silently, while any other first message
