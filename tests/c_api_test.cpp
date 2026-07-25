@@ -88,7 +88,7 @@ TEST_F(CApiTest, ArgumentValidationAndNoConnection) {
 
   Connection_Config badProto = CONNECTION_CONFIG_DEFAULT;
   badProto.address = kBrokerAddress.c_str();
-  badProto.protocol = static_cast<Connection_Protocol>(42);
+  badProto.protocol = 42;  // an out-of-range protocol value a C caller could pass
   EXPECT_EQ(initConnection(&badProto), ERROR_INVALID_ARGS);
 
   EXPECT_EQ(sendMessage(nullptr, "x"), ERROR_INVALID_ARGS);

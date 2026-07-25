@@ -24,7 +24,10 @@ typedef struct {
   const char* address;    // e.g. "tcp://127.0.0.1:5555"
   const char* client_id;  // e.g. "Camera-1"
 
-  Connection_Protocol protocol;
+  // A Connection_Protocol value, but typed int: a C caller can pass anything,
+  // and reading an out-of-range value back as the enum would be undefined. The
+  // Python and Ada bindings already treat this field as a plain int.
+  int protocol;
 
   // Heartbeat interval, ms (default 3000). Keep it below the broker's 10 s
   // zombie timeout or the broker drops the client between heartbeats.
