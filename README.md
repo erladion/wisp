@@ -98,7 +98,7 @@ Everything else is optional and set through environment variables:
 |---|---|---|
 | `WISP_CLUSTER` | broker | Discovery cluster name (default `default`); brokers only mesh with brokers sharing it |
 | `WISP_NO_DISCOVERY` | broker | Set (to anything) to disable LAN auto-discovery |
-| `WISP_PEERS` | broker | Comma-separated peer broker endpoints to dial directly (e.g. `tcp://host-b:5555`), for networks UDP discovery can't reach — across subnets, containers, Kubernetes. A peer link is bidirectional, so only one side need list the other; these are not counted against the discovery peer cap |
+| `WISP_PEERS` | broker | Comma-separated peer broker endpoints to dial directly (e.g. `tcp://host-b:5555`), for networks UDP discovery can't reach — across subnets, containers, Kubernetes. A peer link is bidirectional, so only one side need list the other; these are not counted against the discovery peer cap. Seed only brokers discovery can't already reach: seeding one that is *also* discoverable forms a second, harmless link to it (the duplicate traffic is deduplicated), since a seed is matched by address string and discovery by broker id |
 | `WISP_LOG_LEVEL` | broker and any process embedding the client library | Minimum log severity: `debug`, `info`, `warn`, `error`; unset logs everything |
 | `WISP_INSPECTOR_SOCK` | broker and inspector | Local inspector tap endpoint (default `ipc:///tmp/broker_inspector.sock`). Give each broker on a host its own — see below |
 

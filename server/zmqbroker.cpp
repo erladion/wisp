@@ -812,6 +812,12 @@ void ZmqBroker::addPeer(const std::string& key, const std::string& peerAddress) 
       // The same broker can be reached under two keys - dialed manually by
       // address, then discovered by uuid. Both would deliver the same traffic,
       // which the remote's dedup would discard, so keep only the first link.
+      // This matches on the address string, so it catches the identical-address
+      // case but not the same broker reached under two *different* addresses
+      // (a WISP_PEERS hostname vs the IP discovery derives from its beacon).
+      // That leaves a harmless duplicate link - deduplicated at both ends -
+      // rather than being closed; deduping it would need the remote's broker id
+      // over the link, which the peer protocol does not carry.
       for (const auto& [existingKey, existing] : m_peers) {
         if (existing.address == peerAddress) {
           Logger::Log(Logger::Info, "Already linked to " + peerAddress + " under key " + existingKey + "; ignoring the duplicate link");
