@@ -541,6 +541,9 @@ bool Broker::handleClientMessage(zmq::socket_t& socket, const broker::MessageHea
     } else if (newCluster != m_clusterName) {
       Logger::Log(Logger::Info, "Switching cluster '" + m_clusterName + "' -> '" + newCluster + "' (requested by " + senderId + ")");
       m_clusterName = newCluster;
+      // Links this broker dialed are dropped by discovery; the ones dialed by
+      // others have to be told, or they keep sending across the boundary.
+      unlinkInboundPeers(socket);
       m_discovery->setCluster(newCluster);
     }
     return true;  // Never broadcast; the swap is local to this broker
@@ -606,6 +609,9 @@ void Broker::floodPeers(const std::string& headerBytes, zmq::message_t& payload)
   // the same headerBytes the tap and local subscribers used.
   const Wire::WireMessagePtr fwd = Wire::makeWireMessage(headerBytes, std::string(payload.data<char>(), payload.size()));
   for (auto& entry : m_peers) {
+    if (!entry.second.active->load(std::memory_order_relaxed)) {
+      continue;  // told to unlink; see PeerLink::active
+    }
     if (!entry.second.worker->writeEncoded(fwd)) {
       notePeerDrop(entry.first);
     }
@@ -793,11 +799,22 @@ void Broker::addPeer(const std::string& key, const std::string& peerAddress) {
 
     // `mutable` so the throttle below can be updated; one instance per link, and
     // a link's callback only ever runs on its own worker thread.
-    worker->setMessageCallback([this, link, linkId = config.clientId, wakeSocket, dropThrottle = LogThrottle()](const Envelope& env) mutable {
+    auto active = std::make_shared<std::atomic<bool>>(true);
+    worker->setMessageCallback([this, link, linkId = config.clientId, wakeSocket, active, dropThrottle = LogThrottle()](const Envelope& env) mutable {
       // The remote broker answers our first message (and any reappearance after
       // it has timed us out) with a RESET request instead of processing it. The
       // wildcard subscription must be (re-)sent in response, or the remote will
       // never route anything to this link.
+      /* The remote has left the cluster and wants no more traffic. Marked
+         rather than torn down: removePeer() joins this very thread, and
+         discovery retires the entry once the beacons stop. */
+      if (env.header.handler_key() == Keys::UNLINK) {
+        if (active->exchange(false)) {
+          Logger::Log(Logger::Info, "Peer link '" + linkId + "' was told to unlink; no longer flooding to it");
+        }
+        return;
+      }
+
       if (env.header.handler_key() == Keys::RESET) {
         // The remote has forgotten this link's subscriptions, so the whole
         // interest set goes again - not the wildcard, which would quietly widen
@@ -863,7 +880,7 @@ void Broker::addPeer(const std::string& key, const std::string& peerAddress) {
         }
       }
       worker->start();
-      m_peers.emplace(key, PeerLink{peerAddress, config.clientId, std::move(worker)});
+      m_peers.emplace(key, PeerLink{peerAddress, config.clientId, std::move(worker), active});
     }
     Logger::Log(Logger::Info, "Connected to Peer: " + peerAddress);
   } catch (const std::exception& e) {
@@ -907,6 +924,27 @@ void Broker::removeClient(std::string clientId, const std::string& reason) {
     if (!m_subscriptions.subscribersOf(topic)) {
       noteTopicUnsubscribed(topic);
     }
+  }
+}
+
+void Broker::unlinkInboundPeers(zmq::socket_t& socket) {
+  // Collected first: removing a client mutates the very map being walked.
+  std::vector<std::string> inboundLinks;
+  for (const auto& [clientId, state] : m_clients) {
+    if (clientId.rfind("BrokerLink-", 0) == 0) {
+      inboundLinks.push_back(clientId);
+    }
+  }
+
+  const std::string unlinkFrame = Wire::encodeHeader(Wire::makeControlHeader(Keys::UNLINK, m_brokerId));
+  for (const std::string& clientId : inboundLinks) {
+    (void)Wire::sendTo(socket, clientId, unlinkFrame, std::string());
+    // Forgotten here as well, so nothing more is delivered to a link that is
+    // about to go away even if the remote is too old to understand __UNLINK__.
+    removeClient(clientId, "cluster swap");
+  }
+  if (!inboundLinks.empty()) {
+    Logger::Log(Logger::Info, "Told " + std::to_string(inboundLinks.size()) + " inbound peer link(s) to unlink after the cluster swap");
   }
 }
 

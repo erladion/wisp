@@ -150,8 +150,13 @@ TEST(DiscoveryTest, PeersAtTheCapStillRefresh) {
   feed(*disc, "10.0.0.5", "default", "zzz-overflow", 7000, now + 1s);
   EXPECT_EQ(rec.dials.size(), BrokerDiscovery::MaxDialedPeers) << "the overflow beacon must not have dialed";
 
-  feed(*disc, "10.0.0.5", "default", "zzz-0", 6000, now + 4s);  // refresh one
-  disc->expireStale(now + 7s);  // the rest age out (7s > 5s); zzz-0 is only 3s old
+  // Derived from the discovery constants rather than written out, so changing
+  // the beacon rate cannot silently turn this into a test of nothing.
+  const auto peerTimeout = BrokerDiscovery::BeaconInterval * BrokerDiscovery::MissedBeaconsBeforeDrop;
+  feed(*disc, "10.0.0.5", "default", "zzz-0", 6000, now + BrokerDiscovery::BeaconInterval);  // refresh one
+  // Past the timeout for everyone last heard at `now`; zzz-0 was heard one
+  // interval later and so is still inside it.
+  disc->expireStale(now + peerTimeout + 1s);
 
   ASSERT_EQ(rec.drops.size(), BrokerDiscovery::MaxDialedPeers - 1) << "every un-refreshed peer should have expired";
   for (const auto& uuid : rec.drops) {
@@ -166,10 +171,12 @@ TEST(DiscoveryTest, DropsPeerThatGoesSilent) {
   feed(*disc, "10.0.0.5", "default", "zzz", 6000, now);
   ASSERT_EQ(rec.dials.size(), 1u);
 
-  disc->expireStale(now + 2s);  // still fresh
+  const auto peerTimeout = BrokerDiscovery::BeaconInterval * BrokerDiscovery::MissedBeaconsBeforeDrop;
+
+  disc->expireStale(now + BrokerDiscovery::BeaconInterval);  // one interval on: still fresh
   EXPECT_TRUE(rec.drops.empty());
 
-  disc->expireStale(now + 10s);  // past the timeout
+  disc->expireStale(now + peerTimeout + 1s);  // past the timeout
   ASSERT_EQ(rec.drops.size(), 1u);
   EXPECT_EQ(rec.drops[0], "zzz");
 }

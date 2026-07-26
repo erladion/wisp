@@ -22,6 +22,11 @@ inline const std::string UNSUBSCRIBE = "__UNSUBSCRIBE__";
 
 inline const std::string SYS_STATS = "__SYS_STATS__";
 
+// Broker -> a broker that dialed it: stop linking to me. Sent when leaving a
+// cluster, so the peer stops at once instead of missing beacons until its
+// timeout.
+inline const std::string UNLINK = "__UNLINK__";
+
 // Runtime cluster swap: the payload carries the new cluster name as raw bytes
 // (a header-only control message can't be sent through the plain client APIs,
 // whose topic always mirrors the handler key). Handled by the local broker

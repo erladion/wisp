@@ -39,6 +39,12 @@ public:
   // an explicit operator action and is not capped.
   static constexpr std::size_t MaxDialedPeers = 64;
 
+  /* How often a broker announces itself, and how many missed announcements drop
+     a peer. The timeout is derived from the two, never set on its own: one
+     below the interval would drop every peer between its own beacons. */
+  static constexpr std::chrono::seconds BeaconInterval{1};
+  static constexpr int MissedBeaconsBeforeDrop = 5;
+
   // tapPort is advertised so tools can find this broker's inspector tap; 0
   // when no remote tap is exposed.
   BrokerDiscovery(std::string cluster, std::string selfUuid, std::uint16_t routerPort, std::uint16_t tapPort, std::uint16_t discoveryPort, DialFn dial,
@@ -54,8 +60,9 @@ public:
   // Switch to a different cluster at runtime: subsequent beacons announce the
   // new name, beacons from other clusters are ignored, and every link this
   // broker initiated is dropped immediately (the drop callback fires for each,
-  // on the caller's thread). Links dialed by remote peers survive until the
-  // remote stops hearing our old-cluster beacons - up to its peer timeout.
+  // on the caller's thread). Links dialed *by* remote peers are not this
+  // class's to drop - the broker sends those an __UNLINK__ instead, so they
+  // stop at once rather than waiting out a peer timeout.
   // A no-op when the name is unchanged. Callable from any thread.
   void setCluster(const std::string& cluster);
 

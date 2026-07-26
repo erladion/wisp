@@ -109,6 +109,7 @@ with `__`. Sent by the client unless noted:
 | `__UNSUBSCRIBE__` | remove one subscription |
 | `__SET_CLUSTER__` | payload = new discovery cluster name (1–64 bytes, no `\|`); handled by the receiving broker only |
 | `__SYS_STATS__` | broker → subscribers, every 1 s: payload is an Any-packed `broker.SystemStats` |
+| `__UNLINK__` | broker → a broker that dialed it: stop linking to me. Sent when leaving a cluster, so the peer stops at once instead of missing beacons until its timeout |
 
 Stats are delivered only to clients that subscribed to `__SYS_STATS__`
 *exactly* — wildcard subscribers do not receive them (this keeps per-broker
@@ -216,7 +217,11 @@ Tools that consume beacons must **listen only, never transmit**: a broker that
 hears a beacon treats the sender as a peer broker and may dial it. For each same-cluster pair, exactly one side
 dials: the broker with the **smaller uuid** (string comparison) connects to
 `tcp://<beacon sender ip>:<router_port>`. A dialed peer whose beacons stop
-for **5 s** is dropped. Cluster names must not contain `|` and fit within the
+for **5 beacon intervals** (5 s) is dropped — a multiple of the interval, so a
+peer is never dropped between two of its own beacons. A broker leaving a cluster
+says so with `__UNLINK__` rather than letting its peers time it out, so this
+bounds only how long a peer that vanished *without* a word lingers. Cluster names
+must not contain `|` and fit within the
 beacon's 512-byte read buffer.
 
 A broker dials at most a bounded number of discovered peers (64 in the stock
@@ -226,9 +231,11 @@ via discovery) do not count against this.
 
 A running broker leaves its mesh and joins another when it receives
 `__SET_CLUSTER__`: beacons switch immediately and links *it* dialed drop at
-once, but links dialed *by* old-mesh peers persist until those peers' 5 s
-beacon timeout — a few seconds of cross-mesh traffic is expected during a
-swap.
+once. The links dialed *by* old-mesh peers are ordinary client sessions it
+cannot reach into, so it sends each of them an `__UNLINK__` and forgets them;
+they stop flooding to it immediately, and the swap converges without waiting on
+discovery. A peer too old to know the key falls back to its beacon timeout, so a
+mixed mesh still converges — just at the old pace.
 
 ## Inspector tap
 

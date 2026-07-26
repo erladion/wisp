@@ -15,8 +15,10 @@ BrokerDiscovery::BrokerDiscovery(std::string cluster, std::string selfUuid, std:
       m_discoveryPort(discoveryPort),
       m_dial(std::move(dial)),
       m_drop(std::move(drop)),
-      m_beaconInterval(std::chrono::seconds(1)),
-      m_peerTimeout(std::chrono::seconds(5)),
+      m_beaconInterval(BeaconInterval),
+      // Derived, never set independently: a timeout below the interval would
+      // drop every peer between its beacons and tear the mesh down on a timer.
+      m_peerTimeout(BeaconInterval * MissedBeaconsBeforeDrop),
       m_running(false) {}
 
 BrokerDiscovery::~BrokerDiscovery() {

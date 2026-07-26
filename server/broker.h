@@ -98,6 +98,15 @@ struct PeerLink {
   std::string address;
   std::string linkId;
   std::unique_ptr<ZmqWorker> worker;
+  /* Cleared when the remote sends __UNLINK__, which stops this broker flooding
+     to it at once - the remote has left the cluster and anything more would
+     cross a mesh boundary.
+
+     Shared and atomic because the link's own worker thread clears it from the
+     message callback while the broker thread reads it per flood. The link is
+     not torn down there: removePeer() joins that very thread, and discovery
+     will retire the entry when the beacons stop anyway. */
+  std::shared_ptr<std::atomic<bool>> active;
 };
 
 namespace Detail {
@@ -220,6 +229,14 @@ private:
   // Record a message a peer link refused, and report periodically (see
   // LogThrottle).
   void notePeerDrop(const std::string& peerKey);
+
+  /* Tell the brokers that dialed this one to stop, and forget them.
+
+     Used when leaving a cluster: those links are ordinary client sessions here,
+     so the only way to end them promptly is to say so. Without it they linger
+     until the remote misses enough beacons, carrying traffic across the mesh
+     boundary the whole time. */
+  void unlinkInboundPeers(zmq::socket_t& socket);
 
   /* Whether `topic` may be added to `clientId`'s subscriptions.
 
