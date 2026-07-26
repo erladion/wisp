@@ -2,8 +2,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -99,32 +101,50 @@ TEST(BeaconTest, ListenerReportsBeaconsFromEveryCluster) {
   const std::string green = Beacon::encode("green", "uuid-green", 6555, 0);
   const std::string garbage = "not a beacon";
 
+  /* Resend until both clusters have been seen, or the deadline passes.
+
+     Tracked by cluster rather than by counting: waiting for "two beacons" is
+     satisfied by two 'blue's, which says nothing about whether the other
+     cluster got through - the one thing this test exists to check.
+
+     The mutex is also not held across the sleep. The listener takes it to
+     report a beacon, so holding it blocks the listener for most of every
+     cycle; measured on an idle and a loaded machine that costs no datagrams,
+     since the kernel buffers what it cannot yet deliver, but a test has no
+     reason to hold a lock it is not using. */
+  bool sawBlue = false;
+  bool sawGreen = false;
+  int heardTotal = 0;
   const auto deadline = std::chrono::steady_clock::now() + 5s;
-  while (std::chrono::steady_clock::now() < deadline) {
+  while (std::chrono::steady_clock::now() < deadline && !(sawBlue && sawGreen)) {
     ::sendto(sender, blue.data(), blue.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
     ::sendto(sender, green.data(), green.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
     ::sendto(sender, garbage.data(), garbage.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
 
-    std::lock_guard<std::mutex> lock(mutex);
-    if (heard.size() >= 2) {
-      break;
+    std::this_thread::sleep_for(50ms);
+
+    std::vector<Beacon::Beacon> batch;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      batch.swap(heard);
     }
-    std::this_thread::sleep_for(100ms);
+    for (const auto& b : batch) {
+      heardTotal++;
+      EXPECT_NE(b.cluster, "") << "garbage datagrams must not surface as beacons";
+      if (b.cluster == "blue" && b.uuid == "uuid-blue" && b.tapPort == 5999) {
+        sawBlue = true;
+      }
+      if (b.cluster == "green" && b.uuid == "uuid-green" && b.tapPort == 0) {
+        sawGreen = true;
+      }
+    }
   }
   ::close(sender);
   listener.stop();
 
-  bool sawBlue = false;
-  bool sawGreen = false;
-  for (const auto& b : heard) {
-    EXPECT_NE(b.cluster, "") << "garbage datagrams must not surface as beacons";
-    if (b.cluster == "blue" && b.uuid == "uuid-blue" && b.tapPort == 5999) {
-      sawBlue = true;
-    }
-    if (b.cluster == "green" && b.uuid == "uuid-green" && b.tapPort == 0) {
-      sawGreen = true;
-    }
-  }
-  EXPECT_TRUE(sawBlue) << "listener missed the 'blue' cluster beacon";
-  EXPECT_TRUE(sawGreen) << "listener filtered out a beacon from another cluster";
+  // Reported either way: a failure here is usually only reproducible on the
+  // machine that saw it, so the counts have to travel with it.
+  const std::string detail = " (heard " + std::to_string(heardTotal) + " beacon(s) in all)";
+  EXPECT_TRUE(sawBlue) << "listener missed the 'blue' cluster beacon" << detail;
+  EXPECT_TRUE(sawGreen) << "listener filtered out a beacon from another cluster" << detail;
 }
