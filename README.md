@@ -122,6 +122,8 @@ Pick one linkage and stay in it: `Wisp::Broker` pairs with `Wisp::Core`, `Wisp::
 
 The C ABI is the boundary to use from other languages: `libwisp.so` exports only the `connectionapi.h` functions and hides everything else, so a host process linking its own protobuf can never collide with ours.
 
+Payloads are opaque to the broker, but a tool that has to work out what one *is* at runtime — a viewer, a router, a recorder — can: `<wisp/anyframe.h>` reads the `google.protobuf.Any` type name off a payload without knowing the type and without linking protobuf at all. `ConnectionManager::tryUnpack<T>` remains the way to read a payload whose type you know. Wisp's own inspector and `wisp-cli` are built on both.
+
 The C++ library cannot offer that isolation — its API is templated (`sendMessage<T>`, `registerCallback`, `tryUnpack<T>`), so those instantiate in your translation unit and reference protobuf directly. **A C++ consumer therefore compiles against the same Protocol Buffers that built Wisp**; the package resolves it for you via `find_package`, but a mismatched protobuf will not work. Wisp's vendored cppzmq is installed alongside its headers so you compile against the same one it did.
 
 ## Configuration

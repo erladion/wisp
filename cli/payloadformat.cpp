@@ -9,7 +9,7 @@
 #include <memory>
 #include <string_view>
 
-#include "connectionmanager.h"  // Wisp::Detail::readAnyFrame - the Any framing the client library writes
+#include "anyframe.h"  // reading the Any framing a payload carries, without knowing its type
 
 namespace WispCli {
 
@@ -89,16 +89,12 @@ std::string toHex(const std::string& bytes, int maxBytes) {
 }
 
 std::string renderPackedAny(const std::string& payload) {
-  std::string_view typeUrl;
   std::string_view valueBytes;
-  if (!Wisp::Detail::readAnyFrame(payload, typeUrl, valueBytes)) {
+  const std::string_view claimedType = Wisp::AnyFrame::typeNameOf(payload, valueBytes);
+  if (claimedType.empty()) {
     return std::string();
   }
-  if (typeUrl.substr(0, Wisp::Detail::ANY_TYPE_URL_PREFIX.size()) != Wisp::Detail::ANY_TYPE_URL_PREFIX) {
-    return std::string();
-  }
-
-  const std::string typeName(typeUrl.substr(Wisp::Detail::ANY_TYPE_URL_PREFIX.size()));
+  const std::string typeName(claimedType);
   const google::protobuf::Descriptor* descriptor = google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName(typeName);
   if (!descriptor) {
     return std::string();

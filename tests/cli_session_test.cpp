@@ -6,7 +6,7 @@
 
 #include "broker.h"
 #include "brokersession.h"
-#include "connectionmanager.h"  // Detail::tryUnpack - how a protobuf payload is framed
+#include "connectionmanager.h"  // ConnectionManager::tryUnpack - reading a protobuf payload
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
@@ -119,7 +119,7 @@ TEST_F(CliSessionTest, ClosingSendsDisconnect) {
       continue;
     }
     broker::SystemStats stats;
-    if (!Detail::tryUnpack(env.payload, stats)) {
+    if (!ConnectionManager::tryUnpack(env.payload, stats)) {
       continue;
     }
     bool present = false;

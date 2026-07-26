@@ -5,12 +5,13 @@
 
 #include <google/protobuf/any.pb.h>
 
+#include "anyframe.h"
 #include "broker.pb.h"
 #include "connectionmanager.h"
 
 using namespace Wisp;
 
-/* Detail::readAnyFrame is a hand-rolled protobuf wire parser: it reads a
+/* AnyFrame::read is a hand-rolled protobuf wire parser: it reads a
    serialized google.protobuf.Any in place rather than materializing an Any and
    copying the payload out of it. Measured, that is worth roughly 1.3 us per
    decoded message - most of a small message's decode cost - which is why it
@@ -100,7 +101,7 @@ TEST(AnyFrameTest, TruncatedFramesAreRejectedNotOverRead) {
 
     std::string_view typeUrl;
     std::string_view valueBytes;
-    const bool ok = Detail::readAnyFrame(truncated, typeUrl, valueBytes);
+    const bool ok = AnyFrame::read(truncated, typeUrl, valueBytes);
 
     // Whatever it decides, the views it hands back must point inside the input.
     if (ok && !typeUrl.empty()) {
@@ -137,7 +138,7 @@ TEST(AnyFrameTest, GarbageIsRejected) {
   for (const std::string& bytes : garbage) {
     std::string_view typeUrl;
     std::string_view valueBytes;
-    EXPECT_FALSE(Detail::readAnyFrame(bytes, typeUrl, valueBytes)) << "accepted malformed bytes as a valid frame";
+    EXPECT_FALSE(AnyFrame::read(bytes, typeUrl, valueBytes)) << "accepted malformed bytes as a valid frame";
   }
 }
 
@@ -153,4 +154,31 @@ TEST(AnyFrameTest, NonAnyPayloadFallsBackToABareParse) {
   ASSERT_TRUE(Detail::tryUnpack(raw, out));
   EXPECT_EQ(out.id(), "not-wrapped");
   EXPECT_EQ(out.dropped_messages(), 3u);
+}
+
+/* typeNameOf is the entry point a tool actually wants: it answers "what does
+   this payload claim to be" in one call, including the type-url check that a
+   caller reading the raw fields has to remember to make.
+
+   The empty answer matters as much as the populated one - any payload that
+   happens to be wire-valid protobuf parses, so without the prefix check a
+   caller would look up a garbage type name in its descriptor pool. */
+TEST(AnyFrameTest, TypeNameOfIdentifiesAPayloadOrRefusesIt) {
+  const std::string packed = Detail::encodePayload(makeStats());
+
+  std::string_view value;
+  EXPECT_EQ(AnyFrame::typeNameOf(packed, value), "broker.SystemStats");
+  EXPECT_FALSE(value.empty()) << "the packed bytes should come back with the name";
+
+  // Parses as protobuf, but carries no type url: not an Any.
+  broker::SystemStats bare;
+  bare.set_broker_id("bare-message");
+  std::string_view bareValue;
+  EXPECT_TRUE(AnyFrame::typeNameOf(bare.SerializeAsString(), bareValue).empty()) << "a bare protobuf was mistaken for an Any";
+  EXPECT_TRUE(bareValue.empty());
+
+  // Not protobuf at all.
+  std::string_view junkValue;
+  EXPECT_TRUE(AnyFrame::typeNameOf(std::string("\xff\xff\xff", 3), junkValue).empty());
+  EXPECT_TRUE(AnyFrame::typeNameOf("", junkValue).empty());
 }

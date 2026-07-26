@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "anyframe.h"
 #include "config.h"
 #include "logger.h"
 #include "safequeue.h"
@@ -88,9 +89,21 @@ struct CallableTraits<ReturnType (ClassType::*)()> {};
 template <typename ReturnType>
 struct CallableTraits<ReturnType (*)()> {};
 
+/* Implementation of the encoding the templated API above needs.
+
+   Not part of the public surface, the way Detail::peerLinkId is not part of the
+   broker's. It lives in a shipped header only because the API is templated:
+   encodePayload and decodePayload are instantiated in the caller's translation
+   unit, so their definitions have to be visible here. Being reachable is a
+   consequence of that, not an invitation - these may change with any release.
+
+   What is genuinely supported for reading a payload is elsewhere:
+   ConnectionManager::tryUnpack when the type is known, and Wisp::AnyFrame in
+   <anyframe.h> when it is not. */
 namespace Detail {
 
-inline constexpr std::string_view ANY_TYPE_URL_PREFIX = "type.googleapis.com/";
+// Kept as the name the encoding paths below read; AnyFrame owns the value.
+inline constexpr std::string_view ANY_TYPE_URL_PREFIX = AnyFrame::TYPE_URL_PREFIX;
 
 // Appends one length-delimited protobuf field (tag byte + varint length +
 // bytes) - the only encoding a google.protobuf.Any frame needs.
@@ -105,74 +118,10 @@ inline void appendLengthDelimited(std::string& out, char tag, std::string_view b
   out.append(bytes.data(), bytes.size());
 }
 
-// Reads the two fields of a serialized google.protobuf.Any without
-// materializing an Any object (which would copy the payload bytes only to
-// parse them again in UnpackTo). Unknown fields are skipped the way protobuf
-// skips them; returns false when the bytes are not a wire-valid message.
+// The decoding half is public API; this is the spelling the templates below
+// were written against.
 inline bool readAnyFrame(std::string_view raw, std::string_view& typeUrl, std::string_view& valueBytes) {
-  std::size_t pos = 0;
-  const auto readVarint = [&](std::uint64_t& out) {
-    out = 0;
-    for (int shift = 0; shift < 64; shift += 7) {
-      if (pos >= raw.size()) {
-        return false;
-      }
-      const auto byte = static_cast<std::uint8_t>(raw[pos++]);
-      out |= std::uint64_t(byte & 0x7f) << shift;
-      if (!(byte & 0x80)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  typeUrl = {};
-  valueBytes = {};
-  while (pos < raw.size()) {
-    std::uint64_t key = 0;
-    if (!readVarint(key)) {
-      return false;
-    }
-    const std::uint64_t fieldNumber = key >> 3;
-    switch (key & 7) {
-      case 0: {  // varint
-        std::uint64_t skipped = 0;
-        if (!readVarint(skipped)) {
-          return false;
-        }
-        break;
-      }
-      case 1:  // fixed64
-        if (raw.size() - pos < 8) {
-          return false;
-        }
-        pos += 8;
-        break;
-      case 2: {  // length-delimited
-        std::uint64_t len = 0;
-        if (!readVarint(len) || len > raw.size() - pos) {
-          return false;
-        }
-        const std::string_view field(raw.data() + pos, static_cast<std::size_t>(len));
-        pos += static_cast<std::size_t>(len);
-        if (fieldNumber == 1) {
-          typeUrl = field;
-        } else if (fieldNumber == 2) {
-          valueBytes = field;
-        }
-        break;
-      }
-      case 5:  // fixed32
-        if (raw.size() - pos < 4) {
-          return false;
-        }
-        pos += 4;
-        break;
-      default:  // groups/reserved - nothing an Any frame ever contains
-        return false;
-    }
-  }
-  return true;
+  return AnyFrame::read(raw, typeUrl, valueBytes);
 }
 
 template <typename T>

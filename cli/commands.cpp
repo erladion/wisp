@@ -17,8 +17,8 @@
 #include "broker.pb.h"
 #include "brokersession.h"
 #include "config.h"
-// For Detail::tryUnpack - the client library's payload encoding contract, which
-// is what says how a protobuf message travels in a payload frame.
+// For ConnectionManager::tryUnpack - the supported way to read a protobuf out
+// of a payload frame.
 #include "connectionmanager.h"
 #include "interrupt.h"
 #include "logger.h"
@@ -344,7 +344,7 @@ int runStats(const Options& opts) {
     }
 
     broker::SystemStats stats;
-    if (!Detail::tryUnpack(env.payload, stats)) {
+    if (!ConnectionManager::tryUnpack(env.payload, stats)) {
       std::fprintf(stderr, "warning: could not decode a statistics message\n");
       continue;
     }

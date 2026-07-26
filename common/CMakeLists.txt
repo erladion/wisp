@@ -43,6 +43,7 @@ endif()
 # quoted paths, so installing them flat into one directory keeps those working
 # untouched - broker.pb.h lands there too, since wireframe.h includes it.
 set(WISP_PUBLIC_HEADERS
+    anyframe.h
     beacon.h
     config.h
     connectionapi.h
@@ -57,6 +58,7 @@ set(WISP_PUBLIC_HEADERS
 
 # Compiled once, then used for both the static and the shared C++ library.
 add_library(WispObjects OBJECT
+    anyframe.h
     ${PROTO_GENERATED_SOURCES}
     ${PROTO_GENERATED_HEADERS}
     zmqworker.h
