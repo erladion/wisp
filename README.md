@@ -15,7 +15,7 @@
 
 ## How it works
 
-Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. Each message is two frames: a small **header** the broker parses to route, and an opaque **payload** the broker forwards untouched — so payloads can be any format (protobuf, JSON, raw bytes). Brokers **auto-discover each other on the local network** (UDP broadcast) and form a mesh with no configuration; set `WISP_CLUSTER` to keep separate meshes apart on the same LAN, or `WISP_NO_DISCOVERY` to turn it off. The inspector can tap and display all live traffic. The full wire contract — framing, header encoding, control keys, handshake, meshing, discovery — is specified in [PROTOCOL.md](PROTOCOL.md).
+Clients connect to a broker over ZeroMQ and exchange topic-addressed messages. Each message is two frames: a small **header** the broker parses to route, and an opaque **payload** the broker forwards untouched — so payloads can be any format (protobuf, JSON, raw bytes). Brokers **auto-discover each other on the local network** (UDP broadcast) and form a mesh with no configuration; set `WISP_CLUSTER` to keep separate meshes apart on the same LAN, or `WISP_NO_DISCOVERY` to turn it off. A broker only pulls the topics its own subscribers want across a link, so adding a broker to the mesh does not make every other one carry its traffic. The inspector can tap and display all live traffic. The full wire contract — framing, header encoding, control keys, handshake, meshing, discovery — is specified in [PROTOCOL.md](PROTOCOL.md).
 
 ## Components
 

@@ -51,6 +51,20 @@ MessageId messageIdFrom(const std::string& uuid) {
   return id;
 }
 
+/* Whether a topic is one a broker should carry its interest in to its peers.
+
+   The reserved namespace is the brokers' own conversation and is never routed
+   as application traffic, so it has no business in an interest set.
+   __SYS_STATS__ is the one that would bite: it is delivered to exact
+   subscribers only, deliberately keeping per-broker statistics off the mesh,
+   and a link that subscribed to it on a peer's behalf would be what started
+   dragging them across. The wildcard is excluded for the opposite reason - it
+   is not a topic but the absence of a filter, and saturation already expresses
+   that. */
+bool isPropagatableTopic(const std::string& topic) {
+  return !topic.empty() && topic != Keys::WILDCARD_TOPIC && !Keys::isReservedKey(topic);
+}
+
 // Queue a DISCONNECT through a peer link before stopping it, so the remote
 // broker forgets the link immediately instead of waiting out its zombie
 // timeout. The worker's shutdown drain sends it as the socket closes.
@@ -131,6 +145,8 @@ Broker::Broker(std::chrono::milliseconds clientTimeout)
       m_clientTimeout(clientTimeout),
       m_cleanupInterval(std::min<std::chrono::milliseconds>(std::chrono::seconds(2), clientTimeout / 2)),
       m_brokerId(generateUUID()),
+      m_interestSaturated(false),
+      m_interestWildcard(false),
       m_discoveryEnabled(false),
       m_discoveryPort(BrokerDiscovery::DefaultPort),
       m_inspectorTcpPort(0),
@@ -494,6 +510,12 @@ bool Broker::handleClientMessage(zmq::socket_t& socket, const broker::MessageHea
       noteRejectedSubscription(senderId, "already at the " + std::to_string(MAX_SUBSCRIPTIONS_PER_CLIENT) + "-subscription limit");
     } else if (m_subscriptions.subscribe(senderId, header.topic())) {
       Logger::Log(Logger::Info, "Client " + senderId + " Subscribed to " + header.topic());
+      // The first subscriber for a topic is what makes this broker interested
+      // in it; later ones are already covered by what the peers were told.
+      const std::vector<std::string>* subscribers = m_subscriptions.subscribersOf(header.topic());
+      if (subscribers && subscribers->size() == 1) {
+        noteTopicSubscribed(header.topic());
+      }
     }
     return true;
   }
@@ -501,6 +523,10 @@ bool Broker::handleClientMessage(zmq::socket_t& socket, const broker::MessageHea
   if (key == Keys::UNSUBSCRIBE) {
     if (m_subscriptions.unsubscribe(senderId, header.topic())) {
       Logger::Log(Logger::Info, "Client " + senderId + " Unsubscribed from " + header.topic());
+      // Nobody here wants it any more, so the peers can stop sending it.
+      if (!m_subscriptions.subscribersOf(header.topic())) {
+        noteTopicUnsubscribed(header.topic());
+      }
     }
     return true;
   }
@@ -773,8 +799,10 @@ void Broker::addPeer(const std::string& key, const std::string& peerAddress) {
       // wildcard subscription must be (re-)sent in response, or the remote will
       // never route anything to this link.
       if (env.header.handler_key() == Keys::RESET) {
-        // Everything routes over the link
-        link->writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, linkId, Keys::WILDCARD_TOPIC));
+        // The remote has forgotten this link's subscriptions, so the whole
+        // interest set goes again - not the wildcard, which would quietly widen
+        // the link every time a remote restarted.
+        sendInterestTo(*link, linkId);
         return;
       }
 
@@ -804,12 +832,15 @@ void Broker::addPeer(const std::string& key, const std::string& peerAddress) {
       }
     });
 
-    // Subscribe the link to everything up front, queued right behind the
-    // worker's automatic CONNECT: a fresh session is registered silently by the
-    // remote, so the mesh must not depend on a RESET to trigger this. The
-    // RESET-driven re-subscribe in the callback above remains the recovery path
-    // for a remote broker restart.
-    worker->writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, config.clientId, Keys::WILDCARD_TOPIC));
+    /* Subscribe the link to what this broker actually wants, queued right
+       behind the worker's automatic CONNECT: a fresh session is registered
+       silently by the remote, so the mesh must not depend on a RESET to trigger
+       this. The RESET-driven re-subscribe in the callback above remains the
+       recovery path for a remote broker restart.
+
+       Anything subscribed here after this point rides out on the per-topic
+       updates noteTopicSubscribed() pushes to every link. */
+    sendInterestTo(*worker, config.clientId);
 
     {
       std::lock_guard<std::mutex> lock(m_peersMutex);
@@ -832,7 +863,7 @@ void Broker::addPeer(const std::string& key, const std::string& peerAddress) {
         }
       }
       worker->start();
-      m_peers.emplace(key, PeerLink{peerAddress, std::move(worker)});
+      m_peers.emplace(key, PeerLink{peerAddress, config.clientId, std::move(worker)});
     }
     Logger::Log(Logger::Info, "Connected to Peer: " + peerAddress);
   } catch (const std::exception& e) {
@@ -861,8 +892,145 @@ void Broker::removePeer(const std::string& key) {
 void Broker::removeClient(std::string clientId, const std::string& reason) {
   Logger::Log(Logger::Info, "Removing Client: " + clientId + " (" + reason + ")");
 
+  // Copied before the removal: the registry's own view of them is what is about
+  // to be destroyed, and any that had no other subscriber leaves this broker's
+  // interest with it.
+  std::vector<std::string> heldTopics;
+  if (const std::set<std::string>* held = m_subscriptions.subscriptionsOf(clientId)) {
+    heldTopics.assign(held->begin(), held->end());
+  }
+
   m_subscriptions.removeClient(clientId);
   m_clients.erase(clientId);
+
+  for (const std::string& topic : heldTopics) {
+    if (!m_subscriptions.subscribersOf(topic)) {
+      noteTopicUnsubscribed(topic);
+    }
+  }
+}
+
+void Broker::noteTopicSubscribed(const std::string& topic) {
+  /* A wildcard subscriber here wants every topic, including ones that exist
+     only on the far side of a link - so this broker's interest becomes
+     everything, and its links have to say so. Unlike saturation this is
+     reversible: the wildcard is withdrawn again when the last such subscriber
+     goes, so one `sub "*"` does not widen the mesh permanently. */
+  if (topic == Keys::WILDCARD_TOPIC) {
+    {
+      std::lock_guard<std::mutex> lock(m_interestMutex);
+      if (m_interestWildcard) {
+        return;
+      }
+      m_interestWildcard = true;
+    }
+    std::lock_guard<std::mutex> lock(m_peersMutex);
+    for (auto& [key, peer] : m_peers) {
+      peer.worker->writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, peer.linkId, std::string(Keys::WILDCARD_TOPIC)));
+    }
+    return;
+  }
+
+  if (!isPropagatableTopic(topic)) {
+    return;
+  }
+
+  bool saturatedNow = false;
+  {
+    std::lock_guard<std::mutex> lock(m_interestMutex);
+    if (m_interestSaturated || !m_interest.insert(topic).second) {
+      // Already interested, or the links already take everything - either way
+      // the peers' view is unchanged.
+      return;
+    }
+    if (m_interest.size() > MaxInterestTopics) {
+      m_interestSaturated = true;
+      saturatedNow = true;
+      Logger::Log(Logger::Info, "Interest set passed " + std::to_string(MaxInterestTopics) + " topics; peer links now take everything");
+    }
+  }
+
+  // Outside the interest lock, which is never held while taking this one.
+  std::lock_guard<std::mutex> lock(m_peersMutex);
+  const std::string wanted = saturatedNow ? std::string(Keys::WILDCARD_TOPIC) : topic;
+  for (auto& [key, peer] : m_peers) {
+    peer.worker->writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, peer.linkId, wanted));
+  }
+}
+
+void Broker::noteTopicUnsubscribed(const std::string& topic) {
+  // The last wildcard subscriber leaving narrows this broker back to its
+  // specific interest, which the links have to be told in full: they have been
+  // holding "*" and know nothing of the individual topics.
+  if (topic == Keys::WILDCARD_TOPIC) {
+    std::vector<std::string> topics;
+    bool stillWide = false;
+    {
+      std::lock_guard<std::mutex> lock(m_interestMutex);
+      if (!m_interestWildcard) {
+        return;
+      }
+      m_interestWildcard = false;
+      stillWide = m_interestSaturated;
+      topics.assign(m_interest.begin(), m_interest.end());
+    }
+    if (stillWide) {
+      return;  // saturated anyway, so the links keep the wildcard
+    }
+
+    // Snapshotted above rather than read here: m_interestMutex is never taken
+    // while holding m_peersMutex.
+    std::lock_guard<std::mutex> lock(m_peersMutex);
+    for (auto& [key, peer] : m_peers) {
+      peer.worker->writeControlMessage(Wire::makeControl(Keys::UNSUBSCRIBE, peer.linkId, std::string(Keys::WILDCARD_TOPIC)));
+      for (const std::string& wanted : topics) {
+        peer.worker->writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, peer.linkId, wanted));
+      }
+    }
+    return;
+  }
+
+  if (!isPropagatableTopic(topic)) {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(m_interestMutex);
+    // A saturated broker's links hold the wildcard, so there is no per-topic
+    // subscription out there to withdraw.
+    if (m_interestSaturated || m_interest.erase(topic) == 0) {
+      return;
+    }
+  }
+
+  std::lock_guard<std::mutex> lock(m_peersMutex);
+  for (auto& [key, peer] : m_peers) {
+    peer.worker->writeControlMessage(Wire::makeControl(Keys::UNSUBSCRIBE, peer.linkId, topic));
+  }
+}
+
+void Broker::sendInterestTo(ZmqWorker& link, const std::string& linkId) const {
+  std::vector<std::string> topics;
+  bool saturated = false;
+  {
+    std::lock_guard<std::mutex> lock(m_interestMutex);
+    saturated = m_interestSaturated || m_interestWildcard;
+    if (!saturated) {
+      topics.assign(m_interest.begin(), m_interest.end());
+    }
+  }
+
+  if (saturated) {
+    link.writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, linkId, std::string(Keys::WILDCARD_TOPIC)));
+    return;
+  }
+
+  // An empty set subscribes to nothing, which is the correct request from a
+  // broker whose subscribers want nothing: the link stays open and silent until
+  // someone here does.
+  for (const std::string& topic : topics) {
+    link.writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, linkId, topic));
+  }
 }
 
 }  // namespace Wisp

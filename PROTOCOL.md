@@ -112,7 +112,10 @@ with `__`. Sent by the client unless noted:
 
 Stats are delivered only to clients that subscribed to `__SYS_STATS__`
 *exactly* — wildcard subscribers do not receive them (this keeps per-broker
-stats off the peer mesh).
+stats off the peer mesh). A peer link no longer holds only the wildcard, so
+that alone no longer settles it: brokers also never carry interest in the
+`__KEY__` namespace across a link (see Broker meshing), which is what still
+keeps each broker's statistics to its own clients.
 
 ## Subscription limits
 
@@ -146,10 +149,33 @@ involved beyond normal routing.
 
 ## Broker meshing
 
-Brokers link to each other over the same DEALER/ROUTER protocol: a peer link
-is a client whose identity starts with `BrokerLink-` and whose only
-subscription is the wildcard (`"*"`). Each broker floods every routed message
-to all of its peer links.
+Brokers link to each other over the same DEALER/ROUTER protocol: a peer link is
+a client whose identity starts with `BrokerLink-`. Each broker floods every
+routed message to all of its peer links.
+
+**Interest.** A link subscribes to the topics its own broker's subscribers
+hold, rather than to the wildcard — so a broker receives from its peers only
+what someone on its side of the mesh actually wants. This needs no mechanism of
+its own: a link *is* a client, so what it subscribes to is what the remote will
+send it, and the ordinary `__SUBSCRIBE__`/`__UNSUBSCRIBE__` keys carry it. A
+broker sends one as a topic gains its first local subscriber or loses its last.
+
+Interest aggregates across hops for free. A link's subscriptions land in the
+remote's own registry, so a broker's interest already includes everything its
+inbound links asked for, and passing that on carries a distant subscriber's
+interest the length of the mesh one hop at a time.
+
+Two topics are never propagated: the `__KEY__` namespace (which is not routed
+as application traffic, and would otherwise pull each broker's `__SYS_STATS__`
+across the mesh) and the wildcard itself. Past a bounded number of topics
+(1000 in the stock build) a link falls back to subscribing `"*"`, which is
+what every link did before interest existed — so saturation costs efficiency,
+never correctness.
+
+A broker that predates this still subscribes its links to `"*"` and receives
+everything, and one that never advertises interest is served everything by its
+peers, so a mixed mesh keeps working. Only the reduction waits for both ends to
+upgrade.
 
 Flooding is best-effort, like every other delivery: a link that falls behind —
 or one that is down, and so never drains at all — has further messages dropped

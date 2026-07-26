@@ -4,6 +4,7 @@
 #include <zmq.hpp>
 
 #include <algorithm>
+#include <set>
 #include <thread>
 #include <unordered_map>
 #include <atomic>
@@ -91,9 +92,11 @@ private:
   size_t m_count;
 };
 
-// One link to a peer broker: the dialing worker plus the address it dialed.
+// One link to a peer broker: the dialing worker, the address it dialed, and the
+// identity it presents there (which is what its subscriptions are made under).
 struct PeerLink {
   std::string address;
+  std::string linkId;
   std::unique_ptr<ZmqWorker> worker;
 };
 
@@ -126,6 +129,16 @@ class Broker {
   // Power of two > 2*MaxHistorySize, keeping the dedup sets' load factor
   // comfortably below 1/3.
   static constexpr size_t DedupSetCapacity = 32768;
+  /* Topics a link will subscribe to individually before it gives up and takes
+     everything instead.
+
+     A link's subscriptions are state the remote broker retains, bounded there
+     by MAX_SUBSCRIPTIONS_PER_CLIENT; this is the far lower bound at which
+     naming every topic stops being worth it. Past it the link falls back to the
+     wildcard, which is exactly the behaviour every link had before interest
+     existed - so saturation costs efficiency, never correctness. */
+  static constexpr std::size_t MaxInterestTopics = 1000;
+
   // Subscriptions listed per client in SystemStats. Every stats broadcast
   // serializes these, once a second, for every connected client - listing a
   // client's full set (up to MAX_SUBSCRIPTIONS_PER_CLIENT) would make the
@@ -219,6 +232,22 @@ private:
   // Count a refused SUBSCRIBE and report periodically (see LogThrottle).
   void noteRejectedSubscription(const std::string& clientId, const std::string& reason);
 
+  /* Interest bookkeeping, called as a topic gains its first subscriber or loses
+     its last. Each pushes the matching SUBSCRIBE or UNSUBSCRIBE out over every
+     peer link, which is the whole of the propagation: a link is a client on the
+     remote, so what it subscribes to is what the remote will send it.
+
+     Aggregation across hops needs no extra machinery. A link's subscriptions
+     land in the remote's own registry, so a broker's interest already includes
+     everything its inbound links asked for, and passing that on carries a
+     distant subscriber's interest the length of the mesh one hop at a time. */
+  void noteTopicSubscribed(const std::string& topic);
+  void noteTopicUnsubscribed(const std::string& topic);
+
+  // Subscribes `link` to this broker's current interest - the full set, since a
+  // new or reset link starts from nothing.
+  void sendInterestTo(ZmqWorker& link, const std::string& linkId) const;
+
   bool isDuplicate(const std::string& uuid);
 
   void broadcastStats(zmq::socket_t &socket, zmq::socket_t &inspectorSocket);
@@ -245,6 +274,25 @@ private:
   std::unordered_map<std::string, ClientState> m_clients;
 
   SubscriptionRegistry m_subscriptions;
+
+  /* What this broker wants from its peers: every topic one of its own
+     subscribers holds, local clients and inbound peer links alike.
+
+     Guarded, unlike the rest of the routing state: links are created on the
+     discovery thread and re-subscribe from their own worker threads after a
+     remote restart, while this is maintained by the broker thread. Nothing
+     touches it per message - only as a topic appears or disappears entirely.
+     Taken before m_peersMutex wherever both are needed, never the other way. */
+  mutable std::mutex m_interestMutex;
+  std::set<std::string> m_interest;
+  // Set once the interest set outgrows MaxInterestTopics, from which point
+  // links take everything. Never cleared: see MaxInterestTopics.
+  bool m_interestSaturated;
+  /* Set while some client here holds a wildcard subscription, which makes this
+     broker interested in every topic - including ones that exist only across a
+     link. Reversible, unlike saturation: a debugging tool subscribing to "*"
+     must not widen the mesh for good. */
+  bool m_interestWildcard;
 
   // Exception: peers can be added/removed by the owning thread (connectToPeer)
   // or the discovery thread while the broker thread floods messages to them,

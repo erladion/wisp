@@ -32,6 +32,7 @@ set(BROKER_TEST_SOURCES
   discovery_test.cpp
   handshake_test.cpp
   inspector_tap_test.cpp
+  interest_routing_test.cpp
   message_size_limit_test.cpp
   peer_backpressure_test.cpp
   peer_link_test.cpp
