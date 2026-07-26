@@ -145,6 +145,15 @@ public:
 
   void connectToPeer(const std::string& peerAddress);
 
+  /* Drop a link dialed by connectToPeer. The counterpart of it, and the only
+     way to take a mesh apart without stopping a broker: discovery drops links
+     on its own when beacons stop, but a link seeded by address has nothing to
+     time it out.
+
+     Harmless if no such link exists. A remote that dialed *this* broker is not
+     affected - the two ends of a link are not symmetric (see PROTOCOL.md). */
+  void disconnectFromPeer(const std::string& peerAddress);
+
   // Enable automatic LAN peer discovery (UDP broadcast beacons). Brokers sharing
   // a cluster name auto-mesh. Call before start().
   void enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort = BrokerDiscovery::DefaultPort);

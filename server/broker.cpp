@@ -718,6 +718,11 @@ void Broker::connectToPeer(const std::string& peerAddress) {
   addPeer(peerAddress, peerAddress);
 }
 
+void Broker::disconnectFromPeer(const std::string& peerAddress) {
+  // Keyed by address, as connectToPeer added it.
+  removePeer(peerAddress);
+}
+
 void Broker::enableDiscovery(const std::string& clusterName, std::uint16_t discoveryPort) {
   // Same rule SET_CLUSTER enforces; an invalid name here (e.g. from the
   // WISP_CLUSTER environment) would silently break this broker's own beacons.

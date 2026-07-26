@@ -98,6 +98,27 @@ if (TARGET QtConnectionAdapter)
   gtest_discover_tests(qt_adapter_test)
 endif()
 
+# The mesh simulation harness, shared by the bounded scenarios below and the
+# standalone soak runner.
+add_library(WispSimulation STATIC
+  sim/simulation.h
+  sim/simulation.cpp
+)
+target_include_directories(WispSimulation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sim)
+target_link_libraries(WispSimulation PUBLIC WispBroker WispCore zmq)
+
+# A few fixed seeds, sized to run on every build. The soak runner below is where
+# a wide search belongs.
+add_executable(simulation_tests sim/sim_test.cpp)
+target_link_libraries(simulation_tests PRIVATE GTest::gtest_main WispSimulation)
+gtest_discover_tests(simulation_tests)
+
+# Standalone soak runner - deliberately NOT registered with
+# gtest_discover_tests: it runs until something fails, which is not what a build
+# should wait for.
+add_executable(wisp-sim sim/sim_runner.cpp)
+target_link_libraries(wisp-sim PRIVATE WispSimulation)
+
 # Standalone load-generator binary - deliberately NOT registered with
 # gtest_discover_tests (it prints a report rather than asserting pass/fail and
 # is meant to be run on demand, not as part of every `ctest` invocation).
