@@ -13,6 +13,8 @@ add_library(WispCliObjects OBJECT
   options.cpp
   payloadformat.h
   payloadformat.cpp
+  recording.h
+  recording.cpp
 )
 target_include_directories(WispCliObjects PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(WispCliObjects PUBLIC WispCore zmq)

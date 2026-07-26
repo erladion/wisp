@@ -18,6 +18,8 @@ int runSubscribe(const Options& opts);
 int runRequest(const Options& opts);
 int runStats(const Options& opts);
 int runTap(const Options& opts);
+int runRecord(const Options& opts);
+int runReplay(const Options& opts);
 
 }  // namespace WispCli
 

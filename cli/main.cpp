@@ -65,6 +65,10 @@ int main(int argc, char* argv[]) {
         return runStats(options);
       case Command::Tap:
         return runTap(options);
+      case Command::Record:
+        return runRecord(options);
+      case Command::Replay:
+        return runReplay(options);
       case Command::None:
         break;
     }

@@ -6,7 +6,7 @@
 
 namespace WispCli {
 
-enum class Command { None, Publish, Subscribe, Request, Stats, Tap };
+enum class Command { None, Publish, Subscribe, Request, Stats, Tap, Record, Replay };
 
 // How a payload frame is rendered. Auto decodes a packed protobuf Any when the
 // type is one this binary was compiled against, prints printable bytes as text,
@@ -31,6 +31,26 @@ struct Options {
   int maxBytes = 64;
   bool verbose = false;
   bool help = false;
+
+  // replay: multiplier on the captured pacing; 0 sends as fast as the broker
+  // will take it.
+  double speed = 1.0;
+  /* replay: send the __KEY__ control traffic a capture also holds. Off by
+     default, and not merely for tidiness - a replayed __SET_CLUSTER__ would
+     move the broker to another mesh and a __DISCONNECT__ would end a session,
+     so a naive replay of a full capture is destructive. */
+  bool includeControl = false;
+  /* replay: keep the message_uuid and origin_broker_id the original broker
+     stamped, instead of letting the receiving broker stamp fresh ones.
+
+     Off by default, and the reason is sharper than it first looks. A broker
+     remembers recent message ids to break routing loops, so a capture replayed
+     with its ids intact is discarded as duplicate by any broker that still
+     remembers them - including, in particular, the broker that recorded it.
+     Measured: every message of such a replay is dropped, while replay itself
+     reports success, since the broker accepted and then discarded them. Kept as
+     an option because testing the deduplication needs it. */
+  bool preserveUuids = false;
 };
 
 // Default broker endpoint, overridden by --address or WISP_ADDRESS.

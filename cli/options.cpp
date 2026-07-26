@@ -32,6 +32,8 @@ const CommandSpec COMMANDS[] = {
     {"request", Command::Request, 1, 2},
     {"stats", Command::Stats, 0, 0},
     {"tap", Command::Tap, 0, 1},
+    {"record", Command::Record, 1, 2},
+    {"replay", Command::Replay, 1, 1},
 };
 
 const CommandSpec* findCommand(const std::string& name) {
@@ -68,6 +70,23 @@ bool takeInt(int argc, char* argv[], int& index, const std::string& option, int 
     return true;
   } catch (const std::exception&) {
     outError = option + " expects a number, got '" + text + "'";
+    return false;
+  }
+}
+
+// Zero is meaningful (send unpaced), so only negatives and non-numbers are
+// refused.
+bool parseSpeed(const std::string& text, double& outSpeed, std::string& outError) {
+  try {
+    const double value = std::stod(text);
+    if (value < 0.0) {
+      outError = "--speed cannot be negative";
+      return false;
+    }
+    outSpeed = value;
+    return true;
+  } catch (const std::exception&) {
+    outError = "--speed expects a number, got '" + text + "'";
     return false;
   }
 }
@@ -147,6 +166,14 @@ bool parseArguments(int argc, char* argv[], Options& out, std::string& outError)
         if (!takeInt(argc, argv, i, arg, 1, out.maxBytes, outError)) {
           return false;
         }
+      } else if (arg == "--speed") {
+        if (!takeValue(argc, argv, i, arg, value, outError) || !parseSpeed(value, out.speed, outError)) {
+          return false;
+        }
+      } else if (arg == "--include-control") {
+        out.includeControl = true;
+      } else if (arg == "--preserve-uuids") {
+        out.preserveUuids = true;
       } else {
         outError = "unknown option '" + arg + "'";
         return false;
@@ -199,6 +226,9 @@ const char* usageText() {
       "  wisp-cli req <topic> [data]   send a request, print the reply, exit 1 if none arrives\n"
       "  wisp-cli stats                print broker statistics (one report, then exit)\n"
       "  wisp-cli tap [endpoint]       print every message a broker processes, control traffic included\n"
+      "  wisp-cli record <file> [endpoint]\n"
+      "                                capture everything a broker processes to <file>\n"
+      "  wisp-cli replay <file>        publish a capture back to a broker, at its original pace\n"
       "\n"
       "Options:\n"
       "  -a, --address ADDR   broker endpoint (default tcp://127.0.0.1:5555, or $WISP_ADDRESS)\n"
@@ -211,6 +241,17 @@ const char* usageText() {
       "  -v, --verbose        show the client library's own log output\n"
       "  -h, --help           this text\n"
       "\n"
+      "Replay options:\n"
+      "      --speed N        multiplier on the captured pacing (default 1.0); 0 sends unpaced\n"
+      "      --include-control\n"
+      "                       also replay the __KEY__ control traffic in the capture. Off by\n"
+      "                       default because it is destructive: a captured __SET_CLUSTER__\n"
+      "                       would move the broker to another mesh\n"
+      "      --preserve-uuids keep the message ids the original broker stamped. Off by default:\n"
+      "                       a broker discards ids it still remembers, so such a replay is\n"
+      "                       dropped wholesale by the very broker that recorded the capture.\n"
+      "                       For testing deduplication, not for reproducing traffic\n"
+      "\n"
       "The tap endpoint defaults to $WISP_INSPECTOR_SOCK, else ipc:///tmp/broker_inspector.sock.\n"
       "A broker started with --inspector-port N can be tapped remotely: wisp-cli tap tcp://host:N\n"
       "\n"
@@ -219,7 +260,9 @@ const char* usageText() {
       "  wisp-cli pub telemetry '{\"temp\":21}'         publish a JSON payload\n"
       "  cat frame.bin | wisp-cli pub camera/frame    publish binary data from stdin\n"
       "  wisp-cli req config/get name -t 1000         request/reply with a 1 s timeout\n"
-      "  wisp-cli stats -n 0                          stream broker statistics every second\n";
+      "  wisp-cli stats -n 0                          stream broker statistics every second\n"
+      "  wisp-cli record incident.wisp -n 5000        capture 5000 messages for later replay\n"
+      "  wisp-cli replay incident.wisp --speed 0      re-publish a capture as fast as it is taken\n";
 }
 
 }  // namespace WispCli

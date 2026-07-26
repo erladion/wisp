@@ -68,6 +68,13 @@ bool BrokerSession::publish(const std::string& topic, const std::string& payload
     envelope.header.set_reply_topic(replyTopic);
   }
   envelope.payload = payload;
+  return publishEnvelope(std::move(envelope));
+}
+
+bool BrokerSession::publishEnvelope(Envelope envelope) {
+  if (!m_open) {
+    return false;
+  }
   return m_pWorker->writeMessage(std::move(envelope));
 }
 

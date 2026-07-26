@@ -46,6 +46,12 @@ public:
   // else in the stack; replyTopic is set only by a request.
   bool publish(const std::string& topic, const std::string& payload, const std::string& replyTopic = std::string());
 
+  // Sends an envelope assembled elsewhere, header and all - what a replay needs
+  // to reproduce a captured message rather than describe a new one. The sender
+  // id is left as it stands, so a replayed message still names its original
+  // sender.
+  bool publishEnvelope(Wisp::Envelope envelope);
+
   // Block until the broker has processed everything sent so far. False means
   // nothing came back inside `timeout`: no broker at the address, or one too
   // busy to answer.

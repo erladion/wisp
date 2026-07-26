@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -9,6 +10,7 @@
 #include <iostream>
 #include <iterator>
 #include <string>
+#include <thread>
 
 #include <zmq.hpp>
 
@@ -22,6 +24,7 @@
 #include "logger.h"
 #include "messagekeys.h"
 #include "payloadformat.h"
+#include "recording.h"
 #include "uuidhelper.h"
 #include "wireframe.h"
 
@@ -353,7 +356,14 @@ int runStats(const Options& opts) {
   return (delivered > 0 || limit == 0) ? 0 : 1;
 }
 
-int runTap(const Options& opts) {
+/* Attach to a broker's inspector tap and hand each message to `consume` until
+   the count is reached or the user interrupts. Shared by tap and record, which
+   differ only in what they do with a message.
+
+   `consume` returning false stops the loop, so a failing writer ends a
+   recording rather than being retried per message. */
+template <typename Consumer>
+int readTap(const Options& opts, Consumer consume) {
   applyLogLevel(opts);
 
   const std::string endpoint = tapEndpoint(opts);
@@ -391,6 +401,17 @@ int runTap(const Options& opts) {
       continue;
     }
 
+    if (!consume(env, wireBytes)) {
+      return 1;
+    }
+    delivered++;
+  }
+
+  return 0;
+}
+
+int runTap(const Options& opts) {
+  return readTap(opts, [&opts](const Envelope& env, std::size_t wireBytes) {
     if (opts.format == PayloadFormat::Raw) {
       writeRaw(env.payload);
     } else {
@@ -398,9 +419,127 @@ int runTap(const Options& opts) {
                   env.header.sender_id().c_str(), wireBytes, renderPayload(env.payload, opts.format, opts.maxBytes).c_str());
       std::fflush(stdout);
     }
-    delivered++;
+    return true;
+  });
+}
+
+int runRecord(const Options& opts) {
+  const std::string& path = opts.args[0];
+
+  // The endpoint is record's second argument but the tap helper reads its
+  // first, so hand it a view with the path removed.
+  Options tapOpts = opts;
+  tapOpts.args.erase(tapOpts.args.begin());
+
+  RecordWriter writer;
+  std::string error;
+  if (!writer.open(path, error)) {
+    std::fprintf(stderr, "error: %s\n", error.c_str());
+    return 1;
+  }
+  std::fprintf(stderr, "# recording to %s\n", path.c_str());
+
+  const int status = readTap(tapOpts, [&writer, &error](const Envelope& env, std::size_t /* wireBytes */) {
+    if (writer.write(env, error)) {
+      return true;
+    }
+    std::fprintf(stderr, "error: %s\n", error.c_str());
+    return false;
+  });
+
+  const std::uint64_t captured = writer.count();
+  if (!writer.close(error)) {
+    std::fprintf(stderr, "error: %s\n", error.c_str());
+    return 1;
+  }
+  std::fprintf(stderr, "# captured %llu message(s)\n", static_cast<unsigned long long>(captured));
+  return status;
+}
+
+int runReplay(const Options& opts) {
+  const std::string& path = opts.args[0];
+
+  RecordReader reader;
+  std::string error;
+  if (!reader.open(path, error)) {
+    std::fprintf(stderr, "error: %s\n", error.c_str());
+    return 1;
   }
 
+  BrokerSession session;
+  if (!openSession(opts, session)) {
+    return 1;
+  }
+
+  /* Said plainly, because the failure is invisible otherwise: the broker
+     accepts these and then discards the ones whose ids it remembers, so the
+     count below would report a success that delivered nothing. */
+  if (opts.preserveUuids) {
+    std::fprintf(stderr, "# --preserve-uuids: a broker discards messages whose ids it still remembers, so some or all of this replay may not be delivered\n");
+  }
+
+  const auto started = std::chrono::steady_clock::now();
+  std::uint64_t sent = 0;
+  std::uint64_t skipped = 0;
+
+  while (!interrupted()) {
+    Envelope env;
+    std::int64_t offsetMicros = 0;
+    if (!reader.read(env, offsetMicros, error)) {
+      if (!error.empty()) {
+        // Everything up to the damage was replayed, so this is a partial
+        // success worth distinguishing from a clean run.
+        std::fprintf(stderr, "error: %s (after %llu message(s))\n", error.c_str(), static_cast<unsigned long long>(sent));
+        return 1;
+      }
+      break;  // clean end of the capture
+    }
+
+    /* Control traffic is a broker's own conversation, not application data.
+       Replaying it is destructive rather than merely useless - see
+       Options::includeControl. */
+    if (!opts.includeControl && Keys::isReservedKey(env.header.handler_key())) {
+      skipped++;
+      continue;
+    }
+
+    // Let the receiving broker stamp this run's identity unless asked
+    // otherwise, so a capture can be replayed more than once.
+    if (!opts.preserveUuids) {
+      env.header.clear_message_uuid();
+      env.header.clear_origin_broker_id();
+    }
+
+    // Reproduce the capture's pacing by holding each message until its offset
+    // has elapsed. Sliced so an interrupt does not have to wait out a long gap.
+    if (opts.speed > 0.0) {
+      const auto due = started + std::chrono::microseconds(static_cast<std::int64_t>(static_cast<double>(offsetMicros) / opts.speed));
+      while (!interrupted() && std::chrono::steady_clock::now() < due) {
+        const auto remaining = due - std::chrono::steady_clock::now();
+        std::this_thread::sleep_for(std::min(std::chrono::duration_cast<std::chrono::milliseconds>(remaining), RECEIVE_SLICE));
+      }
+    }
+
+    if (!session.publishEnvelope(std::move(env))) {
+      std::fprintf(stderr, "error: the send pipe would not take message %llu\n", static_cast<unsigned long long>(sent + 1));
+      return 1;
+    }
+    sent++;
+  }
+
+  // Same contract as pub: a zero exit status means the broker has the traffic,
+  // not merely that it was queued.
+  if (!session.sync(std::chrono::milliseconds(opts.timeoutMs))) {
+    std::fprintf(stderr, "error: the broker did not confirm the replay within %d ms\n", opts.timeoutMs);
+    return 1;
+  }
+  session.close();
+
+  std::fprintf(stderr, "# replayed %llu message(s)", static_cast<unsigned long long>(sent));
+  if (skipped > 0) {
+    std::fprintf(stderr, ", skipped %llu control message(s)", static_cast<unsigned long long>(skipped));
+  }
+  std::fprintf(stderr, "\n");
   return 0;
 }
 

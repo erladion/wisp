@@ -22,6 +22,7 @@ set(BROKER_TEST_SOURCES
   callback_shapes_test.cpp
   cli_options_test.cpp
   cli_payload_format_test.cpp
+  cli_recording_test.cpp
   cli_session_test.cpp
   client_id_correction_test.cpp
   cluster_swap_test.cpp

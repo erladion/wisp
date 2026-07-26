@@ -49,6 +49,8 @@ wisp-cli pub telemetry '{"temp":21}'      # publish (payload from stdin if omitt
 wisp-cli req config/get name -t 1000      # request/reply; exits 1 if no reply arrives
 wisp-cli stats                            # one broker statistics report, then exit
 wisp-cli tap                              # every message a local broker processes, control traffic included
+wisp-cli record incident.wisp             # capture that firehose to a file
+wisp-cli replay incident.wisp             # publish a capture back, at its original pace
 ```
 
 It talks to `tcp://127.0.0.1:5555` unless `--address` or `WISP_ADDRESS` says otherwise. Payloads render as decoded protobuf when the type is one Wisp knows, as text when they are printable, and as hex otherwise; `--format raw` writes the bytes verbatim so a payload can be piped into a file. `--count N` stops after N messages. `wisp-cli --help` lists the rest.
@@ -60,6 +62,23 @@ wisp-cli pub deploy/start "$VERSION" || exit 1   # the broker had it, or this fa
 ```
 
 `tap` reads a broker's inspector socket rather than joining as a client, so it sees control traffic — heartbeats, subscribes, resets — that no subscriber ever receives. It defaults to `$WISP_INSPECTOR_SOCK`; point it at `tcp://host:N` to read a broker started with `--inspector-port N`.
+
+### Record and replay
+
+`record` writes that same tap to a file, and `replay` publishes it back — so an incident becomes something you can carry to another machine and run again with the inspector attached, and a working system's traffic becomes a regression test you produce by pressing record:
+
+```sh
+wisp-cli record incident.wisp -n 50000        # capture, or until Ctrl-C
+wisp-cli replay incident.wisp                  # same messages, same gaps between them
+wisp-cli replay incident.wisp --speed 10       # ten times faster; --speed 0 is unpaced
+```
+
+Replay reproduces the captured pacing and each message's original `sender_id`, so subscribers see what they saw the first time. Two things it does *not* reproduce by default, both deliberate:
+
+- **Control traffic is skipped.** A capture holds the broker's own conversation too, and replaying that is destructive rather than merely noisy — a captured `__SET_CLUSTER__` would move the broker to another mesh, a `__DISCONNECT__` would end a session. `--include-control` if you really mean it.
+- **Message ids are re-stamped.** Brokers remember recent message ids to break routing loops, so a replay carrying the original ids is discarded as duplicate — wholesale, by the very broker that recorded the capture, while replay still reports success. `--preserve-uuids` keeps them, which is useful for testing deduplication and nothing else.
+
+A capture is what the tap delivered, which is not necessarily everything the broker routed: the tap drops rather than slowing the broker down. The file format is documented at the top of [cli/recording.h](cli/recording.h) — a magic string then length-prefixed records, so a truncated capture still reads up to the damage.
 
 ## Using Wisp from another project
 
