@@ -149,7 +149,7 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
 
   void* tempInstanceKey = promise.get();
 
-  const std::string replyTopic = requestTopic + generateUUID();
+  const std::string replyTopic = makeReplyTopic(requestTopic);
 
   // Register and unregister directly on the held instance: routing through the
   // static registerInternal()/unregisterCallback() would re-read s_instance,
@@ -265,6 +265,50 @@ bool ConnectionManager::sendMessage(const std::string& key, const std::string& m
   }
   return self->sendDataInternal(key, message);
 }
+bool ConnectionManager::sendMessage(const std::string& key, const std::string& message, const std::string& replyTopic) {
+  return sendEncodedWithReply(key, message, replyTopic);
+}
+
+bool ConnectionManager::sendEncodedWithReply(const std::string& key, std::string payload, const std::string& replyTopic) {
+  std::shared_ptr<ConnectionManager> self = getInstance();
+  if (self == nullptr) {
+    return false;
+  }
+
+  /* Refused rather than sent: a broker drops __-prefixed keys instead of
+     routing them, so a reply addressed at one would vanish without a word and
+     the caller would sit waiting for it. */
+  if (replyTopic.empty()) {
+    Logger::Log(Logger::Error, "sendMessage: the reply topic is empty - use the two-argument form for a plain publish");
+    return false;
+  }
+  if (Keys::isReservedKey(replyTopic)) {
+    Logger::Log(Logger::Error, "sendMessage: reply topic '" + replyTopic + "' is in the reserved __KEY__ namespace, which a broker drops rather than routes");
+    return false;
+  }
+  if (replyTopic.size() > MAX_TOPIC_LENGTH_BYTES) {
+    Logger::Log(Logger::Error, "sendMessage: reply topic is " + std::to_string(replyTopic.size()) + " bytes, over the broker's " +
+                                   std::to_string(MAX_TOPIC_LENGTH_BYTES) + "-byte limit - the subscription would be rejected");
+    return false;
+  }
+
+  Envelope envelope;
+  envelope.header.set_handler_key(key);
+  envelope.header.set_sender_id(self->m_clientId);
+  envelope.header.set_topic(key);
+  envelope.header.set_reply_topic(replyTopic);
+  envelope.payload = std::move(payload);
+  return self->sendRawEnvelope(std::move(envelope));
+}
+
+std::string ConnectionManager::makeReplyTopic(const std::string& requestTopic) {
+  const std::string suffix = "." + generateUUID();
+  // Trimmed rather than truncated after the fact, so the uuid - the part that
+  // makes it unique - always survives intact.
+  const std::size_t room = MAX_TOPIC_LENGTH_BYTES > suffix.size() ? MAX_TOPIC_LENGTH_BYTES - suffix.size() : 0;
+  return requestTopic.substr(0, room) + suffix;
+}
+
 bool ConnectionManager::sendData(const std::string& key, const std::string_view& data) {
   std::shared_ptr<ConnectionManager> self = getInstance();
   if (self == nullptr) {

@@ -37,6 +37,7 @@ set(BROKER_TEST_SOURCES
   peer_backpressure_test.cpp
   peer_link_test.cpp
   peer_list_test.cpp
+  reply_topic_test.cpp
   reply_to_sender_context_test.cpp
   request_reply_test.cpp
   safequeue_test.cpp

@@ -13,6 +13,8 @@
     setCluster;
     replyToSender;
     sendRequest;
+    sendDataWithReply;
+    makeReplyTopic;
     registerCallback;
     unregisterCallback;
     setLogLevel;

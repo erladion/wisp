@@ -257,6 +257,35 @@ public:
   static bool sendData(const std::string& key, const std::string_view& data);
   static bool sendDataRaw(const std::string& key, const char* data, int len);
 
+  /* Publish on `key`, naming `replyTopic` for a responder to answer on - the
+     non-blocking half of request/reply.
+
+     Subscribe to `replyTopic` first, send, and handle the answer in that
+     callback. sendRequest() below does the same and then blocks until the
+     answer arrives, which a message handler cannot do (it would stall the very
+     thread that dispatches the reply) and a frame loop or UI thread should not.
+     The responder side is identical either way: replyToSender() reads this
+     field, so a responder cannot tell the two apart.
+
+     Nothing here expires. A reply that never comes is indistinguishable from
+     one still on its way, so the caller decides how long to care and
+     unregisters the reply topic when it is done - a loop that is already
+     ticking is better placed to make that judgement than the library.
+
+     `replyTopic` must not be in the reserved __KEY__ namespace, which a broker
+     drops rather than routes; such a reply would be lost in silence, so it is
+     refused here instead. Use makeReplyTopic() to get one that is unique and
+     within the broker's topic-length limit. */
+  static bool sendMessage(const std::string& key, const std::string& message, const std::string& replyTopic);
+
+  /* A reply topic no concurrent request will collide with, derived from the
+     request topic so a tap still shows the two together.
+
+     Kept inside MAX_TOPIC_LENGTH_BYTES by trimming the request topic if it has
+     to be: an over-long __SUBSCRIBE__ is rejected by the broker silently, which
+     would leave a caller waiting for a reply that was never routable. */
+  static std::string makeReplyTopic(const std::string& requestTopic);
+
   // Move the broker to a different discovery cluster at runtime (sends a
   // __SET_CLUSTER__ message). `name` must be 1-64 bytes without '|'; an invalid
   // name is refused here rather than dropped silently by the broker. False if
@@ -279,6 +308,15 @@ public:
     envelope.header.set_topic(key);
     envelope.payload = Detail::encodePayload(value);
     return self->sendRawEnvelope(std::move(envelope));
+  }
+
+  // The same, naming a reply topic; see the three-argument sendMessage above
+  // for what that means and what it does not do.
+  template <typename T, typename std::enable_if<!std::is_pointer<T>::value && !std::is_array<T>::value, int>::type = 0>
+  static bool sendMessage(const std::string& key, const T& value, const std::string& replyTopic) {
+    // Encoded here (the templates must be), then handed to the shared path so
+    // the reply-topic rules are enforced in exactly one place.
+    return sendEncodedWithReply(key, Detail::encodePayload(value), replyTopic);
   }
 
   // Dispatches on the callback's argument type. The BaseT default argument
@@ -382,6 +420,12 @@ private:
   static std::shared_ptr<ConnectionManager> getInstance();
 
   bool sendDataInternal(const std::string& key, const std::string_view& data);
+
+  /* Send an already-encoded payload with a reply topic, validating the topic
+     first. Shared by the plain and templated three-argument sendMessage: the
+     templated one has to encode in the header, but the rules belong in one
+     place. Sink: call with std::move to avoid copying the payload. */
+  static bool sendEncodedWithReply(const std::string& key, std::string payload, const std::string& replyTopic);
   // Sink: call with std::move to send without copying the payload.
   bool sendRawEnvelope(Envelope envelope);
 

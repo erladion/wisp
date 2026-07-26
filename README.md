@@ -122,6 +122,16 @@ Pick one linkage and stay in it: `Wisp::Broker` pairs with `Wisp::Core`, `Wisp::
 
 The C ABI is the boundary to use from other languages: `libwisp.so` exports only the `connectionapi.h` functions and hides everything else, so a host process linking its own protobuf can never collide with ours.
 
+Request/reply comes in two shapes. `sendRequest` blocks until the answer arrives, which is the simplest thing when you have a thread to spare. When you don't — inside a message handler, a frame loop, or a UI thread — name a reply topic instead and handle the answer as an ordinary message:
+
+```cpp
+const std::string replyTopic = ConnectionManager::makeReplyTopic("config/get");
+ConnectionManager::registerCallback(replyTopic, [](const std::string& answer) { /* ... */ });
+ConnectionManager::sendMessage("config/get", "name", replyTopic);   // returns immediately
+```
+
+The responder cannot tell the two apart — `replyToSender()` reads the same field either way. Nothing expires on its own, so unregister the reply topic when you stop caring; a loop that is already ticking is better placed to decide that than the library. This is also the only way to make a request *from* a handler: `sendRequest` refuses there, since it would block the very thread that has to deliver the reply.
+
 Payloads are opaque to the broker, but a tool that has to work out what one *is* at runtime — a viewer, a router, a recorder — can: `<wisp/anyframe.h>` reads the `google.protobuf.Any` type name off a payload without knowing the type and without linking protobuf at all. `ConnectionManager::tryUnpack<T>` remains the way to read a payload whose type you know. Wisp's own inspector and `wisp-cli` are built on both.
 
 The C++ library cannot offer that isolation — its API is templated (`sendMessage<T>`, `registerCallback`, `tryUnpack<T>`), so those instantiate in your translation unit and reference protobuf directly. **A C++ consumer therefore compiles against the same Protocol Buffers that built Wisp**; the package resolves it for you via `find_package`, but a mismatched protobuf will not work. Wisp's vendored cppzmq is installed alongside its headers so you compile against the same one it did.

@@ -78,6 +78,27 @@ CONN_API int setCluster(const char* name);
 
 CONN_API int replyToSender(const char* data, int len);
 
+/* Publish on `topic`, naming `replyTopic` for a responder to answer on - the
+   non-blocking half of request/reply.
+
+   Subscribe to `replyTopic` first, send, and handle the answer in that
+   callback. sendRequest below does the same and then blocks until the answer
+   arrives, which a message callback must not do (it would stall the thread that
+   delivers the reply). Nothing here expires: the caller decides how long to
+   wait and calls unregisterCallback when done.
+
+   ERROR_INVALID_ARGS if `replyTopic` is empty, longer than 512 bytes, or starts
+   with "__" - a broker drops reserved keys rather than routing them, so such a
+   reply would be lost in silence. */
+CONN_API int sendDataWithReply(const char* topic, const char* data, int len, const char* replyTopic);
+
+/* Writes a reply topic unique to this request into `outBuffer`, derived from
+   `requestTopic` and within the broker's 512-byte topic limit.
+
+   Returns SUCCESS, or ERROR_BUFFER_TOO_SMALL with the required capacity in
+   `outLen` (which includes the terminating NUL). */
+CONN_API int makeReplyTopic(const char* requestTopic, char* outBuffer, int outBufferCap, int* outLen);
+
 // Blocks the calling thread for up to timeoutMs waiting on the reply. On success, fills outBuffer
 // (capacity outBufferCap) and outLen with the response. Returns ERROR_NO_CONNECTION when offline,
 // ERROR_TIMEOUT when no reply arrived in time, and ERROR_BUFFER_TOO_SMALL when the response did

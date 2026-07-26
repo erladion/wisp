@@ -123,6 +123,42 @@ int sendData(const char* topic, const char* data, int len) {
   });
 }
 
+int sendDataWithReply(const char* topic, const char* data, int len, const char* replyTopic) {
+  if (!topic || !data || len < 0 || !replyTopic) {
+    return fail(ERROR_INVALID_ARGS, "topic, data and replyTopic must be non-null and len >= 0");
+  }
+
+  return guard([&] {
+    // The reply-topic rules (non-empty, not reserved, within the length limit)
+    // are enforced by the C++ side; it logs the reason, and refusing here would
+    // mean stating them twice.
+    if (!ConnectionManager::sendMessage(topic, std::string(data, len), replyTopic)) {
+      if (!ConnectionManager::isInitialized()) {
+        return fail(ERROR_NO_CONNECTION, "no active connection");
+      }
+      return fail(ERROR_INVALID_ARGS, "reply topic must be 1-512 bytes and outside the reserved __KEY__ namespace");
+    }
+    return ok();
+  });
+}
+
+int makeReplyTopic(const char* requestTopic, char* outBuffer, int outBufferCap, int* outLen) {
+  if (!requestTopic || !outBuffer || outBufferCap <= 0 || !outLen) {
+    return fail(ERROR_INVALID_ARGS, "requestTopic, outBuffer and outLen must be non-null and outBufferCap > 0");
+  }
+
+  return guard([&] {
+    const std::string topic = ConnectionManager::makeReplyTopic(requestTopic);
+    // Reported including the NUL, so a caller can size a buffer from it.
+    *outLen = static_cast<int>(topic.size()) + 1;
+    if (*outLen > outBufferCap) {
+      return fail(ERROR_BUFFER_TOO_SMALL, "reply topic does not fit in the supplied buffer");
+    }
+    std::memcpy(outBuffer, topic.c_str(), topic.size() + 1);
+    return ok();
+  });
+}
+
 int setCluster(const char* name) {
   if (!name) {
     return fail(ERROR_INVALID_ARGS, "name must be non-null");
