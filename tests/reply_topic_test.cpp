@@ -189,7 +189,14 @@ TEST_F(ReplyTopicTest, RoundTripsWithoutBlockingTheCaller) {
   ASSERT_TRUE(sent) << "the reply never came back on the reply topic";
   EXPECT_EQ(answer, "answer to ping");
 
-  ConnectionManager::unregisterCallback(replyTopic, nullptr);
+  /* Shut down here rather than leaving it to TearDown: the callback above holds
+     references to locals of this function, and gtest destroys those before
+     TearDown runs. Anything still in flight would then dispatch into freed
+     memory. unregisterCallback alone would not do - by its own contract a
+     callback already being dispatched may still complete - whereas shutdown()
+     joins the thread that dispatches them. Idempotent, so TearDown's call is
+     harmless. */
+  ConnectionManager::shutdown();
 }
 
 /* The case that was impossible before: asking a question from inside a message
@@ -232,7 +239,10 @@ TEST_F(ReplyTopicTest, AHandlerCanIssueItsOwnRequest) {
   ASSERT_TRUE(completed) << "a request made from inside a handler never completed";
   EXPECT_EQ(answer, "answer to ?");
 
-  ConnectionManager::unregisterCallback(replyTopic, nullptr);
+  // Joined before the captured locals go out of scope; see the note in
+  // RoundTripsWithoutBlockingTheCaller. Triggers published by the peer are
+  // still arriving at this point, so this one is not theoretical.
+  ConnectionManager::shutdown();
 }
 
 // A reply addressed into the reserved namespace would be dropped by the broker

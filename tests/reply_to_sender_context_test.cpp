@@ -108,4 +108,10 @@ TEST_F(ReplyToSenderContextTest, CallFromInsideRegularPubSubHandlerFailsGraceful
   EXPECT_FALSE(replySucceeded) << "replyToSender() should refuse to reply to a message that carried no reply_topic";
 
   publisher.stop();
+  /* The handler above holds references to locals of this function, and gtest
+     destroys those before TearDown runs - so a message still in flight would
+     dispatch into freed memory. shutdown() joins the dispatching thread;
+     unregisterCallback would not, since a callback already being dispatched is
+     allowed to finish. Idempotent, so TearDown's own call is harmless. */
+  ConnectionManager::shutdown();
 }
