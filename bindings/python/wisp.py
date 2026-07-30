@@ -78,6 +78,12 @@ _lib.sendMessage.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
 _lib.sendMessage.restype = ctypes.c_int
 _lib.setCluster.argtypes = [ctypes.c_char_p]
 _lib.setCluster.restype = ctypes.c_int
+
+_lib.sendDataWithReply.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p]
+_lib.sendDataWithReply.restype = ctypes.c_int
+
+_lib.makeReplyTopic.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+_lib.makeReplyTopic.restype = ctypes.c_int
 _lib.replyToSender.argtypes = [ctypes.c_char_p, ctypes.c_int]
 _lib.replyToSender.restype = ctypes.c_int
 _lib.sendRequest.argtypes = [
@@ -184,6 +190,31 @@ def reply_to_sender(data):
     payload = _as_bytes(data)
     _check(_lib.replyToSender(payload, len(payload)), "reply_to_sender")
 
+
+def send_data_with_reply(topic, data, reply_topic):
+    """Publish data on topic, naming reply_topic for a responder to answer on.
+
+    The non-blocking half of request/reply: register_callback(reply_topic, ...)
+    first, send, and handle the answer there. send_request below does the same
+    and then blocks, which a message handler must not do - it would stall the
+    thread delivering the reply.
+
+    Nothing expires; unregister_callback when you stop waiting. Raises
+    WispError if reply_topic is empty, over 512 bytes, or starts with "__"
+    (a broker drops reserved keys rather than routing them, so the answer
+    would be lost in silence).
+    """
+    payload = _as_bytes(data)
+    _check(_lib.sendDataWithReply(topic.encode(), payload, len(payload), reply_topic.encode()),
+           "send_data_with_reply")
+
+def make_reply_topic(request_topic, max_length=1024):
+    """A reply topic unique to this request, derived from request_topic."""
+    buf = ctypes.create_string_buffer(max_length)
+    out_len = ctypes.c_int(0)
+    _check(_lib.makeReplyTopic(request_topic.encode(), buf, max_length, ctypes.byref(out_len)),
+           "make_reply_topic")
+    return buf.value.decode()
 
 def send_request(topic, payload, timeout_ms=5000, max_response=65536):
     """Send payload on topic and block for the reply; returns bytes.

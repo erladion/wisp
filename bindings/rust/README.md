@@ -70,6 +70,12 @@ wisp::unregister_callback(sub);
 // Request/reply: block for one reply, bounding the reply buffer:
 let reply = wisp::send_request("service.echo", b"ping", 2000, 4096)?;
 
+// ...or ask without blocking, which a callback must do (a blocking request
+// there would stall the thread delivering the reply):
+let reply_topic = wisp::make_reply_topic("service.echo")?;
+let _sub = wisp::register_callback(&reply_topic, |_t, data| println!("answer {data:?}"))?;
+wisp::send_data_with_reply("service.echo", b"ping", &reply_topic)?;
+
 // Inside a subscription handling a request, answer the sender:
 wisp::reply_to_sender(b"pong")?;
 

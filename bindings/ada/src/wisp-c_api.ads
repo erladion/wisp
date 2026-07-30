@@ -91,6 +91,26 @@ package Wisp.C_API is
    function Reply_To_Sender (Data : System.Address; Len : int) return int
      with Import, Convention => C, External_Name => "replyToSender";
 
+   --  Publish on Topic, naming Reply_Topic for a responder to answer on.
+   --  ERROR_INVALID_ARGS if Reply_Topic is empty, over 512 bytes, or starts
+   --  with "__" (a broker drops reserved keys rather than routing them).
+   function Send_Data_With_Reply
+     (Topic       : chars_ptr;
+      Data        : System.Address;
+      Len         : int;
+      Reply_Topic : chars_ptr) return int
+     with Import, Convention => C, External_Name => "sendDataWithReply";
+
+   --  Writes a reply topic unique to this request into Out_Buffer. Returns
+   --  ERROR_BUFFER_TOO_SMALL with the required capacity (including the
+   --  terminating NUL) in Out_Len.
+   function Make_Reply_Topic
+     (Request_Topic  : chars_ptr;
+      Out_Buffer     : System.Address;
+      Out_Buffer_Cap : int;
+      Out_Len        : access int) return int
+     with Import, Convention => C, External_Name => "makeReplyTopic";
+
    --  Blocks the calling thread for up to Timeout_Ms waiting on the reply.
    --  On success fills Out_Buffer and Out_Len. Returns ERROR_NO_CONNECTION
    --  when offline, ERROR_TIMEOUT when no reply arrived in time, and

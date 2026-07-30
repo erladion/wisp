@@ -64,6 +64,10 @@ mod ffi {
         pub fn set_cluster(name: *const c_char) -> c_int;
         #[link_name = "replyToSender"]
         pub fn reply_to_sender(data: *const c_char, len: c_int) -> c_int;
+        #[link_name = "sendDataWithReply"]
+        pub fn send_data_with_reply(topic: *const c_char, data: *const c_char, len: c_int, reply_topic: *const c_char) -> c_int;
+        #[link_name = "makeReplyTopic"]
+        pub fn make_reply_topic(request_topic: *const c_char, out_buffer: *mut c_char, out_buffer_cap: c_int, out_len: *mut c_int) -> c_int;
         #[link_name = "sendRequest"]
         pub fn send_request(
             topic: *const c_char,
@@ -244,6 +248,52 @@ pub fn reply_to_sender(data: &[u8]) -> Result<()> {
 pub fn set_cluster(name: &str) -> Result<()> {
     let name = cstring(name, "cluster name")?;
     check(unsafe { ffi::set_cluster(name.as_ptr()) }, "set_cluster")
+}
+
+/// Publish on `topic`, naming `reply_topic` for a responder to answer on - the
+/// non-blocking half of request/reply.
+///
+/// Subscribe to `reply_topic` first, send, and handle the answer in that
+/// callback. [`send_request`] does the same and then blocks, which a message
+/// handler must not do: it would stall the thread delivering the reply.
+///
+/// Nothing expires here; unregister the reply topic when you stop waiting.
+/// Fails if `reply_topic` is empty, over 512 bytes, or starts with `__` - a
+/// broker drops reserved keys rather than routing them, so such an answer would
+/// be lost in silence.
+pub fn send_data_with_reply(topic: &str, data: &[u8], reply_topic: &str) -> Result<()> {
+    let topic = cstring(topic, "topic")?;
+    let reply_topic = cstring(reply_topic, "reply topic")?;
+    check(
+        unsafe {
+            ffi::send_data_with_reply(
+                topic.as_ptr(),
+                data.as_ptr() as *const c_char,
+                data.len() as c_int,
+                reply_topic.as_ptr(),
+            )
+        },
+        "send_data_with_reply",
+    )
+}
+
+/// A reply topic unique to this request, derived from `request_topic` and
+/// within the broker's 512-byte topic limit.
+pub fn make_reply_topic(request_topic: &str) -> Result<String> {
+    let request_topic = cstring(request_topic, "request topic")?;
+    // Comfortably past the broker's topic limit plus the uuid the C ABI appends.
+    let mut buffer = vec![0u8; 1024];
+    let mut out_len: c_int = 0;
+    check(
+        unsafe { ffi::make_reply_topic(request_topic.as_ptr(), buffer.as_mut_ptr() as *mut c_char, buffer.len() as c_int, &mut out_len) },
+        "make_reply_topic",
+    )?;
+    // out_len counts the terminating NUL, which a Rust string does not want.
+    buffer.truncate((out_len.max(1) - 1) as usize);
+    String::from_utf8(buffer).map_err(|_| Error {
+        code: -1,
+        message: "make_reply_topic returned a topic that was not valid UTF-8".to_string(),
+    })
 }
 
 /// Send a request on `topic` and block for a single reply, up to `timeout_ms`.

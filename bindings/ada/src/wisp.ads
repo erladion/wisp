@@ -42,6 +42,23 @@ package Wisp is
    --  for NUL-free text payloads.
 
    procedure Set_Cluster (Name : String);
+
+   --  Publish on Topic, naming Reply_Topic for a responder to answer on - the
+   --  non-blocking half of request/reply. Register a handler on Reply_Topic
+   --  first, send, and handle the answer there. Send_Request below does the
+   --  same and then blocks, which a message handler must not do: it would
+   --  stall the thread delivering the reply.
+   --
+   --  Nothing expires here; unregister the reply topic when you stop waiting.
+   --  Raises Wisp_Error if Reply_Topic is empty, over 512 bytes, or starts with
+   --  "__" - a broker drops reserved keys rather than routing them, so such an
+   --  answer would be lost in silence.
+   procedure Send_Data_With_Reply
+     (Topic : String; Data : String; Reply_Topic : String);
+
+   --  A reply topic unique to this request, derived from Request_Topic and
+   --  within the broker's 512-byte topic limit.
+   function Make_Reply_Topic (Request_Topic : String) return String;
    --  Move the broker to a different discovery cluster at runtime. Name must be
    --  1-64 bytes without '|'; raises Wisp_Error if it is rejected or there is no
    --  connection. Any connected client may do this — the broker re-targets its

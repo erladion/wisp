@@ -48,6 +48,9 @@ Wisp.Register_Callback ("commands", On_Command'Access);  --  library-level proce
 Wisp.Send_Data ("telemetry", Payload);                   --  fire and forget
 Wisp.Send_Message ("chat", "hello");                     --  text convenience
 Reply : String := Wisp.Send_Request ("config", "get");   --  blocking request/reply
+--  ...or ask without blocking, which a handler must do:
+Reply_Topic : constant String := Wisp.Make_Reply_Topic ("config");
+Wisp.Send_Data_With_Reply ("config", "get", Reply_Topic);
 Wisp.Reply_To_Sender ("ack");                            --  inside a handler
 Wisp.Set_Cluster ("blue");                               --  swap discovery cluster
 

@@ -168,6 +168,49 @@ func SetCluster(name string) error {
 	return check(C.setCluster(cName), "setCluster")
 }
 
+// SendDataWithReply publishes data on topic, naming replyTopic for a responder
+// to answer on - the non-blocking half of request/reply.
+//
+// Register a callback on replyTopic first, send, and handle the answer there.
+// SendRequest below does the same and then blocks, which a message callback
+// must not do: it would stall the thread delivering the reply.
+//
+// Nothing expires here; unregister the reply topic when you stop waiting. Fails
+// if replyTopic is empty, over 512 bytes, or starts with "__" - a broker drops
+// reserved keys rather than routing them, so such an answer would be lost in
+// silence.
+func SendDataWithReply(topic string, data []byte, replyTopic string) error {
+	cTopic := C.CString(topic)
+	defer C.free(unsafe.Pointer(cTopic))
+	cReply := C.CString(replyTopic)
+	defer C.free(unsafe.Pointer(cReply))
+	return check(C.sendDataWithReply(cTopic, bytePtr(data), C.int(len(data)), cReply), "sendDataWithReply")
+}
+
+// MakeReplyTopic returns a reply topic unique to this request, derived from
+// requestTopic and within the broker's 512-byte topic limit.
+func MakeReplyTopic(requestTopic string) (string, error) {
+	cTopic := C.CString(requestTopic)
+	defer C.free(unsafe.Pointer(cTopic))
+	// Past the broker's topic limit plus the uuid the C ABI appends, so the
+	// call never has to be repeated for capacity.
+	const capacity = 1024
+	buf := make([]byte, capacity)
+	var outLen C.int
+	if err := check(C.makeReplyTopic(cTopic, bytePtr(buf), C.int(capacity), &outLen), "makeReplyTopic"); err != nil {
+		return "", err
+	}
+	// outLen counts the terminating NUL, which a Go string does not want.
+	n := int(outLen) - 1
+	if n < 0 {
+		n = 0
+	}
+	if n > capacity {
+		n = capacity
+	}
+	return string(buf[:n]), nil
+}
+
 // SendRequest sends payload on topic and blocks for one reply, up to
 // timeoutMs. maxResponse bounds the reply buffer; a larger reply fails rather
 // than truncating.

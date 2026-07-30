@@ -71,6 +71,12 @@ wisp.UnregisterCallback(sub)
 // Request/reply: block for one reply, bounding the reply buffer:
 reply, err := wisp.SendRequest("service.echo", []byte("ping"), 2000, 4096)
 
+// ...or ask without blocking, which a callback must do (a blocking request
+// there would stall the thread delivering the reply):
+replyTopic, _ := wisp.MakeReplyTopic("service.echo")
+sub, _ := wisp.RegisterCallback(replyTopic, func(topic string, data []byte) { fmt.Println("answer", string(data)) })
+err = wisp.SendDataWithReply("service.echo", []byte("ping"), replyTopic)
+
 // Inside a subscription handling a request, answer the sender:
 wisp.ReplyToSender([]byte("pong"))
 

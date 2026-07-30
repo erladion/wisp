@@ -140,6 +140,44 @@ package body Wisp is
    -- Send_Request --
    ------------------
 
+   procedure Send_Data_With_Reply
+     (Topic : String; Data : String; Reply_Topic : String)
+   is
+      C_Topic : chars_ptr    := New_String (Topic);
+      C_Reply : chars_ptr    := New_String (Reply_Topic);
+      Code    : constant int :=
+        C_API.Send_Data_With_Reply
+          (Topic       => C_Topic,
+           Data        => Data'Address,
+           Len         => Data'Length,
+           Reply_Topic => C_Reply);
+   begin
+      Free (C_Topic);
+      Free (C_Reply);
+      Check (Code, "Send_Data_With_Reply");
+   end Send_Data_With_Reply;
+
+   function Make_Reply_Topic (Request_Topic : String) return String is
+      --  Past the broker's 512-byte topic limit plus the uuid the C ABI
+      --  appends, so the call never has to be repeated for capacity.
+      Capacity : constant := 1_024;
+
+      C_Topic : chars_ptr    := New_String (Request_Topic);
+      Buffer  : String (1 .. Capacity) := (others => ASCII.NUL);
+      Out_Len : aliased int  := 0;
+      Code    : constant int :=
+        C_API.Make_Reply_Topic
+          (Request_Topic  => C_Topic,
+           Out_Buffer     => Buffer'Address,
+           Out_Buffer_Cap => int (Capacity),
+           Out_Len        => Out_Len'Access);
+   begin
+      Free (C_Topic);
+      Check (Code, "Make_Reply_Topic");
+      --  Out_Len counts the terminating NUL, which an Ada string does not want.
+      return Buffer (1 .. Natural (Out_Len) - 1);
+   end Make_Reply_Topic;
+
    function Send_Request
      (Topic        : String;
       Payload      : String;

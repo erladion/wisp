@@ -40,6 +40,12 @@ wisp.register_callback("commands", lambda topic, data: ...)   # data is bytes
 wisp.send_data("telemetry", payload)                          # str or bytes
 wisp.send_message("chat", "hello")                            # text convenience
 answer = wisp.send_request("config", "get", timeout_ms=2000)  # blocks, returns bytes
+
+# ...or ask without blocking, which a handler must do (a blocking request there
+# would stall the thread delivering the reply):
+reply_topic = wisp.make_reply_topic("config")
+wisp.register_callback(reply_topic, lambda topic, data: print("answer", data))
+wisp.send_data_with_reply("config", b"get", reply_topic)
 wisp.reply_to_sender(b"ack")                                  # inside a handler
 wisp.set_cluster("blue")                                      # swap discovery cluster
 
