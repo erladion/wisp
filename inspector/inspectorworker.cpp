@@ -1,5 +1,7 @@
 #include "inspectorworker.h"
 
+#include <cerrno>
+
 #include "config.h"
 #include "logger.h"
 #include "wireframe.h"
@@ -32,17 +34,36 @@ void InspectorWorker::run() {
     // directly.
     Envelope env;
     std::size_t wireBytes = 0;
-    if (Wire::recv(inspector, env, zmq::recv_flags::none, &wireBytes)) {
-      InspectorPacket p;
-      p.timestamp = TimeFormat::hhmmssMillisNow();
-      p.senderId = env.header.sender_id();
-      p.key = env.header.handler_key();
-      p.topic = env.header.topic();
-      p.sizeBytes = wireBytes;
-      p.header = std::move(env.header);
-      p.payload = std::move(env.payload);
 
-      emit packetReceived(p);
+    /* Barrier, not a retry loop: this is QThread::run(), so a zmq::error_t
+       escaping it is std::terminate rather than a lost packet. A signal
+       arriving mid-receive surfaces as EINTR, which cppzmq reports by throwing
+       - that one is spurious and the loop simply looks again. Anything else
+       means the socket is done, so stop reading and leave the GUI running with
+       what it already has. */
+    bool received = false;
+    try {
+      received = Wire::recv(inspector, env, zmq::recv_flags::none, &wireBytes);
+    } catch (const zmq::error_t& e) {
+      if (e.num() == EINTR) {
+        continue;
+      }
+      Logger::Log(Logger::Error, "Inspector stopped reading the tap at " + endpoint + ": " + e.what());
+      return;
     }
+    if (!received) {
+      continue;
+    }
+
+    InspectorPacket p;
+    p.timestamp = TimeFormat::hhmmssMillisNow();
+    p.senderId = env.header.sender_id();
+    p.key = env.header.handler_key();
+    p.topic = env.header.topic();
+    p.sizeBytes = wireBytes;
+    p.header = std::move(env.header);
+    p.payload = std::move(env.payload);
+
+    emit packetReceived(p);
   }
 }
