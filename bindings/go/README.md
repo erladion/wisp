@@ -46,6 +46,14 @@ cd bindings/go/example && go run . listen
 cd bindings/go/example && go run . send
 ```
 
+`example/replyprobe` is a smaller one, covering the non-blocking request/reply
+pair end to end — it needs a broker on `tcp://127.0.0.1:25999` and something
+answering `svc/echo`:
+
+```sh
+cd bindings/go && go run ./example/replyprobe
+```
+
 ## API
 
 ```go

@@ -1,0 +1,3 @@
+# Binaries left by `go build` without -o.
+/example/main
+/replyprobe
