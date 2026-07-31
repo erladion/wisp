@@ -377,15 +377,22 @@ public:
 
   static bool sendRequest(const std::string& requestTopic, const std::string& payload, std::string& outResponse, int timeoutMs = 5000);
 
-  template <typename ReqT, typename ResT>
-  static bool sendRequest(const std::string& requestTopic, const ReqT& payload, ResT& outResponse, int timeoutMs = 5000) {
-    std::string payloadData = payload.SerializeAsString();
-    std::string rawResponse;
+  /* The same, encoding the request and decoding the reply by the rules in
+     Detail::encodePayload / decodePayload - so a request travels exactly as the
+     same value would through sendMessage<T>, and a DataSerializer-specialized
+     type works here as it does everywhere else.
 
-    if (sendRequest(requestTopic, payloadData, rawResponse, timeoutMs)) {
-      return Detail::decodePayload(rawResponse, outResponse);
+     Pointers and arrays are excluded for the same reason as sendMessage above:
+     without it a string literal would bind here (ReqT = char[N], which is
+     trivially copyable) and be sent as raw bytes including its NUL, rather than
+     picking the plain std::string overload. */
+  template <typename ReqT, typename ResT, typename std::enable_if<!std::is_pointer<ReqT>::value && !std::is_array<ReqT>::value, int>::type = 0>
+  static bool sendRequest(const std::string& requestTopic, const ReqT& payload, ResT& outResponse, int timeoutMs = 5000) {
+    std::string rawResponse;
+    if (!sendRequest(requestTopic, Detail::encodePayload(payload), rawResponse, timeoutMs)) {
+      return false;
     }
-    return false;
+    return Detail::decodePayload(rawResponse, outResponse);
   }
 
   static bool replyToSender(const std::string& data);

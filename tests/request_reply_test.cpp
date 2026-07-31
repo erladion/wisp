@@ -4,8 +4,11 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 
+#include "anyframe.h"
+#include "broker.pb.h"
 #include "connectionmanager.h"
 #include "messagekeys.h"
 #include "safequeue.h"
@@ -166,5 +169,141 @@ TEST_F(RequestReplyTest, SendRequestReceivesReplyAddressedByReplyTopic) {
   responder.stop();
 
   ASSERT_TRUE(gotReply) << "sendRequest() never resolved - reply_topic likely isn't reaching the responder";
+  EXPECT_EQ(response, "pong");
+}
+
+/* The templated sendRequest encodes by the same rules as sendMessage<T>, so a
+   protobuf request travels Any-packed rather than as bare serialized bytes -
+   which is what lets a responder identify the type before parsing it, exactly
+   as it can for a publish. The raw responder here asserts the framing directly:
+   going through tryUnpack would pass either way, since it accepts bare bytes as
+   a fallback. */
+TEST_F(RequestReplyTest, TemplatedSendRequestPacksTheRequestIntoAnAny) {
+  startBroker();
+
+  const std::string responderId = "typed-raw-responder";
+
+  SafeQueue<Envelope> inbound;
+  ConnectionConfig responderConfig;
+  responderConfig.address = testBrokerAddress();
+  responderConfig.clientId = responderId;
+  ZmqWorker responder(responderConfig, &inbound, nullptr);
+  responder.start();
+  completeHandshake(responder, responderId);
+  subscribe(responder, responderId, kRequestTopic);
+
+  ConnectionConfig requesterConfig;
+  requesterConfig.address = testBrokerAddress();
+  requesterConfig.clientId = "typed-requester";
+  ConnectionManager::init(requesterConfig);
+
+  std::atomic<bool> keepResponding{true};
+  std::atomic<bool> sawAnyFraming{false};
+  std::thread responderThread([&]() {
+    Envelope request;
+    while (keepResponding) {
+      if (!popWithTimeout(inbound, request, 100ms) || request.header.handler_key() != kRequestTopic) {
+        continue;
+      }
+
+      std::string_view valueBytes;
+      const std::string_view typeName = AnyFrame::typeNameOf(request.payload, valueBytes);
+      if (typeName != "broker.ClientInfo") {
+        continue;  // bare bytes: the encoding regressed, and the assert below reports it
+      }
+      broker::ClientInfo asked;
+      if (!asked.ParseFromArray(valueBytes.data(), static_cast<int>(valueBytes.size())) || asked.id() != "who-am-i") {
+        continue;
+      }
+      sawAnyFraming = true;
+
+      broker::ClientInfo answer;
+      answer.set_id("you-are-" + asked.id());
+      answer.set_subscription_count(7);
+
+      Envelope reply;
+      reply.header.set_handler_key(request.header.reply_topic());
+      reply.header.set_sender_id(responderId);
+      reply.header.set_topic(request.header.reply_topic());
+      reply.payload = Detail::encodePayload(answer);
+      responder.writeMessage(reply);
+    }
+  });
+
+  broker::ClientInfo question;
+  question.set_id("who-am-i");
+
+  broker::ClientInfo response;
+  bool gotReply = false;
+  for (int attempt = 0; attempt < 30 && !gotReply; ++attempt) {
+    gotReply = ConnectionManager::sendRequest(kRequestTopic, question, response, 500);
+  }
+
+  keepResponding = false;
+  responderThread.join();
+  responder.stop();
+
+  ASSERT_TRUE(gotReply) << "templated sendRequest() never resolved";
+  EXPECT_TRUE(sawAnyFraming) << "the request arrived without Any framing - sendRequest<> is not encoding through Detail::encodePayload";
+  EXPECT_EQ(response.id(), "you-are-who-am-i");
+  EXPECT_EQ(response.subscription_count(), 7u);
+}
+
+// A string literal must still pick the plain std::string overload. Without the
+// pointer/array exclusion on the template above it binds there instead (a
+// char[N] is trivially copyable), and the payload goes out as raw bytes with
+// the terminating NUL attached.
+TEST_F(RequestReplyTest, StringLiteralRequestSendsExactlyItsBytes) {
+  startBroker();
+
+  const std::string responderId = "literal-raw-responder";
+
+  SafeQueue<Envelope> inbound;
+  ConnectionConfig responderConfig;
+  responderConfig.address = testBrokerAddress();
+  responderConfig.clientId = responderId;
+  ZmqWorker responder(responderConfig, &inbound, nullptr);
+  responder.start();
+  completeHandshake(responder, responderId);
+  subscribe(responder, responderId, kRequestTopic);
+
+  ConnectionConfig requesterConfig;
+  requesterConfig.address = testBrokerAddress();
+  requesterConfig.clientId = "literal-requester";
+  ConnectionManager::init(requesterConfig);
+
+  std::atomic<bool> keepResponding{true};
+  std::atomic<bool> sawExactBytes{false};
+  std::thread responderThread([&]() {
+    Envelope request;
+    while (keepResponding) {
+      if (!popWithTimeout(inbound, request, 100ms) || request.header.handler_key() != kRequestTopic) {
+        continue;
+      }
+      if (request.payload == "ping") {
+        sawExactBytes = true;
+      }
+
+      Envelope reply;
+      reply.header.set_handler_key(request.header.reply_topic());
+      reply.header.set_sender_id(responderId);
+      reply.header.set_topic(request.header.reply_topic());
+      reply.payload = "pong";
+      responder.writeMessage(reply);
+    }
+  });
+
+  std::string response;
+  bool gotReply = false;
+  for (int attempt = 0; attempt < 30 && !gotReply; ++attempt) {
+    gotReply = ConnectionManager::sendRequest(kRequestTopic, "ping", response, 500);
+  }
+
+  keepResponding = false;
+  responderThread.join();
+  responder.stop();
+
+  ASSERT_TRUE(gotReply) << "sendRequest() with a string literal never resolved";
+  EXPECT_TRUE(sawExactBytes) << "a string literal was not sent as its exact bytes - it bound to the templated overload";
   EXPECT_EQ(response, "pong");
 }
