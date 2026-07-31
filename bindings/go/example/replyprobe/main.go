@@ -2,8 +2,8 @@
 //
 //	go run ./example/replyprobe
 //
-// Start a broker on tcp://127.0.0.1:25999 and something answering svc/echo
-// first - a broker never routes a message back to its own sender, so the
+// Start a broker (tcp://127.0.0.1:25999, or $WISP_BROKER) and something
+// answering svc/echo first - a broker never routes a message back to its own sender, so the
 // responder has to be a separate process.
 package main
 
@@ -15,11 +15,17 @@ import (
 	"github.com/erladion/wisp/bindings/go/wisp"
 )
 
-const broker = "tcp://127.0.0.1:25999"
+// Overridable so bindings/smoke.sh can point it at its own broker.
+func brokerAddress() string {
+	if addr := os.Getenv("WISP_BROKER"); addr != "" {
+		return addr
+	}
+	return "tcp://127.0.0.1:25999"
+}
 
 func main() {
 	wisp.SetLogLevel(wisp.LogError)
-	if err := wisp.InitConnection(wisp.Config{Address: broker, ClientID: "go-asker"}); err != nil {
+	if err := wisp.InitConnection(wisp.Config{Address: brokerAddress(), ClientID: "go-asker"}); err != nil {
 		fmt.Println("init:", err)
 		os.Exit(1)
 	}

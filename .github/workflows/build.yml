@@ -1,8 +1,13 @@
 # Build and test on every push and pull request.
 #
-# core: the deliverables - broker, client library, C ABI - built without Qt,
-#       which also guards the "broker needs no Qt" property.
-# qt:   the full tree including the inspector, demo clients, and Qt binding.
+# core:     the deliverables - broker, client library, C ABI - built without Qt,
+#           which also guards the "broker needs no Qt" property.
+# qt:       the full tree including the inspector, demo clients, and Qt binding.
+# bindings: the four language bindings over the C ABI. Compiling them catches a
+#           signature that no longer matches connectionapi.h; the smoke script
+#           then drives a request through them, because the mistakes that matter
+#           here compile perfectly well (a reply topic one byte too long is a
+#           clean build that silently never matches a subscription).
 name: build
 
 on:
@@ -56,6 +61,65 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  bindings:
+    name: language bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libzmq3-dev \
+            libprotobuf-dev protobuf-compiler \
+            libprotobuf-c-dev protobuf-c-compiler \
+            gnat gprbuild
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # The bindings all load libwisp.so, so the C ABI has to exist first.
+      # wisp-cli comes with it and is what the smoke script waits on.
+      - name: Build the C ABI
+        run: |
+          cmake -S . -B build -DBUILD_TESTING=OFF
+          cmake --build build -j"$(nproc)" --target wisp wisp-broker wisp-cli
+
+      - name: Python
+        run: python3 -c "import sys; sys.path.insert(0, 'bindings/python'); import wisp; print(wisp.__file__)"
+        env:
+          WISP_LIB: ${{ github.workspace }}/build/common/libwisp.so
+
+      - name: Rust
+        run: cargo build --examples
+        working-directory: bindings/rust
+        env:
+          WISP_LIB_DIR: ${{ github.workspace }}/build/common
+
+      - name: Go
+        run: |
+          go build ./...
+          go vet ./...
+          test -z "$(gofmt -l .)" || { echo "gofmt drift:"; gofmt -l .; exit 1; }
+        working-directory: bindings/go
+
+      - name: Ada
+        run: |
+          # gnat drives its own gcc, which is not necessarily the one carrying
+          # the libstdc++.so development symlink that -lstdc++ resolves through.
+          # Where they differ the link fails outright, so point the linker at
+          # whichever gcc tree actually has it.
+          export LIBRARY_PATH="$(dirname "$(find /usr/lib/gcc -name libstdc++.so | head -1)")"
+          make
+        working-directory: bindings/ada
+
+      # The part compilation cannot do: a request through the bindings, with
+      # Python answering, so every round trip is cross-language.
+      - name: Round trips over a live broker
+        run: ./bindings/smoke.sh build
 
   sanitizers:
     name: sanitizers (asan+ubsan)
