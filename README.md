@@ -45,6 +45,7 @@ Requires a POSIX system (Linux is what's tested — there is no Windows port), a
 
 ```sh
 wisp-cli sub '*'                          # watch every topic on a broker
+wisp-cli sub telemetry --origin local     # only what this broker's own clients publish
 wisp-cli pub telemetry '{"temp":21}'      # publish (payload from stdin if omitted)
 wisp-cli req config/get name -t 1000      # request/reply; exits 1 if no reply arrives
 wisp-cli stats                            # one broker statistics report, then exit
@@ -129,6 +130,15 @@ const std::string replyTopic = ConnectionManager::makeReplyTopic("config/get");
 ConnectionManager::registerCallback(replyTopic, [](const std::string& answer) { /* ... */ });
 ConnectionManager::sendMessage("config/get", "name", replyTopic);   // returns immediately
 ```
+
+A callback can also say *where* it wants messages from. On a mesh a topic looks identical whether a client of your own broker published it or it crossed a peer link, and a handler that must act only on its own site's traffic has no way to say so:
+
+```cpp
+ConnectionManager::registerCallback("telemetry", onLocal, this, Wisp::Origin::Local);   // this broker's clients only
+ConnectionManager::registerCallback("telemetry", onRemote, this, Wisp::Origin::Mesh);   // only what came in over a link
+```
+
+The default is both, exactly as before. This is not a filter bolted on at the end: a topic **only** wanted locally is never carried across a peer link at all, so `wisp-cli sub '*' --origin local` watches one broker without the wildcard widening the mesh for as long as it runs. Registrations on one topic may differ — the broker is asked for their union and each callback is held to its own scope on delivery.
 
 The responder cannot tell the two apart — `replyToSender()` reads the same field either way. Nothing expires on its own, so unregister the reply topic when you stop caring; a loop that is already ticking is better placed to decide that than the library. This is also the only way to make a request *from* a handler: `sendRequest` refuses there, since it would block the very thread that has to deliver the reply.
 

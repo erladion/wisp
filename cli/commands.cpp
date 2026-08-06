@@ -239,7 +239,7 @@ int runSubscribe(const Options& opts) {
   }
 
   for (const std::string& topic : opts.args) {
-    session.subscribe(topic);
+    session.subscribe(topic, opts.origin);
   }
   // The subscriptions are live from here, so nothing published after this line
   // can be missed through a race with the SUBSCRIBEs.

@@ -43,6 +43,11 @@ typedef struct {
 
 typedef void (*Message_Callback)(const char* topic, const char* data, int len, void* userData);
 
+/* Where a message a callback wants may come from: published by a client of the
+   same broker, or carried in across a peer link. A bitmask, so WISP_ORIGIN_ANY
+   is the two together. See registerCallbackScoped. */
+typedef enum { WISP_ORIGIN_LOCAL = 1, WISP_ORIGIN_MESH = 2, WISP_ORIGIN_ANY = 3 } Wisp_Origin;
+
 typedef enum { WISP_LOG_DEBUG = 0, WISP_LOG_INFO = 1, WISP_LOG_WARNING = 2, WISP_LOG_ERROR = 3 } Wisp_Log_Level;
 
 typedef void (*Log_Callback)(int level, const char* message, void* userData);
@@ -108,6 +113,17 @@ CONN_API int sendRequest(const char* topic, const char* payload, int payloadLen,
 // userData is passed back to the callback and also identifies the registration
 // for unregisterCallback.
 CONN_API void registerCallback(const char* topic, Message_Callback callback, void* userData);
+
+/* The same, triggered only by messages of the origins in `scope` (a Wisp_Origin
+   bitmask); registerCallback above is this with WISP_ORIGIN_ANY.
+
+   Registrations on one topic may differ: the broker is asked for their union
+   and each callback is filtered on delivery, so a local-only handler stays
+   local-only beside a wildcard subscription that wants everything. A scope of 0
+   or one holding unknown bits widens to WISP_ORIGIN_ANY, as does talking to a
+   broker that predates scopes - an unrecognized subscription is widened, never
+   dropped. */
+CONN_API void registerCallbackScoped(const char* topic, Message_Callback callback, void* userData, int scope);
 
 // Removes the registrations on topic whose userData matches the value given to
 // registerCallback. A callback already being dispatched when this returns may

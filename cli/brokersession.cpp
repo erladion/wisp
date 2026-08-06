@@ -45,12 +45,20 @@ bool BrokerSession::sendControl(const std::string& key, const std::string& topic
   return m_pWorker->writeControlMessage(Wire::makeControl(key, m_config.clientId, topic));
 }
 
-bool BrokerSession::subscribe(const std::string& topic) {
-  if (!sendControl(Keys::SUBSCRIBE, topic)) {
+bool BrokerSession::subscribe(const std::string& topic, Origin scope) {
+  if (!m_open) {
     return false;
   }
-  if (std::find(m_subscriptions.begin(), m_subscriptions.end(), topic) == m_subscriptions.end()) {
-    m_subscriptions.push_back(topic);
+  Envelope env = Wire::makeControl(Keys::SUBSCRIBE, m_config.clientId, topic);
+  env.payload = encodeSubscribeScope(scope);
+  if (!m_pWorker->writeControlMessage(std::move(env))) {
+    return false;
+  }
+  auto held = std::find_if(m_subscriptions.begin(), m_subscriptions.end(), [&](const auto& entry) { return entry.first == topic; });
+  if (held == m_subscriptions.end()) {
+    m_subscriptions.push_back({topic, scope});
+  } else {
+    held->second = scope;
   }
   return true;
 }
@@ -96,8 +104,10 @@ bool BrokerSession::receive(Envelope& out, std::chrono::milliseconds timeout) {
          worker handles the socket, but the session state is ours. */
       if (out.header.handler_key() == Keys::RESET) {
         sendControl(Keys::CONNECT);
-        for (const std::string& topic : m_subscriptions) {
-          sendControl(Keys::SUBSCRIBE, topic);
+        for (const auto& entry : m_subscriptions) {
+          Envelope resub = Wire::makeControl(Keys::SUBSCRIBE, m_config.clientId, entry.first);
+          resub.payload = encodeSubscribeScope(entry.second);
+          m_pWorker->writeControlMessage(std::move(resub));
         }
         continue;
       }

@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "messagekeys.h"
+
 namespace WispCli {
 
 enum class Command { None, Publish, Subscribe, Request, Stats, Tap, Record, Replay };
@@ -27,6 +29,11 @@ struct Options {
   int count = 0;
   bool countGiven = false;
   int timeoutMs = 5000;
+  /* sub: which messages the subscription asks for. Origin::Local keeps the
+     topic off the peer links entirely rather than merely filtering what is
+     printed, so it is also how to watch a broker - `sub '*' --origin local` -
+     without the wildcard widening the mesh. */
+  Wisp::Origin origin = Wisp::Origin::Any;
   // Payload bytes rendered before the output is truncated.
   int maxBytes = 64;
   bool verbose = false;

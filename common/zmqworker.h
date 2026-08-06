@@ -30,6 +30,7 @@ public:
   bool writeControlMessage(Envelope msg) override;
   bool writeEncoded(Wire::WireMessagePtr msg) override;
   void setMessageCallback(WorkerMessageCallback callback) override;
+  std::string brokerId() const override;
   std::uint64_t droppedSends() const override { return m_droppedSends.load(std::memory_order_relaxed); }
 
   // Serialized: the run loop tracks one pending request, so concurrent callers
@@ -45,6 +46,9 @@ private:
   void runLoop();
   void sendHeartbeat(zmq::socket_t& socket);
   void wake();
+  // Record the broker's own id from one of its control answers; ignores an
+  // empty one, which is all an older broker sends.
+  void noteBrokerId(const std::string& brokerId);
   // Queue `msg` and wake the run() loop if it may be asleep. `timeout` bounds
   // the wait for room; zero never blocks the caller.
   template <typename T>
@@ -80,6 +84,11 @@ private:
   // Draining a queue takes its mutex, so without this every client worker
   // would pay a lock per loop iteration for a queue that is always empty.
   std::atomic<bool> m_hasEncoded;
+
+  // Latched by the worker thread from the broker's control answers, read by the
+  // processing thread on the messages it dispatches (see brokerId()).
+  mutable std::mutex m_brokerIdMutex;
+  std::string m_brokerId;
 
   // Written by the worker thread, read by anyone (see droppedSends()).
   std::atomic<std::uint64_t> m_droppedSends;

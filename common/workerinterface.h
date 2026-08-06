@@ -48,6 +48,18 @@ public:
      terminal, and nothing queued is lost either way. */
   virtual bool sync(std::chrono::milliseconds timeout) = 0;
 
+  /* The id of the broker this worker is connected to, or "" while it is not
+     known yet.
+
+     A broker names itself on its own control answers, so this is latched from
+     the first one - which, since a client is only reported online once the
+     broker has answered something, always lands before any application message
+     can be dispatched. Compared against a message's origin_broker_id, it is
+     what separates traffic published on this broker from traffic that crossed a
+     peer link (see Origin). Stays empty against a broker predating the field;
+     callers must read that as "unknown", not "remote". */
+  virtual std::string brokerId() const = 0;
+
   // Messages this worker accepted but could not put on the wire, because the
   // send pipe to the broker was full (publishing faster than the broker
   // drains, or the broker is unreachable). Delivery is best-effort, so these

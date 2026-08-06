@@ -24,6 +24,7 @@
 #include "anyframe.h"
 #include "config.h"
 #include "logger.h"
+#include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
 #include "workerinterface.h"
@@ -35,6 +36,8 @@ using MessageCallback = std::function<void(const std::string&)>;
 struct CallbackEntry {
   void* instance;
   MessageCallback func;
+  // Which origins this registration wants; see Origin in messagekeys.h.
+  Origin scope;
 };
 
 // Registrations per topic are stored as immutable snapshots: dispatch grabs
@@ -319,12 +322,24 @@ public:
     return sendEncodedWithReply(key, Detail::encodePayload(value), replyTopic);
   }
 
-  // Dispatches on the callback's argument type. The BaseT default argument
-  // doubles as SFINAE: callables without a single-argument signature (e.g.
-  // void() lambdas) fail substitution and fall through to the overloads below.
-  // Decoding rules live in Detail::decodePayload.
+  /* Dispatches on the callback's argument type. The BaseT default argument
+     doubles as SFINAE: callables without a single-argument signature (e.g.
+     void() lambdas) fail substitution and fall through to the overloads below.
+     Decoding rules live in Detail::decodePayload.
+
+     `scope` narrows what triggers the callback to messages published on this
+     client's own broker (Origin::Local) or to what the mesh carried in
+     (Origin::Mesh); the default fires on both, as it always has. Registrations
+     on the same topic may differ - what the broker is asked to send is their
+     union, and each callback is filtered on delivery - so a local-only handler
+     stays local-only even beside a wildcard subscription that wants
+     everything.
+
+     Against a broker predating scopes, both the union sent and the filter fall
+     back to Origin::Any: an unrecognized subscription is widened, never
+     dropped. */
   template <typename Callable, typename BaseT = typename std::decay<typename CallableTraits<Callable>::ArgType>::type>
-  static void registerCallback(const std::string& key, Callable func, void* instance = nullptr) {
+  static void registerCallback(const std::string& key, Callable func, void* instance = nullptr, Origin scope = Origin::Any) {
     // mutable so a `mutable` user callable (whose operator() is non-const) can
     // be invoked through the copy captured here.
     registerInternal(
@@ -337,25 +352,25 @@ public:
             Logger::Log(Logger::Error, "Failed to decode message for key: " + key);
           }
         },
-        instance);
+        instance, scope);
   }
 
   template <typename ClassType, typename ArgType>
-  static void registerCallback(const std::string& key, void (ClassType::*method)(ArgType), ClassType* instance) {
+  static void registerCallback(const std::string& key, void (ClassType::*method)(ArgType), ClassType* instance, Origin scope = Origin::Any) {
     registerCallback(
-        key, [instance, method](ArgType arg) { (instance->*method)(std::forward<ArgType>(arg)); }, instance);
+        key, [instance, method](ArgType arg) { (instance->*method)(std::forward<ArgType>(arg)); }, instance, scope);
   }
 
   template <typename ClassType>
-  static void registerCallback(const std::string& key, void (ClassType::*method)(), ClassType* instance) {
+  static void registerCallback(const std::string& key, void (ClassType::*method)(), ClassType* instance, Origin scope = Origin::Any) {
     registerCallback(
-        key, [instance, method]() { (instance->*method)(); }, instance);
+        key, [instance, method]() { (instance->*method)(); }, instance, scope);
   }
 
   // Callables that take no argument, including plain function pointers - a
   // std::function<void()> accepts those too, so a separate void(*)() overload
   // would only make a captureless `[]{}` ambiguous between the two.
-  static void registerCallback(const std::string& key, std::function<void()> callback, void* instance = nullptr) {
+  static void registerCallback(const std::string& key, std::function<void()> callback, void* instance = nullptr, Origin scope = Origin::Any) {
     registerInternal(
         key,
         [callback](const std::string& /* ignored */) {
@@ -363,10 +378,10 @@ public:
             callback();
           }
         },
-        instance);
+        instance, scope);
   }
 
-  static void registerCallback(const std::string& key, MessageCallback cb);
+  static void registerCallback(const std::string& key, MessageCallback cb, Origin scope = Origin::Any);
 
   template <typename T>
   static bool tryUnpack(const std::string& raw, T& outMsg) {
@@ -419,7 +434,7 @@ private:
   void teardown();
 
   void resubscribeAll();
-  static void registerInternal(const std::string& key, MessageCallback callback, void* instance);
+  static void registerInternal(const std::string& key, MessageCallback callback, void* instance, Origin scope);
 
   // Snapshot of s_instance taken under s_initMutex. Callers keep the returned
   // shared_ptr alive for the duration of their work, so a concurrent
@@ -443,9 +458,12 @@ private:
   void processingLoop();
   void handleMessage(const Envelope& env);
 
-  void performRegistration(const std::string& key, MessageCallback callback, void* instance);
+  void performRegistration(const std::string& key, MessageCallback callback, void* instance, Origin scope);
   void performUnregistration(const std::string& key, void* instance);
   Envelope createControlEnvelope(const std::string& controlKey, const std::string& topic);
+  // A __SUBSCRIBE__ for `key` asking for the union of what its registrations
+  // want. m_mapMutex must be held.
+  Envelope createSubscribeEnvelope(const std::string& key) const;
 
 private:
   static std::shared_ptr<ConnectionManager> s_instance;
@@ -467,8 +485,15 @@ private:
 
   std::mutex m_mapMutex;
   std::map<std::string, std::shared_ptr<const CallbackList>> m_msgHandlers;
+  /* Registrations that asked for something narrower than Origin::Any, guarded
+     by m_mapMutex like the map itself.
 
-  static std::vector<std::tuple<std::string, MessageCallback, void*>> s_pendingMsgCallbacks;
+     Classifying a message means asking the worker which broker it is connected
+     to; with none of these there is nothing to classify, so a client that never
+     scopes a callback pays nothing per message for the feature existing. */
+  std::size_t m_scopedHandlers;
+
+  static std::vector<std::tuple<std::string, MessageCallback, void*, Origin>> s_pendingMsgCallbacks;
 };
 
 }  // namespace Wisp

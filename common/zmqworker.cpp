@@ -108,6 +108,19 @@ void ZmqWorker::stop() {
   }
 }
 
+void ZmqWorker::noteBrokerId(const std::string& brokerId) {
+  if (brokerId.empty()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(m_brokerIdMutex);
+  m_brokerId = brokerId;
+}
+
+std::string ZmqWorker::brokerId() const {
+  std::lock_guard<std::mutex> lock(m_brokerIdMutex);
+  return m_brokerId;
+}
+
 bool ZmqWorker::sync(std::chrono::milliseconds timeout) {
   std::lock_guard<std::mutex> callLock(m_syncCallMutex);
   if (!m_running) {
@@ -340,6 +353,13 @@ void ZmqWorker::runLoop() {
       if (Wire::recv(socket, inbound, zmq::recv_flags::none)) {
         didWork = true;
         lastRxTime = std::chrono::steady_clock::now();
+
+        // Before the status callback below, which is what makes the client send
+        // its subscriptions: the broker is identified before anything it routes
+        // can come back (see WorkerInterface::brokerId).
+        if (inbound.header.handler_key() == Keys::HEARTBEAT_ACK || inbound.header.handler_key() == Keys::RESET) {
+          noteBrokerId(inbound.header.sender_id());
+        }
 
         if (!isOnline) {
           isOnline = true;

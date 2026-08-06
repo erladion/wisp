@@ -261,6 +261,15 @@ private:
   void noteTopicSubscribed(const std::string& topic);
   void noteTopicUnsubscribed(const std::string& topic);
 
+  /* Carry a topic's interest to the peers, or withdraw it, when whether anyone
+     here wants it from the mesh has just changed - `wantedBefore` being that
+     answer from before the registry was touched.
+
+     Interest is a property of the topic rather than of any one subscriber, so a
+     subscription appearing, disappearing, or merely narrowing its scope to
+     local-only are all the same question asked the same way. */
+  void noteMeshInterestChange(const std::string& topic, bool wantedBefore);
+
   // Subscribes `link` to this broker's current interest - the full set, since a
   // new or reset link starts from nothing.
   void sendInterestTo(ZmqWorker& link, const std::string& linkId) const;

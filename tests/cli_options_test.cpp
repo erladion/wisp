@@ -109,6 +109,17 @@ TEST(CliOptions, ParsesEveryPayloadFormat) {
   EXPECT_NE(bad.error.find("yaml"), std::string::npos);
 }
 
+TEST(CliOptions, ParsesEveryOriginScope) {
+  EXPECT_EQ(parse({"sub", "t"}).options.origin, Wisp::Origin::Any) << "the default must stay what it was before scopes existed";
+  EXPECT_EQ(parse({"sub", "t", "--origin", "any"}).options.origin, Wisp::Origin::Any);
+  EXPECT_EQ(parse({"sub", "t", "--origin", "local"}).options.origin, Wisp::Origin::Local);
+  EXPECT_EQ(parse({"sub", "t", "--origin", "mesh"}).options.origin, Wisp::Origin::Mesh);
+
+  const ParseResult bad = parse({"sub", "t", "--origin", "elsewhere"});
+  EXPECT_FALSE(bad.ok);
+  EXPECT_NE(bad.error.find("elsewhere"), std::string::npos);
+}
+
 TEST(CliOptions, HelpShortCircuitsValidation) {
   // --help must work without a command, and without satisfying any arity rule.
   const ParseResult bare = parse({"--help"});

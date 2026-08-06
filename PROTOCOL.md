@@ -90,6 +90,14 @@ liveness in both directions.
 **Goodbye.** `__DISCONNECT__` removes the client's state immediately;
 otherwise the zombie timeout cleans up.
 
+**Broker identity.** A broker names itself in the `sender_id` of its own
+control answers — `__HEARTBEAT_ACK__` and `__RESET__` — and nothing else does.
+Since a client is only online once the broker has answered something, it knows
+which `origin_broker_id` is its own before any routed message can reach it,
+which is what lets it tell local traffic from what the mesh carried in (see
+Subscription scope). An older broker leaves the field empty; a client must read
+that as "unknown", not "remote".
+
 ## Control keys
 
 The `__KEY__` handler-key namespace (any key starting with `__`) is
@@ -105,7 +113,7 @@ with `__`. Sent by the client unless noted:
 | `__HEARTBEAT__` | liveness probe; broker answers `__HEARTBEAT_ACK__` |
 | `__HEARTBEAT_ACK__` | broker → client answer |
 | `__RESET__` | broker → client: your state is gone; send `__CONNECT__` and every `__SUBSCRIBE__` again |
-| `__SUBSCRIBE__` | subscribe to `topic`; `topic = "*"` is the wildcard (every topic). An empty, over-long, or over-cap topic is rejected — see Subscription limits |
+| `__SUBSCRIBE__` | subscribe to `topic`; `topic = "*"` is the wildcard (every topic). Payload, when present, is the one-byte origin scope — see Subscription scope. An empty, over-long, or over-cap topic is rejected — see Subscription limits |
 | `__UNSUBSCRIBE__` | remove one subscription |
 | `__SET_CLUSTER__` | payload = new discovery cluster name (1–64 bytes, no `\|`); handled by the receiving broker only |
 | `__SYS_STATS__` | broker → subscribers, every 1 s: payload is an Any-packed `broker.SystemStats` |
@@ -135,6 +143,38 @@ the refusals in `SystemStats.total_rejected_subs`. Re-subscribing to a topic
 already held is always accepted, so a client sitting at the cap still recovers
 its full subscription set after a `__RESET__`.
 
+## Subscription scope
+
+A `__SUBSCRIBE__` may carry a payload frame of exactly one byte, a bitmask
+naming which origins the subscriber wants:
+
+| Value | Meaning |
+|---|---|
+| `1` | local — published by a client of the receiving broker |
+| `2` | mesh — arrived across a peer link |
+| `3` | both |
+
+An **absent payload means both**, which is what every client sent before this
+existed. So does a byte of `0`, or one whose extra bits a broker does not
+recognize: an unreadable scope widens a subscription, never narrows it. A broker
+that predates scopes ignores the payload and subscribes to everything, so
+against one the reduction is simply not applied — a client asking for less is
+sent more, never less.
+
+The scope rides in the payload rather than in `MessageHeader` because it is
+meaningful on one control key, while the header is parsed for every message a
+broker routes; `__SET_CLUSTER__` carries its argument the same way.
+
+A broker applies it twice. On delivery, a subscriber is skipped for messages
+whose origin its scope excludes. And in the mesh: a topic **only** wanted
+locally is never carried into the broker's interest set, so a peer link is not
+asked for it at all (see Broker meshing) — including the wildcard, so a tool
+watching one broker with a local-scoped `"*"` does not widen the mesh for as
+long as it runs.
+
+Scope is per (client, topic): a client wanting one topic two ways subscribes
+with the union and tells the two apart itself.
+
 ## Routing
 
 A non-control message is delivered, one copy per client, to every subscriber
@@ -159,7 +199,9 @@ hold, rather than to the wildcard — so a broker receives from its peers only
 what someone on its side of the mesh actually wants. This needs no mechanism of
 its own: a link *is* a client, so what it subscribes to is what the remote will
 send it, and the ordinary `__SUBSCRIBE__`/`__UNSUBSCRIBE__` keys carry it. A
-broker sends one as a topic gains its first local subscriber or loses its last.
+broker sends one as a topic gains its first subscriber wanting mesh traffic or
+loses its last — which a subscription merely *narrowing* its scope to local can
+do just as an unsubscribe can (see Subscription scope).
 
 Interest aggregates across hops for free. A link's subscriptions land in the
 remote's own registry, so a broker's interest already includes everything its

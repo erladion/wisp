@@ -4,9 +4,11 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "config.h"
+#include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
 #include "zmqworker.h"
@@ -40,7 +42,9 @@ public:
 
   // Remembered, so a __RESET__ from a restarted broker can be answered with the
   // whole set - the same recovery ConnectionManager performs.
-  bool subscribe(const std::string& topic);
+  // `scope` narrows the subscription to messages published on this broker or
+  // to what the mesh carried in; the default asks for both.
+  bool subscribe(const std::string& topic, Wisp::Origin scope = Wisp::Origin::Any);
 
   // handler_key and topic are the same for an ordinary publish, as everywhere
   // else in the stack; replyTopic is set only by a request.
@@ -73,7 +77,9 @@ private:
   Wisp::ConnectionConfig m_config;
   Wisp::SafeQueue<Wisp::Envelope> m_inbound;
   std::unique_ptr<Wisp::ZmqWorker> m_pWorker;
-  std::vector<std::string> m_subscriptions;
+  // Held with their scopes so a RESET recovery re-subscribes as narrowly as
+  // the original.
+  std::vector<std::pair<std::string, Wisp::Origin>> m_subscriptions;
   bool m_open;
 };
 

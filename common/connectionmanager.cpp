@@ -20,12 +20,23 @@ namespace {
 // replyToSender() work from inside a plain MessageCallback without changing
 // its signature for every handler.
 thread_local std::string t_currentReplyTopic;
+
+// What a topic's whole registration list wants between them. The broker knows
+// one scope per subscription, so it is asked for the widest any handler needs
+// and the narrower ones are filtered on delivery.
+Origin unionScope(const CallbackList& callbacks) {
+  Origin scope = static_cast<Origin>(0);
+  for (const CallbackEntry& entry : callbacks) {
+    scope = widen(scope, entry.scope);
+  }
+  return scope;
+}
 }  // namespace
 
 std::shared_ptr<ConnectionManager> ConnectionManager::s_instance = nullptr;
 std::mutex ConnectionManager::s_initMutex;
 
-std::vector<std::tuple<std::string, MessageCallback, void*>> ConnectionManager::s_pendingMsgCallbacks;
+std::vector<std::tuple<std::string, MessageCallback, void*, Origin>> ConnectionManager::s_pendingMsgCallbacks;
 
 void ConnectionManager::init(const ConnectionConfig& config) {
   std::lock_guard<std::mutex> lock(s_initMutex);
@@ -34,7 +45,7 @@ void ConnectionManager::init(const ConnectionConfig& config) {
 
     // Flush pending callbacks
     for (auto& p : s_pendingMsgCallbacks) {
-      s_instance->performRegistration(std::get<0>(p), std::get<1>(p), std::get<2>(p));
+      s_instance->performRegistration(std::get<0>(p), std::get<1>(p), std::get<2>(p), std::get<3>(p));
     }
     s_pendingMsgCallbacks.clear();
   }
@@ -163,7 +174,7 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
         } catch (...) {
         }
       },
-      tempInstanceKey);
+      tempInstanceKey, Origin::Any);
 
   Envelope request;
   request.header.set_handler_key(requestTopic);
@@ -193,7 +204,8 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
   return success;
 }
 
-ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientId(config.clientId), m_running(true), m_connected(false) {
+ConnectionManager::ConnectionManager(const ConnectionConfig& config)
+    : m_clientId(config.clientId), m_running(true), m_connected(false), m_scopedHandlers(0) {
   // ZeroMQ rejects a routing id outside 1-255 bytes, and the worker thread
   // has no way to recover from that - correct the id here instead.
   if (m_clientId.empty()) {
@@ -221,7 +233,7 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config) : m_clientI
 
       // Re-send subscriptions
       for (auto const& [topic, _] : m_msgHandlers) {
-        sendRawEnvelope(createControlEnvelope(Keys::SUBSCRIBE, topic));
+        sendRawEnvelope(createSubscribeEnvelope(topic));
       }
     }
   };
@@ -336,8 +348,8 @@ bool ConnectionManager::sendDataRaw(const std::string& key, const char* data, in
   return self->sendDataInternal(key, std::string(data, len));
 }
 
-void ConnectionManager::registerCallback(const std::string& key, MessageCallback callback) {
-  registerInternal(key, callback, nullptr);
+void ConnectionManager::registerCallback(const std::string& key, MessageCallback callback, Origin scope) {
+  registerInternal(key, callback, nullptr, scope);
 }
 
 void ConnectionManager::resubscribeAll() {
@@ -345,19 +357,19 @@ void ConnectionManager::resubscribeAll() {
   Logger::Log(Logger::Info, "Server requested Reset. Re-sending all subscriptions...");
 
   for (auto const& [topic, _] : m_msgHandlers) {
-    sendRawEnvelope(createControlEnvelope(Keys::SUBSCRIBE, topic));
+    sendRawEnvelope(createSubscribeEnvelope(topic));
   }
 }
 
-void ConnectionManager::registerInternal(const std::string& key, MessageCallback callback, void* instance) {
+void ConnectionManager::registerInternal(const std::string& key, MessageCallback callback, void* instance, Origin scope) {
   std::lock_guard<std::mutex> lock(s_initMutex);
 
   if (s_instance) {
     // If we are initialized, pass it to the actual instance
-    s_instance->performRegistration(key, callback, instance);
+    s_instance->performRegistration(key, callback, instance, scope);
   } else {
     // If not initialized yet, queue it up safely!
-    s_pendingMsgCallbacks.push_back({key, callback, instance});
+    s_pendingMsgCallbacks.push_back({key, callback, instance, scope});
   }
 }
 
@@ -444,6 +456,7 @@ void ConnectionManager::handleMessage(const Envelope& env) {
   // registered under the wildcard topic receive every delivered message.
   std::shared_ptr<const CallbackList> callbacks;
   std::shared_ptr<const CallbackList> wildcardCallbacks;
+  bool anyScoped = false;
   {
     std::lock_guard<std::mutex> lock(m_mapMutex);
     auto it = m_msgHandlers.find(topic);
@@ -456,18 +469,35 @@ void ConnectionManager::handleMessage(const Envelope& env) {
         wildcardCallbacks = it->second;
       }
     }
+    anyScoped = m_scopedHandlers > 0;
   }
   if (!callbacks && !wildcardCallbacks) {
     return;
   }
 
+  /* Where this message entered the mesh: its own broker stamped the id, and the
+     one this client talks to named itself on its first control answer.
+
+     Only asked when some registration cares. An unknown broker id - all an
+     older broker offers - leaves every callback triggered, which is the
+     behaviour a scope was narrowing from, rather than one silently receiving
+     nothing. */
+  bool isLocal = true;
+  if (anyScoped && m_pWorker) {
+    const std::string brokerId = m_pWorker->brokerId();
+    isLocal = brokerId.empty() || env.header.origin_broker_id() == brokerId;
+  }
+
   const std::string& data = env.payload;
 
-  const auto dispatch = [&data](const std::shared_ptr<const CallbackList>& list) {
+  const auto dispatch = [&data, isLocal](const std::shared_ptr<const CallbackList>& list) {
     if (!list) {
       return;
     }
     for (const auto& entry : *list) {
+      if (!scopeAccepts(entry.scope, isLocal)) {
+        continue;
+      }
       try {
         if (entry.func) {
           entry.func(data);
@@ -486,16 +516,20 @@ void ConnectionManager::handleMessage(const Envelope& env) {
   t_currentReplyTopic.clear();
 }
 
-void ConnectionManager::performRegistration(const std::string& key, MessageCallback callback, void* instance) {
+void ConnectionManager::performRegistration(const std::string& key, MessageCallback callback, void* instance, Origin scope) {
   std::lock_guard<std::mutex> lock(m_mapMutex);
 
   auto& slot = m_msgHandlers[key];
   auto next = slot ? std::make_shared<CallbackList>(*slot) : std::make_shared<CallbackList>();
-  next->push_back({instance, std::move(callback)});
+  next->push_back({instance, std::move(callback), scope});
   slot = std::move(next);
 
+  if (scope != Origin::Any) {
+    m_scopedHandlers++;
+  }
+
   if (m_connected) {
-    sendRawEnvelope(createControlEnvelope(Keys::SUBSCRIBE, key));
+    sendRawEnvelope(createSubscribeEnvelope(key));
   }
 }
 
@@ -507,11 +541,15 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
     return;
   }
 
+  const Origin scopeBefore = unionScope(*it->second);
+
   auto next = std::make_shared<CallbackList>();
   next->reserve(it->second->size());
   for (const CallbackEntry& entry : *it->second) {
     if (entry.instance != instance) {
       next->push_back(entry);
+    } else if (entry.scope != Origin::Any) {
+      m_scopedHandlers--;
     }
   }
 
@@ -529,11 +567,27 @@ void ConnectionManager::performUnregistration(const std::string& key, void* inst
     sendRawEnvelope(createControlEnvelope(Keys::UNSUBSCRIBE, key));
   } else {
     it->second = std::move(next);
+
+    // Losing the last handler that wanted the mesh (or the last that wanted
+    // local traffic) narrows what the broker should still send. Only worth a
+    // message when it actually changed; a reconnect re-sends the union anyway.
+    if (m_connected && unionScope(*it->second) != scopeBefore) {
+      sendRawEnvelope(createSubscribeEnvelope(key));
+    }
   }
 }
 
 Envelope ConnectionManager::createControlEnvelope(const std::string& controlKey, const std::string& topic) {
   return Wire::makeControl(controlKey, m_clientId, topic);
+}
+
+Envelope ConnectionManager::createSubscribeEnvelope(const std::string& key) const {
+  Envelope env = Wire::makeControl(Keys::SUBSCRIBE, m_clientId, key);
+  auto it = m_msgHandlers.find(key);
+  if (it != m_msgHandlers.end() && it->second) {
+    env.payload = encodeSubscribeScope(unionScope(*it->second));
+  }
+  return env;
 }
 
 }  // namespace Wisp

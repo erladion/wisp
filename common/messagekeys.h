@@ -1,10 +1,35 @@
 #ifndef MESSAGEKEYS_H
 #define MESSAGEKEYS_H
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
 namespace Wisp {
+
+/* Where a message a subscriber wants may come from.
+
+   A broker routes a message either because one of its own clients published it
+   or because it crossed a peer link, and a subscriber may care which: a
+   controller acting on its own site's traffic has no way to say so otherwise,
+   since a topic looks identical either way. A bitmask, so wanting only what the
+   mesh carries costs nothing extra. */
+enum class Origin : std::uint8_t {
+  Local = 1,  // published by a client of the same broker
+  Mesh = 2,   // arrived across a peer link
+  Any = 3,    // Local | Mesh - the default, and what an unset scope means
+};
+
+// True when a subscription made with `scope` wants a message of this origin.
+constexpr bool scopeAccepts(Origin scope, bool isLocal) {
+  const std::uint8_t wanted = static_cast<std::uint8_t>(isLocal ? Origin::Local : Origin::Mesh);
+  return (static_cast<std::uint8_t>(scope) & wanted) != 0;
+}
+
+constexpr Origin widen(Origin left, Origin right) {
+  return static_cast<Origin>(static_cast<std::uint8_t>(left) | static_cast<std::uint8_t>(right));
+}
 
 // Keys are std::string (not string_view) so they can be passed straight into
 // protobuf's generated setters on every protobuf version: older releases
@@ -56,6 +81,32 @@ inline bool isControlMessage(std::string_view key) {
 }
 
 }  // namespace Keys
+
+/* A subscription's Origin scope, carried as the payload frame of its
+   __SUBSCRIBE__.
+
+   The payload rather than a MessageHeader field, which __SET_CLUSTER__ already
+   sets the precedent for: the scope is meaningful on one control key, while the
+   header is parsed for every message a broker routes. It also degrades the
+   right way - a broker predating this ignores the payload and subscribes to
+   everything, so an old broker widens a subscription instead of dropping it,
+   and the client-side filter still holds the line.
+
+   Empty for Origin::Any, so a subscription that takes the default is
+   byte-for-byte what it was before scopes existed. */
+inline std::string encodeSubscribeScope(Origin scope) {
+  return scope == Origin::Any ? std::string() : std::string(1, static_cast<char>(scope));
+}
+
+// Anything unrecognized - an absent payload, or bits set by a newer client -
+// widens to Any rather than narrowing to nothing.
+inline Origin decodeSubscribeScope(const char* data, std::size_t size) {
+  if (size == 0) {
+    return Origin::Any;
+  }
+  const std::uint8_t bits = static_cast<std::uint8_t>(data[0]) & static_cast<std::uint8_t>(Origin::Any);
+  return bits == 0 ? Origin::Any : static_cast<Origin>(bits);
+}
 
 }  // namespace Wisp
 

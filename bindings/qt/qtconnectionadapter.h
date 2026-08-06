@@ -81,9 +81,12 @@ public:
 
   static void unregisterCallback(const QString& key, QObject* context) { ConnectionManager::unregisterCallback(key.toStdString(), context); }
 
-  // Lambdas
+  /* Lambdas.
+     `scope` narrows what triggers the callback to messages published on this
+     client's own broker or to what the mesh carried in; see
+     ConnectionManager::registerCallback. */
   template <typename Callable>
-  static void registerCallback(const QString& key, QObject* context, Callable func) {
+  static void registerCallback(const QString& key, QObject* context, Callable func, Origin scope = Origin::Any) {
     using ArgType = typename CallableTraits<Callable>::ArgType;
     using BaseT = typename std::decay<ArgType>::type;
 
@@ -96,13 +99,13 @@ public:
                 target, [func, payload]() { func(payload); }, Qt::QueuedConnection);
           }
         },
-        context);
+        context, scope);
     unregisterWhenDestroyed(stdKey, context);
   }
 
   // Class Member Functions (1 Argument)
   template <typename ClassType, typename ArgType>
-  static void registerCallback(const QString& key, ClassType* context, void (ClassType::*method)(ArgType)) {
+  static void registerCallback(const QString& key, ClassType* context, void (ClassType::*method)(ArgType), Origin scope = Origin::Any) {
     static_assert(std::is_base_of<QObject, ClassType>::value, "Context must inherit from QObject!");
 
     using BaseT = typename std::decay<ArgType>::type;
@@ -116,13 +119,13 @@ public:
                 target, [target, method, payload]() { (target->*method)(payload); }, Qt::QueuedConnection);
           }
         },
-        context);
+        context, scope);
     unregisterWhenDestroyed(stdKey, context);
   }
 
   // Class Member Functions (0 Arguments)
   template <typename ClassType>
-  static void registerCallback(const QString& key, ClassType* context, void (ClassType::*method)()) {
+  static void registerCallback(const QString& key, ClassType* context, void (ClassType::*method)(), Origin scope = Origin::Any) {
     static_assert(std::is_base_of<QObject, ClassType>::value, "Context must inherit from QObject!");
 
     const std::string stdKey = key.toStdString();
@@ -134,7 +137,7 @@ public:
                 target, [target, method]() { (target->*method)(); }, Qt::QueuedConnection);
           }
         },
-        context);
+        context, scope);
     unregisterWhenDestroyed(stdKey, context);
   }
 

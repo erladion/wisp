@@ -56,8 +56,13 @@ public:
   MessagePoller(const MessagePoller&) = delete;
   MessagePoller& operator=(const MessagePoller&) = delete;
 
-  // Start capturing `topic`. Subscribing twice to the same topic is a no-op.
-  void subscribe(const std::string& topic) {
+  /* Start capturing `topic`. Subscribing twice to the same topic is a no-op -
+     including with a different `scope`, so change one by unsubscribing first.
+
+     `scope` narrows what is captured to messages published on this client's own
+     broker or to what the mesh carried in; see
+     ConnectionManager::registerCallback. */
+  void subscribe(const std::string& topic, Origin scope = Origin::Any) {
     {
       std::lock_guard<std::mutex> lock(m_mutex);
       if (!m_topics.insert(topic).second) {
@@ -67,7 +72,7 @@ public:
     // Registered outside the lock: the callback below takes m_mutex, and a
     // dispatch already in flight must never find this thread holding it.
     ConnectionManager::registerCallback(
-        topic, [this, topic](const std::string& payload) { enqueue(topic, payload); }, this);
+        topic, [this, topic](const std::string& payload) { enqueue(topic, payload); }, this, scope);
   }
 
   void unsubscribe(const std::string& topic) {

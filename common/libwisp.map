@@ -16,6 +16,7 @@
     sendDataWithReply;
     makeReplyTopic;
     registerCallback;
+    registerCallbackScoped;
     unregisterCallback;
     setLogLevel;
     setLogHandler;

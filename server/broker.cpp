@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstring>
 #include <deque>
+#include <map>
 
 #include <google/protobuf/any.pb.h>
 
@@ -484,14 +485,16 @@ bool Broker::handleClientMessage(zmq::socket_t& socket, const broker::MessageHea
       // RESET. The triggering message is still processed normally -
       // nothing is sacrificed (a publish still routes).
       Logger::Log(Logger::Info, "Unknown session from " + senderId + ". Requesting subscription reset");
-      Wire::sendTo(socket, senderId, Wire::encodeHeader(Wire::makeControlHeader(Keys::RESET, "")), std::string());
+      Wire::sendTo(socket, senderId, Wire::encodeHeader(Wire::makeControlHeader(Keys::RESET, m_brokerId)), std::string());
     }
   }
 
   if (key == Keys::CONNECT || key == Keys::HEARTBEAT) {
     // Just keep-alive, already handled by updating 'lastSeen' above
     if (key == Keys::HEARTBEAT) {
-      Wire::sendTo(socket, senderId, Wire::encodeHeader(Wire::makeControlHeader(Keys::HEARTBEAT_ACK, "")), std::string());
+      // Named, so the client can tell this broker's own traffic from what the
+      // mesh carried in (see Origin).
+      Wire::sendTo(socket, senderId, Wire::encodeHeader(Wire::makeControlHeader(Keys::HEARTBEAT_ACK, m_brokerId)), std::string());
     }
     return true;
   }
@@ -508,25 +511,24 @@ bool Broker::handleClientMessage(zmq::socket_t& socket, const broker::MessageHea
                                              std::to_string(MAX_TOPIC_LENGTH_BYTES) + "-byte limit");
     } else if (!canSubscribe(senderId, header.topic())) {
       noteRejectedSubscription(senderId, "already at the " + std::to_string(MAX_SUBSCRIPTIONS_PER_CLIENT) + "-subscription limit");
-    } else if (m_subscriptions.subscribe(senderId, header.topic())) {
-      Logger::Log(Logger::Info, "Client " + senderId + " Subscribed to " + header.topic());
-      // The first subscriber for a topic is what makes this broker interested
-      // in it; later ones are already covered by what the peers were told.
-      const std::vector<std::string>* subscribers = m_subscriptions.subscribersOf(header.topic());
-      if (subscribers && subscribers->size() == 1) {
-        noteTopicSubscribed(header.topic());
+    } else {
+      // The payload carries the subscription's Origin scope; an absent one
+      // means both, which is what every client sent before scopes existed.
+      const Origin scope = decodeSubscribeScope(payload.data<char>(), payload.size());
+      const bool wantedFromMesh = m_subscriptions.hasMeshSubscriber(header.topic());
+      if (m_subscriptions.subscribe(senderId, header.topic(), scope)) {
+        Logger::Log(Logger::Info, "Client " + senderId + " Subscribed to " + header.topic());
+        noteMeshInterestChange(header.topic(), wantedFromMesh);
       }
     }
     return true;
   }
 
   if (key == Keys::UNSUBSCRIBE) {
+    const bool wantedFromMesh = m_subscriptions.hasMeshSubscriber(header.topic());
     if (m_subscriptions.unsubscribe(senderId, header.topic())) {
       Logger::Log(Logger::Info, "Client " + senderId + " Unsubscribed from " + header.topic());
-      // Nobody here wants it any more, so the peers can stop sending it.
-      if (!m_subscriptions.subscribersOf(header.topic())) {
-        noteTopicUnsubscribed(header.topic());
-      }
+      noteMeshInterestChange(header.topic(), wantedFromMesh);
     }
     return true;
   }
@@ -554,46 +556,67 @@ bool Broker::handleClientMessage(zmq::socket_t& socket, const broker::MessageHea
 
 void Broker::deliverToSubscribers(zmq::socket_t& socket, const broker::MessageHeader& header, const std::string& headerBytes, zmq::message_t& payload,
                                      const std::string& senderId, bool isFromPeer) {
-  const std::vector<std::string>* exactSubs = m_subscriptions.subscribersOf(header.topic());
+  const std::vector<Subscriber>* exactSubs = m_subscriptions.subscribersOf(header.topic());
 
   // A "*" subscription is the wildcard: it receives every topic. Peer links
   // rely on this (connectToPeer subscribes to "*").
   static const std::string wildcardTopic{Keys::WILDCARD_TOPIC};
-  const std::vector<std::string>* wildcardSubs = header.topic() == wildcardTopic ? nullptr : m_subscriptions.subscribersOf(wildcardTopic);
+  const std::vector<Subscriber>* wildcardSubs = header.topic() == wildcardTopic ? nullptr : m_subscriptions.subscribersOf(wildcardTopic);
 
   if (!exactSubs && !wildcardSubs) {
     return;
   }
 
-  auto deliver = [&](const std::string& id) {
+  // Everything reaching this broker from one of its own clients is local; the
+  // rest crossed a peer link. That is the whole of what a subscription's scope
+  // is asked to distinguish.
+  const bool isLocal = !isFromPeer;
+
+  auto findSubscriber = [](const std::vector<Subscriber>* subs, const std::string& id) -> const Subscriber* {
+    if (!subs) {
+      return nullptr;
+    }
+    auto pos = std::find_if(subs->begin(), subs->end(), [&](const Subscriber& subscriber) { return subscriber.clientId == id; });
+    return pos != subs->end() ? &*pos : nullptr;
+  };
+
+  auto deliver = [&](const Subscriber& subscriber) {
     // Don't echo back to sender if it's a local client
-    if (!isFromPeer && id == senderId) {
+    if (!isFromPeer && subscriber.clientId == senderId) {
+      return;
+    }
+
+    if (!scopeAccepts(subscriber.scope, isLocal)) {
       return;
     }
 
     // Verify client is still connected (safety check)
-    if (m_clients.find(id) == m_clients.end()) {
+    if (m_clients.find(subscriber.clientId) == m_clients.end()) {
       return;
     }
 
-    if (!Wire::sendTo(socket, id, headerBytes, payload)) {
-      noteDroppedTo(id);
+    if (!Wire::sendTo(socket, subscriber.clientId, headerBytes, payload)) {
+      noteDroppedTo(subscriber.clientId);
     }
   };
 
   if (exactSubs) {
-    for (const auto& id : *exactSubs) {
-      deliver(id);
+    for (const auto& subscriber : *exactSubs) {
+      deliver(subscriber);
     }
   }
 
   if (wildcardSubs) {
-    for (const auto& id : *wildcardSubs) {
-      // Skip clients already served by their exact subscription
-      if (exactSubs && std::find(exactSubs->begin(), exactSubs->end(), id) != exactSubs->end()) {
+    for (const auto& subscriber : *wildcardSubs) {
+      // Skip clients already served by their exact subscription - but only
+      // where that subscription accepted this message, or a client holding a
+      // local-only exact subscription alongside a wildcard would lose the mesh
+      // traffic its wildcard asked for.
+      const Subscriber* exact = findSubscriber(exactSubs, subscriber.clientId);
+      if (exact && scopeAccepts(exact->scope, isLocal)) {
         continue;
       }
-      deliver(id);
+      deliver(subscriber);
     }
   }
 }
@@ -632,7 +655,7 @@ void Broker::notePeerDrop(const std::string& peerKey) {
 }
 
 bool Broker::canSubscribe(const std::string& clientId, const std::string& topic) const {
-  const std::set<std::string>* topics = m_subscriptions.subscriptionsOf(clientId);
+  const std::map<std::string, Origin>* topics = m_subscriptions.subscriptionsOf(clientId);
   if (!topics || topics->count(topic) > 0) {
     return true;
   }
@@ -712,11 +735,11 @@ void Broker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSocke
     if (const auto* topics = m_subscriptions.subscriptionsOf(entry.first)) {
       clientInfo->set_subscription_count(static_cast<std::uint32_t>(topics->size()));
       std::size_t listed = 0;
-      for (const auto& topic : *topics) {
+      for (const auto& subscription : *topics) {
         if (listed++ >= MaxListedSubscriptions) {
           break;
         }
-        clientInfo->add_subscriptions(topic);
+        clientInfo->add_subscriptions(subscription.first);
       }
     }
   }
@@ -737,9 +760,14 @@ void Broker::broadcastStats(zmq::socket_t& socket, zmq::socket_t& inspectorSocke
   // not flood the mesh every second. The cost is that a local wildcard
   // subscriber misses stats too - subscribe to SYS_STATS explicitly to get them.
   if (const auto* subs = m_subscriptions.subscribersOf(Keys::SYS_STATS)) {
-    for (const auto& id : *subs) {
-      if (!Wire::sendTo(socket, id, headerBytes, payload)) {
-        noteDroppedTo(id);
+    for (const auto& subscriber : *subs) {
+      // This broker's own report, so a subscriber that asked for mesh traffic
+      // alone is not one of its recipients.
+      if (!scopeAccepts(subscriber.scope, true)) {
+        continue;
+      }
+      if (!Wire::sendTo(socket, subscriber.clientId, headerBytes, payload)) {
+        noteDroppedTo(subscriber.clientId);
       }
     }
   }
@@ -909,21 +937,27 @@ void Broker::removePeer(const std::string& key) {
 void Broker::removeClient(std::string clientId, const std::string& reason) {
   Logger::Log(Logger::Info, "Removing Client: " + clientId + " (" + reason + ")");
 
-  // Copied before the removal: the registry's own view of them is what is about
-  // to be destroyed, and any that had no other subscriber leaves this broker's
-  // interest with it.
-  std::vector<std::string> heldTopics;
-  if (const std::set<std::string>* held = m_subscriptions.subscriptionsOf(clientId)) {
-    heldTopics.assign(held->begin(), held->end());
+  /* Copied before the removal: the registry's own view of them is what is about
+     to be destroyed, and any topic this client was the last to want from the
+     mesh leaves this broker's interest with it.
+
+     Only the topics already wanted from the mesh are worth revisiting - a
+     local-only subscription never put the topic in the interest set, so its
+     going cannot take it out. */
+  std::vector<std::string> meshTopics;
+  if (const std::map<std::string, Origin>* held = m_subscriptions.subscriptionsOf(clientId)) {
+    for (const auto& entry : *held) {
+      if (m_subscriptions.hasMeshSubscriber(entry.first)) {
+        meshTopics.push_back(entry.first);
+      }
+    }
   }
 
   m_subscriptions.removeClient(clientId);
   m_clients.erase(clientId);
 
-  for (const std::string& topic : heldTopics) {
-    if (!m_subscriptions.subscribersOf(topic)) {
-      noteTopicUnsubscribed(topic);
-    }
+  for (const std::string& topic : meshTopics) {
+    noteMeshInterestChange(topic, true);
   }
 }
 
@@ -993,6 +1027,18 @@ void Broker::noteTopicSubscribed(const std::string& topic) {
   const std::string wanted = saturatedNow ? std::string(Keys::WILDCARD_TOPIC) : topic;
   for (auto& [key, peer] : m_peers) {
     peer.worker->writeControlMessage(Wire::makeControl(Keys::SUBSCRIBE, peer.linkId, wanted));
+  }
+}
+
+void Broker::noteMeshInterestChange(const std::string& topic, bool wantedBefore) {
+  const bool wantedNow = m_subscriptions.hasMeshSubscriber(topic);
+  if (wantedNow == wantedBefore) {
+    return;
+  }
+  if (wantedNow) {
+    noteTopicSubscribed(topic);
+  } else {
+    noteTopicUnsubscribed(topic);
   }
 }
 

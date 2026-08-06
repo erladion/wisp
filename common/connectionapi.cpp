@@ -220,19 +220,27 @@ int sendRequest(const char* topic, const char* payload, int payloadLen, char* ou
 }
 
 void registerCallback(const char* topic, Message_Callback callback, void* userData) {
+  registerCallbackScoped(topic, callback, userData, WISP_ORIGIN_ANY);
+}
+
+void registerCallbackScoped(const char* topic, Message_Callback callback, void* userData, int scope) {
   if (!topic || !callback) {
     fail(ERROR_INVALID_ARGS, "topic and callback must be non-null");
     return;
   }
 
   (void)guard([&] {
+    // Read through the wire decoder so a 0, or bits this build does not know,
+    // widen to Any exactly as they do coming off a socket.
+    const char scopeByte = static_cast<char>(static_cast<unsigned>(scope) & 0xffu);
+
     // userData doubles as the registration's identity for unregisterCallback.
     ConnectionManager::registerCallback(
         topic,
         [callback, userData, t = std::string(topic)](const std::string& data) {
           callback(t.c_str(), data.c_str(), (int)data.size(), userData);
         },
-        userData);
+        userData, decodeSubscribeScope(&scopeByte, 1));
     return ok();
   });
 }

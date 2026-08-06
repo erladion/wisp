@@ -107,6 +107,20 @@ bool parseFormat(const std::string& text, PayloadFormat& outFormat, std::string&
   return true;
 }
 
+bool parseOrigin(const std::string& text, Wisp::Origin& outScope, std::string& outError) {
+  if (text == "any") {
+    outScope = Wisp::Origin::Any;
+  } else if (text == "local") {
+    outScope = Wisp::Origin::Local;
+  } else if (text == "mesh") {
+    outScope = Wisp::Origin::Mesh;
+  } else {
+    outError = "--origin expects any, local, or mesh; got '" + text + "'";
+    return false;
+  }
+  return true;
+}
+
 // An argument is an option unless it is exactly "-", which pub accepts as
 // "read the payload from stdin".
 bool isOption(const std::string& arg) {
@@ -160,6 +174,10 @@ bool parseArguments(int argc, char* argv[], Options& out, std::string& outError)
         out.countGiven = true;
       } else if (arg == "-t" || arg == "--timeout") {
         if (!takeInt(argc, argv, i, arg, 1, out.timeoutMs, outError)) {
+          return false;
+        }
+      } else if (arg == "--origin") {
+        if (!takeValue(argc, argv, i, arg, value, outError) || !parseOrigin(value, out.origin, outError)) {
           return false;
         }
       } else if (arg == "--max-bytes") {
@@ -237,6 +255,9 @@ const char* usageText() {
       "  -n, --count N        stop after N messages; 0 runs until interrupted\n"
       "                       (default 0 for sub and tap, 1 for stats)\n"
       "  -t, --timeout MS     connect and request timeout (default 5000)\n"
+      "      --origin WHERE   sub: which messages to print - any, local (published on this\n"
+      "                       broker), or mesh (carried in from a peer). Default any; a\n"
+      "                       local subscription is not carried across peer links at all\n"
       "      --max-bytes N    payload bytes to render before truncating (default 64)\n"
       "  -v, --verbose        show the client library's own log output\n"
       "  -h, --help           this text\n"

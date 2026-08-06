@@ -11,6 +11,7 @@
 
 #include "messagekeys.h"
 #include "safequeue.h"
+#include "uuidhelper.h"
 #include "wireframe.h"
 #include "broker.h"
 #include "zmqworker.h"
@@ -186,6 +187,64 @@ TEST_F(CApiTest, ConnectsAndDelivers) {
   setLogLevel(WISP_LOG_WARNING);  // a valid level
   unregisterCallback(topic, nullptr);
 
+  publisher.stop();
+}
+
+/* registerCallbackScoped across the C ABI. A message stamped with a foreign
+   origin is what one that crossed a peer link looks like to a client, so it
+   needs no second broker - and the broker here routes it as local traffic
+   either way, which is precisely what leaves the client-side filter as the
+   thing under test. */
+TEST_F(CApiTest, ScopedCallbacksAreFilteredByOrigin) {
+  startBroker();
+
+  Connection_Config cfg = CONNECTION_CONFIG_DEFAULT;
+  cfg.address = kBrokerAddress.c_str();
+  cfg.client_id = "c-api-scope-client";
+  ASSERT_EQ(initConnection(&cfg), SUCCESS);
+  ASSERT_EQ(waitForConnection(3000), SUCCESS);
+
+  const char* topic = "c-api-scope-topic";
+  registerCallbackScoped(topic, recordMessage, nullptr, WISP_ORIGIN_LOCAL);
+
+  ConnectionConfig pubCfg;
+  pubCfg.address = kBrokerAddress;
+  pubCfg.clientId = "c-api-scope-publisher";
+  ZmqWorker publisher(pubCfg, nullptr, nullptr);
+  publisher.start();
+  completeHandshake(publisher, pubCfg.clientId);
+
+  // Local traffic first: it also confirms the subscription is live, so the
+  // silence checked afterwards means something.
+  for (int attempt = 0; attempt < 40 && g_messageHits.load() == 0; ++attempt) {
+    Envelope msg;
+    msg.header.set_handler_key(topic);
+    msg.header.set_sender_id(pubCfg.clientId);
+    msg.header.set_topic(topic);
+    msg.payload = "local";
+    publisher.writeMessage(msg);
+    std::this_thread::sleep_for(100ms);
+  }
+  ASSERT_GT(g_messageHits.load(), 0) << "a local-scoped callback never received local traffic";
+
+  const int hitsBefore = g_messageHits.load();
+  Envelope foreign;
+  foreign.header.set_handler_key(topic);
+  foreign.header.set_sender_id(pubCfg.clientId);
+  foreign.header.set_topic(topic);
+  foreign.header.set_message_uuid(generateBinaryUUID());
+  foreign.header.set_origin_broker_id("some-other-broker");
+  foreign.payload = "from-the-mesh";
+  publisher.writeMessage(foreign);
+  std::this_thread::sleep_for(500ms);
+
+  EXPECT_EQ(g_messageHits.load(), hitsBefore) << "a local-scoped callback fired on a message that entered the mesh elsewhere";
+  {
+    std::lock_guard<std::mutex> lock(g_payloadMutex);
+    EXPECT_EQ(g_lastPayload, "local");
+  }
+
+  unregisterCallback(topic, nullptr);
   publisher.stop();
 }
 

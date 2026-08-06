@@ -77,3 +77,25 @@ TEST(CallbackShapesTest, EveryCallableShapeRegisters) {
   ConnectionManager::unregisterCallback(kTopic, &owner);
   ConnectionManager::unregisterCallback(kTopic, &receiver);
 }
+
+// The Origin scope is a trailing defaulted argument on every one of those
+// overloads, which is only true if each still resolves with it spelled out.
+TEST(CallbackShapesTest, EveryCallableShapeTakesAScope) {
+  int owner = 0;
+  Receiver receiver;
+
+  ConnectionManager::registerCallback(kTopic, [](const std::string&) {}, &owner, Origin::Local);
+  ConnectionManager::registerCallback(kTopic, [](int) {}, &owner, Origin::Mesh);
+  ConnectionManager::registerCallback(kTopic, []() {}, &owner, Origin::Local);
+  ConnectionManager::registerCallback(kTopic, []() mutable {}, &owner, Origin::Local);
+  ConnectionManager::registerCallback(kTopic, &freeFunctionWithArg, &owner, Origin::Local);
+  ConnectionManager::registerCallback(kTopic, &freeFunctionNoArgs, &owner, Origin::Local);
+  ConnectionManager::registerCallback(kTopic, &Receiver::withArg, &receiver, Origin::Local);
+  ConnectionManager::registerCallback(kTopic, &Receiver::noArgs, &receiver, Origin::Mesh);
+  ConnectionManager::registerCallback(kTopic, std::function<void()>([] {}), &owner, Origin::Local);
+
+  SUCCEED();
+
+  ConnectionManager::unregisterCallback(kTopic, &owner);
+  ConnectionManager::unregisterCallback(kTopic, &receiver);
+}

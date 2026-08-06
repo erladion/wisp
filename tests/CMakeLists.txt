@@ -49,6 +49,7 @@ set(BROKER_TEST_SOURCES
   shutdown_from_callback_test.cpp
   shutdown_test.cpp
   subscription_limits_test.cpp
+  subscription_scope_test.cpp
   subscriptionregistry_test.cpp
   unsubscribe_while_offline_test.cpp
   uuid_test.cpp
