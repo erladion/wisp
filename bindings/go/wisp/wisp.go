@@ -22,6 +22,7 @@ package wisp
 // Defined in cbits.c. C may not store a Go pointer, so the Go closure is kept
 // in a cgo.Handle and only its integer value crosses the void* userData bound.
 void wisp_register(const char* topic, uintptr_t handle);
+void wisp_register_scoped(const char* topic, uintptr_t handle, int scope);
 void wisp_unregister(const char* topic, uintptr_t handle);
 void wisp_set_log_handler(uintptr_t handle);
 void wisp_clear_log_handler(void);
@@ -33,6 +34,30 @@ import (
 	"runtime/cgo"
 	"unsafe"
 )
+
+// Origin mirrors Wisp_Origin in the C ABI: where a message a handler wants may
+// come from, either published by a client of the same broker or carried in
+// across a peer link. A bitmask, so OriginAny is the two together.
+type Origin int
+
+const (
+	OriginLocal Origin = 1
+	OriginMesh  Origin = 2
+	OriginAny   Origin = 3
+)
+
+func (o Origin) String() string {
+	switch o {
+	case OriginLocal:
+		return "local"
+	case OriginMesh:
+		return "mesh"
+	case OriginAny:
+		return "any"
+	default:
+		return fmt.Sprintf("Origin(%d)", int(o))
+	}
+}
 
 // LogLevel mirrors Wisp_Log_Level in the C ABI.
 type LogLevel int
@@ -251,6 +276,28 @@ func RegisterCallback(topic string, handler MessageHandler) (*Subscription, erro
 	cTopic := C.CString(topic)
 	defer C.free(unsafe.Pointer(cTopic))
 	C.wisp_register(cTopic, C.uintptr_t(h))
+	return &Subscription{topic: topic, handle: h}, nil
+}
+
+// RegisterCallbackScoped registers handler for topic, triggered only by
+// messages of the origins in scope.
+//
+// Registrations on one topic may differ: the broker is asked for their union
+// and each handler is filtered on delivery, so a local-only handler stays
+// local-only beside a wildcard subscription that wants everything. Against a
+// broker predating scopes everything widens to OriginAny - an unrecognized
+// subscription is widened, never dropped.
+func RegisterCallbackScoped(topic string, handler MessageHandler, scope Origin) (*Subscription, error) {
+	if handler == nil {
+		return nil, fmt.Errorf("registerCallbackScoped: nil handler")
+	}
+	if scope != OriginLocal && scope != OriginMesh && scope != OriginAny {
+		return nil, fmt.Errorf("registerCallbackScoped: invalid origin scope %d", int(scope))
+	}
+	h := cgo.NewHandle(handler)
+	cTopic := C.CString(topic)
+	defer C.free(unsafe.Pointer(cTopic))
+	C.wisp_register_scoped(cTopic, C.uintptr_t(h), C.int(scope))
 	return &Subscription{topic: topic, handle: h}, nil
 }
 

@@ -122,6 +122,50 @@ echo "asking:"
 WISP_LIB="$LIB_DIR/libwisp.so" python3 "$WORK/asker.py" > "$WORK/py.log" 2>&1 || true
 expect_answer python "$WORK/py.log" python
 
+# --- python: a scoped registration reaches the broker ------------------------
+# One broker, no mesh, so everything it routes is local traffic: a local-scoped
+# handler must see a publish and a mesh-scoped one must not. The broker decides
+# that from the scope byte the binding put in the __SUBSCRIBE__ payload, so this
+# fails if the scope never crossed the FFI boundary.
+cat > "$WORK/scoped.py" <<PY
+import sys, time
+sys.path.insert(0, "$REPO_ROOT/bindings/python")
+import wisp
+
+wisp.init_connection("$BROKER_ADDR", client_id="smoke-scope-sub")
+wisp.wait_for_connection(5000)
+
+local, mesh = [], []
+wisp.register_callback_scoped("scope/probe", lambda t, d: local.append(d), wisp.ORIGIN_LOCAL)
+wisp.register_callback_scoped("scope/probe", lambda t, d: mesh.append(d), wisp.ORIGIN_MESH)
+print("subscribed", flush=True)
+time.sleep(6)
+print("local:", len(local), "mesh:", len(mesh))
+wisp.shutdown_connection()
+PY
+
+echo "scoped registration:"
+WISP_LIB="$LIB_DIR/libwisp.so" python3 "$WORK/scoped.py" > "$WORK/scoped.log" 2>&1 &
+SCOPED_PID=$!
+# wisp-cli exits 0 only once the broker has routed the publish, so the
+# subscriber is given something real to have filtered.
+for _ in $(seq 1 20); do
+  grep -q subscribed "$WORK/scoped.log" && break
+  sleep 0.2
+done
+for _ in $(seq 1 3); do
+  "$BUILD_DIR/cli/wisp-cli" -a "$BROKER_ADDR" pub scope/probe local-traffic >/dev/null 2>&1 || true
+done
+wait "$SCOPED_PID" || true
+
+if grep -qE '^local: [1-9][0-9]* mesh: 0$' "$WORK/scoped.log"; then
+  echo "  python: local-scoped delivered, mesh-scoped filtered"
+else
+  echo "--- scoped output ---" >&2
+  cat "$WORK/scoped.log" >&2
+  fail "a scoped registration did not filter by origin"
+fi
+
 # --- go ----------------------------------------------------------------------
 if command -v go >/dev/null; then
   ( cd "$REPO_ROOT/bindings/go" && \

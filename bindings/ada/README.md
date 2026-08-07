@@ -45,6 +45,9 @@ Wisp.Init_Connection (Address => "tcp://127.0.0.1:5555", Client_Id => "sensor-1"
 Wisp.Wait_For_Connection;                         --  block for the link
 
 Wisp.Register_Callback ("commands", On_Command'Access);  --  library-level procedure
+--  ...or only what this broker's own clients published (Mesh is the other
+--  half; a local-only topic is not carried across peer links at all):
+Wisp.Register_Callback ("commands", On_Command'Access, Scope => Wisp.Local);
 Wisp.Send_Data ("telemetry", Payload);                   --  fire and forget
 Wisp.Send_Message ("chat", "hello");                     --  text convenience
 Reply : String := Wisp.Send_Request ("config", "get");   --  blocking request/reply

@@ -134,6 +134,18 @@ package Wisp.C_API is
       User_Data : System.Address)
      with Import, Convention => C, External_Name => "registerCallback";
 
+   --  The same, triggered only by messages of the origins in Scope (a
+   --  WISP_ORIGIN_* bitmask). Register_Callback above is this with
+   --  WISP_ORIGIN_ANY. A scope of 0, or one holding unknown bits, widens to
+   --  WISP_ORIGIN_ANY - an unrecognized subscription is widened, never
+   --  dropped.
+   procedure Register_Callback_Scoped
+     (Topic     : chars_ptr;
+      Callback  : Message_Callback;
+      User_Data : System.Address;
+      Scope     : int)
+     with Import, Convention => C, External_Name => "registerCallbackScoped";
+
    --  Removes the registrations on Topic whose User_Data matches the value
    --  given to Register_Callback. A callback already being dispatched when
    --  this returns may still complete.

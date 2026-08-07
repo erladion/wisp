@@ -80,6 +80,8 @@ mod ffi {
         ) -> c_int;
         #[link_name = "registerCallback"]
         pub fn register_callback(topic: *const c_char, callback: MessageCallback, user_data: *mut c_void);
+        #[link_name = "registerCallbackScoped"]
+        pub fn register_callback_scoped(topic: *const c_char, callback: MessageCallback, user_data: *mut c_void, scope: c_int);
         #[link_name = "unregisterCallback"]
         pub fn unregister_callback(topic: *const c_char, user_data: *mut c_void);
         #[link_name = "setLogLevel"]
@@ -109,6 +111,17 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Where a message a callback wants may come from, matching `Wisp_Origin` in
+/// the C ABI: published by a client of the same broker, or carried in across a
+/// peer link. A bitmask, so `Any` is the two together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum Origin {
+    Local = 1,
+    Mesh = 2,
+    Any = 3,
+}
 
 /// Log severities, matching `Wisp_Log_Level` in the C ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,9 +388,39 @@ where
     F: Fn(&str, &[u8]) + Send + 'static,
 {
     let c_topic = cstring(topic, "topic")?;
+    let boxed = retain_handler(handler);
+    unsafe { ffi::register_callback(c_topic.as_ptr(), message_trampoline, boxed as *mut c_void) };
+    Ok(Subscription {
+        topic: topic.to_string(),
+        handler: boxed,
+    })
+}
+
+// Box the closure and keep it alive in REGISTRY. The raw pointer doubles as the
+// userData the C ABI matches on when unregistering.
+fn retain_handler<F>(handler: F) -> *mut Handler
+where
+    F: Fn(&str, &[u8]) + Send + 'static,
+{
     let boxed: *mut Handler = Box::into_raw(Box::new(Box::new(handler)));
     REGISTRY.lock().unwrap().push(Cell(boxed));
-    unsafe { ffi::register_callback(c_topic.as_ptr(), message_trampoline, boxed as *mut c_void) };
+    boxed
+}
+
+/// The same, triggered only by messages of the origins in `scope`.
+///
+/// Registrations on one topic may differ: the broker is asked for their union
+/// and each handler is filtered on delivery, so a local-only handler stays
+/// local-only beside a wildcard subscription that wants everything. Against a
+/// broker predating scopes everything widens to [`Origin::Any`] - an
+/// unrecognized subscription is widened, never dropped.
+pub fn register_callback_scoped<F>(topic: &str, handler: F, scope: Origin) -> Result<Subscription>
+where
+    F: Fn(&str, &[u8]) + Send + 'static,
+{
+    let c_topic = cstring(topic, "topic")?;
+    let boxed = retain_handler(handler);
+    unsafe { ffi::register_callback_scoped(c_topic.as_ptr(), message_trampoline, boxed as *mut c_void, scope as c_int) };
     Ok(Subscription {
         topic: topic.to_string(),
         handler: boxed,

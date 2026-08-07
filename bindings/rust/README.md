@@ -67,6 +67,10 @@ let sub = wisp::register_callback("telemetry", |topic, data| {
 })?;
 wisp::unregister_callback(sub);
 
+// ...or only what this broker's own clients published (Origin::Mesh is the
+// other half; a local-only topic is not carried across peer links at all):
+let sub = wisp::register_callback_scoped("telemetry", handler, wisp::Origin::Local)?;
+
 // Request/reply: block for one reply, bounding the reply buffer:
 let reply = wisp::send_request("service.echo", b"ping", 2000, 4096)?;
 

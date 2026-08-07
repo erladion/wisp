@@ -71,6 +71,9 @@ wisp.SendData("telemetry", []byte{0x01, 0x02})
 wisp.SendMessage("chat", "hello")
 
 // Subscribe; the handler runs on the client's worker thread:
+// ...or RegisterCallbackScoped with wisp.OriginLocal for only what this
+// broker's own clients published (OriginMesh is the other half; a local-only
+// topic is not carried across peer links at all).
 sub, _ := wisp.RegisterCallback("telemetry", func(topic string, data []byte) {
     fmt.Printf("%s: %d bytes\n", topic, len(data))
 })

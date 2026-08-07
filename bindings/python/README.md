@@ -37,6 +37,9 @@ wisp.init_connection("tcp://127.0.0.1:5555", client_id="sensor-1")
 wisp.wait_for_connection(5000)                           # block for the link
 
 wisp.register_callback("commands", lambda topic, data: ...)   # data is bytes
+# ...or only what this broker's own clients published (ORIGIN_MESH is the
+# other half; a local-only topic is not carried across peer links at all):
+wisp.register_callback_scoped("commands", handler, wisp.ORIGIN_LOCAL)
 wisp.send_data("telemetry", payload)                          # str or bytes
 wisp.send_message("chat", "hello")                            # text convenience
 answer = wisp.send_request("config", "get", timeout_ms=2000)  # blocks, returns bytes

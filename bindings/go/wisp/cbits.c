@@ -14,6 +14,10 @@ void wisp_register(const char* topic, uintptr_t handle) {
   registerCallback(topic, (Message_Callback)wispGoMessageTrampoline, (void*)handle);
 }
 
+void wisp_register_scoped(const char* topic, uintptr_t handle, int scope) {
+  registerCallbackScoped(topic, (Message_Callback)wispGoMessageTrampoline, (void*)handle, scope);
+}
+
 void wisp_unregister(const char* topic, uintptr_t handle) {
   unregisterCallback(topic, (void*)handle);
 }

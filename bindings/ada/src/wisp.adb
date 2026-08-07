@@ -251,10 +251,15 @@ package body Wisp is
          null;  --  exceptions must not cross the C boundary
    end Dispatch;
 
-   procedure Register_Callback (Topic : String; Callback : not null Handler) is
+   procedure Register_Callback
+     (Topic    : String;
+      Callback : not null Handler;
+      Scope    : Origin := Any)
+   is
       C_Topic : chars_ptr := New_String (Topic);
    begin
-      C_API.Register_Callback (C_Topic, Dispatch'Access, To_Address (Callback));
+      C_API.Register_Callback_Scoped
+        (C_Topic, Dispatch'Access, To_Address (Callback), int (Origin'Enum_Rep (Scope)));
       Free (C_Topic);
    end Register_Callback;
 

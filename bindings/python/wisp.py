@@ -17,6 +17,10 @@ import traceback
 
 LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERROR = 0, 1, 2, 3  # Wisp_Log_Level
 
+# Wisp_Origin: where a message a callback wants may come from. A bitmask, so
+# ORIGIN_ANY is the two together.
+ORIGIN_LOCAL, ORIGIN_MESH, ORIGIN_ANY = 1, 2, 3
+
 
 class WispError(Exception):
     pass
@@ -94,6 +98,10 @@ _lib.sendRequest.argtypes = [
 _lib.sendRequest.restype = ctypes.c_int
 _lib.registerCallback.argtypes = [ctypes.c_char_p, _MessageCallback, ctypes.c_void_p]
 _lib.registerCallback.restype = None
+_lib.registerCallbackScoped.argtypes = [
+    ctypes.c_char_p, _MessageCallback, ctypes.c_void_p, ctypes.c_int,
+]
+_lib.registerCallbackScoped.restype = None
 _lib.unregisterCallback.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
 _lib.unregisterCallback.restype = None
 _lib.setLogLevel.argtypes = [ctypes.c_int]
@@ -241,6 +249,36 @@ def register_callback(topic, handler):
     synchronize access to shared state. Exceptions are printed and
     discarded (they must not propagate into C).
     """
+    callback = _retain_handler(topic, handler)
+    # The trampoline pointer doubles as the registration's identity.
+    _lib.registerCallback(topic.encode(), callback,
+                          ctypes.cast(callback, ctypes.c_void_p))
+
+
+def register_callback_scoped(topic, handler, scope):
+    """Register handler for topic, triggered only by messages of the origins
+    in scope (an ORIGIN_* bitmask).
+
+    Registrations on one topic may differ: the broker is asked for their
+    union and each handler is filtered on delivery, so a local-only handler
+    stays local-only beside a wildcard subscription that wants everything.
+    Against a broker predating scopes, everything widens to ORIGIN_ANY - an
+    unrecognized subscription is widened, never dropped.
+    """
+    if scope not in (ORIGIN_LOCAL, ORIGIN_MESH, ORIGIN_ANY):
+        raise WispError(f"invalid origin scope {scope!r}")
+    callback = _retain_handler(topic, handler)
+    _lib.registerCallbackScoped(topic.encode(), callback,
+                                ctypes.cast(callback, ctypes.c_void_p), scope)
+
+
+def _retain_handler(topic, handler):
+    """Wrap handler in a ctypes trampoline and keep it alive in _registrations.
+
+    The trampoline must outlive the registration or it is collected out from
+    under the worker thread; its pointer is also the identity the C ABI
+    matches on when unregistering.
+    """
     if (topic, handler) in _registrations:
         raise WispError(f"already subscribed to {topic!r} with this handler")
 
@@ -252,9 +290,7 @@ def register_callback(topic, handler):
 
     callback = _MessageCallback(_trampoline)
     _registrations[(topic, handler)] = callback
-    # The trampoline pointer doubles as the registration's identity.
-    _lib.registerCallback(topic.encode(), callback,
-                          ctypes.cast(callback, ctypes.c_void_p))
+    return callback
 
 
 def unregister_callback(topic, handler):

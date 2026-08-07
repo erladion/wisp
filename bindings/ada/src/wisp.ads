@@ -83,8 +83,24 @@ package Wisp is
    --  synchronize access to shared state. Exceptions raised inside a
    --  handler are discarded (they must not propagate into C).
 
-   procedure Register_Callback (Topic : String; Callback : not null Handler);
-   --  Register Callback for Topic.
+   type Origin is (Local, Mesh, Any);
+   for Origin use (Local => 1, Mesh => 2, Any => 3);
+   --  Where a message a callback wants may come from: published by a client
+   --  of the same broker, or carried in across a peer link. A bitmask in the
+   --  C ABI, so Any is the two together.
+
+   procedure Register_Callback
+     (Topic    : String;
+      Callback : not null Handler;
+      Scope    : Origin := Any);
+   --  Register Callback for Topic, triggered only by messages of the origins
+   --  in Scope.
+   --
+   --  Registrations on one topic may differ: the broker is asked for their
+   --  union and each callback is filtered on delivery, so a local-only
+   --  handler stays local-only beside a wildcard subscription that wants
+   --  everything. Against a broker predating scopes everything widens to
+   --  Any - an unrecognized subscription is widened, never dropped.
 
    procedure Unregister_Callback (Topic : String; Callback : not null Handler);
    --  Remove a registration made with Register_Callback. A handler already
