@@ -5,6 +5,7 @@ with Interfaces.C;         use Interfaces.C;
 with Interfaces.C.Strings; use Interfaces.C.Strings;
 
 with System;
+with System.Storage_Elements;
 
 with Wisp.C_API;
 
@@ -216,6 +217,153 @@ package body Wisp is
       end;
    end Send_Request;
 
+   ----------------------
+   -- Protobuf payloads --
+   ----------------------
+
+   procedure Send_Any (Topic : String; Type_Name : String; Value : String) is
+      C_Topic : chars_ptr := New_String (Topic);
+      C_Type  : chars_ptr := New_String (Type_Name);
+      Code    : constant int :=
+        C_API.Send_Any (C_Topic, C_Type, Value'Address, Value'Length);
+   begin
+      Free (C_Topic);
+      Free (C_Type);
+      Check (Code, "Send_Any");
+   end Send_Any;
+
+   procedure Send_Any_With_Reply
+     (Topic : String; Type_Name : String; Value : String; Reply_Topic : String)
+   is
+      C_Topic : chars_ptr := New_String (Topic);
+      C_Type  : chars_ptr := New_String (Type_Name);
+      C_Reply : chars_ptr := New_String (Reply_Topic);
+      Code    : constant int :=
+        C_API.Send_Any_With_Reply
+          (Topic       => C_Topic,
+           Type_Name   => C_Type,
+           Value       => Value'Address,
+           Len         => Value'Length,
+           Reply_Topic => C_Reply);
+   begin
+      Free (C_Topic);
+      Free (C_Type);
+      Free (C_Reply);
+      Check (Code, "Send_Any_With_Reply");
+   end Send_Any_With_Reply;
+
+   procedure Reply_To_Sender_Any (Type_Name : String; Value : String) is
+      C_Type : chars_ptr := New_String (Type_Name);
+      Code   : constant int :=
+        C_API.Reply_To_Sender_Any (C_Type, Value'Address, Value'Length);
+   begin
+      Free (C_Type);
+      Check (Code, "Reply_To_Sender_Any");
+   end Reply_To_Sender_Any;
+
+   function Send_Request_Any
+     (Topic        : String;
+      Type_Name    : String;
+      Value        : String;
+      Timeout_Ms   : Positive := 5_000;
+      Max_Response : Positive := 65_536) return String
+   is
+      type String_Ptr is access String;
+      procedure Free_Buffer is
+        new Ada.Unchecked_Deallocation (String, String_Ptr);
+
+      C_Topic : chars_ptr   := New_String (Topic);
+      C_Type  : chars_ptr   := New_String (Type_Name);
+      Buffer  : String_Ptr  := new String (1 .. Max_Response);
+      Out_Len : aliased int := 0;
+      Code    : constant int :=
+        C_API.Send_Request_Any
+          (Topic          => C_Topic,
+           Type_Name      => C_Type,
+           Value          => Value'Address,
+           Len            => Value'Length,
+           Out_Buffer     => Buffer.all'Address,
+           Out_Buffer_Cap => int (Max_Response),
+           Out_Len        => Out_Len'Access,
+           Timeout_Ms     => int (Timeout_Ms));
+   begin
+      Free (C_Topic);
+      Free (C_Type);
+
+      if Code /= C_API.SUCCESS then
+         Free_Buffer (Buffer);
+         Check (Code, "Send_Request_Any");
+      end if;
+
+      declare
+         Response : constant String := Buffer (1 .. Natural (Out_Len));
+      begin
+         Free_Buffer (Buffer);
+         return Response;
+      end;
+   end Send_Request_Any;
+
+   --  Locates the two Any fields inside Data. The C side returns addresses
+   --  into Data itself, so both are turned back into index ranges and the
+   --  callers below return slices of Data - no copy anywhere. On a payload
+   --  that is not packed, Found is False and the ranges are empty.
+   procedure Split_Any
+     (Data        : String;
+      Found       : out Boolean;
+      Type_First  : out Positive;
+      Type_Last   : out Natural;
+      Value_First : out Positive;
+      Value_Last  : out Natural)
+   is
+      use type System.Storage_Elements.Storage_Offset;
+
+      Name_At   : aliased System.Address := System.Null_Address;
+      Value_At  : aliased System.Address := System.Null_Address;
+      Name_Len  : aliased int            := 0;
+      Value_Len : aliased int            := 0;
+      Code      : constant int :=
+        C_API.Read_Any
+          (Payload       => Data'Address,
+           Len           => Data'Length,
+           Out_Type_Name => Name_At'Access,
+           Out_Type_Len  => Name_Len'Access,
+           Out_Value     => Value_At'Access,
+           Out_Value_Len => Value_Len'Access);
+   begin
+      Found       := Code = C_API.SUCCESS;
+      Type_First  := Data'First;
+      Type_Last   := Data'First - 1;
+      Value_First := Data'First;
+      Value_Last  := Data'First - 1;
+
+      if not Found then
+         return;
+      end if;
+
+      Type_First := Data'First + Natural (Name_At - Data'Address);
+      Type_Last  := Type_First + Natural (Name_Len) - 1;
+      Value_First := Data'First + Natural (Value_At - Data'Address);
+      Value_Last  := Value_First + Natural (Value_Len) - 1;
+   end Split_Any;
+
+   function Any_Type_Name (Data : String) return String is
+      Found                   : Boolean;
+      Type_First, Value_First : Positive;
+      Type_Last, Value_Last   : Natural;
+   begin
+      Split_Any (Data, Found, Type_First, Type_Last, Value_First, Value_Last);
+      return (if Found then Data (Type_First .. Type_Last) else "");
+   end Any_Type_Name;
+
+   function Any_Value (Data : String) return String is
+      Found                   : Boolean;
+      Type_First, Value_First : Positive;
+      Type_Last, Value_Last   : Natural;
+   begin
+      Split_Any (Data, Found, Type_First, Type_Last, Value_First, Value_Last);
+      return (if Found then Data (Value_First .. Value_Last) else "");
+   end Any_Value;
+
    --------------------------------------------------
    -- Register_Callback and Unregister_Callback --
    --------------------------------------------------
@@ -269,6 +417,72 @@ package body Wisp is
       C_API.Unregister_Callback (C_Topic, To_Address (Callback));
       Free (C_Topic);
    end Unregister_Callback;
+
+   --  Same scheme again for Any_Handler, with the envelope split before the
+   --  handler is called. A distinct access type means its registrations cannot
+   --  be confused with a plain Handler's, here or in the C ABI's User_Data.
+
+   function To_Any_Handler is
+     new Ada.Unchecked_Conversion (System.Address, Any_Handler);
+   function To_Any_Address is
+     new Ada.Unchecked_Conversion (Any_Handler, System.Address);
+
+   procedure Dispatch_Any
+     (Topic     : chars_ptr;
+      Data      : System.Address;
+      Len       : int;
+      User_Data : System.Address)
+     with Convention => C;
+   --  Trampoline the C library invokes on its worker thread.
+
+   procedure Dispatch_Any
+     (Topic     : chars_ptr;
+      Data      : System.Address;
+      Len       : int;
+      User_Data : System.Address)
+   is
+      Payload : String (1 .. Natural (Len))
+        with Import, Address => Data;
+
+      Found                   : Boolean;
+      Type_First, Value_First : Positive;
+      Type_Last, Value_Last   : Natural;
+   begin
+      Split_Any (Payload, Found, Type_First, Type_Last, Value_First, Value_Last);
+      if not Found then
+         return;  --  a raw payload is not this handler's business
+      end if;
+
+      To_Any_Handler (User_Data)
+        (Value (Topic),
+         Payload (Type_First .. Type_Last),
+         Payload (Value_First .. Value_Last));
+   exception
+      when others =>
+         null;  --  exceptions must not cross the C boundary
+   end Dispatch_Any;
+
+   procedure Register_Any_Callback
+     (Topic    : String;
+      Callback : not null Any_Handler;
+      Scope    : Origin := Any)
+   is
+      C_Topic : chars_ptr := New_String (Topic);
+   begin
+      C_API.Register_Callback_Scoped
+        (C_Topic, Dispatch_Any'Access, To_Any_Address (Callback),
+         int (Origin'Enum_Rep (Scope)));
+      Free (C_Topic);
+   end Register_Any_Callback;
+
+   procedure Unregister_Any_Callback
+     (Topic : String; Callback : not null Any_Handler)
+   is
+      C_Topic : chars_ptr := New_String (Topic);
+   begin
+      C_API.Unregister_Callback (C_Topic, To_Any_Address (Callback));
+      Free (C_Topic);
+   end Unregister_Any_Callback;
 
    -------------
    -- Logging --

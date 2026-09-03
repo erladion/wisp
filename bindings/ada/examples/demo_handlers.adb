@@ -9,6 +9,13 @@ package body Demo_Handlers is
       Put_Line ("[" & Topic & "] " & Data);
    end Print;
 
+   procedure Print_Any (Topic, Type_Name, Value : String) is
+   begin
+      Put_Line
+        ("[" & Topic & "] packed " & Type_Name & " ("
+         & Integer'Image (Value'Length) & " bytes)");
+   end Print_Any;
+
    procedure Echo (Topic : String; Data : String) is
       pragma Unreferenced (Topic);
    begin

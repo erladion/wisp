@@ -77,6 +77,58 @@ package Wisp is
    --  timeout, when offline, or if the response does not fit in
    --  Max_Response bytes (the message then names the required size).
 
+   --  Protobuf payloads --------------------------------------------------
+   --
+   --  A protobuf message travels packed in a google.protobuf.Any naming its
+   --  type, so a receiver can check what it has before parsing (PROTOCOL.md,
+   --  "Payload frame"). Ada has no protobuf implementation of its own: encode
+   --  the message with whatever codec you have - protobuf-c bound through
+   --  Interfaces.C is the usual answer, and the tree already generates C
+   --  bindings for its own types - and pass the bytes here with the full type
+   --  name, e.g. "broker.SystemStats". The envelope is written on the C side by
+   --  the same encoder the C++ client uses, so what a C++ subscriber receives
+   --  is byte for byte what a C++ publisher would have sent.
+   --
+   --  Send_Data with unframed bytes still works and stays supported. What it
+   --  gives up is the type check: a receiver cannot then tell a mismatch from a
+   --  valid message, and proto3 parsing is permissive enough to hand back a
+   --  plausible-looking wrong answer instead of failing.
+
+   procedure Send_Any (Topic : String; Type_Name : String; Value : String);
+   --  Publish Value on Topic, packed as Type_Name (fire and forget).
+
+   procedure Send_Any_With_Reply
+     (Topic : String; Type_Name : String; Value : String; Reply_Topic : String);
+   --  The non-blocking half of request/reply, packed; the Reply_Topic rules of
+   --  Send_Data_With_Reply apply unchanged.
+
+   procedure Reply_To_Sender_Any (Type_Name : String; Value : String);
+   --  Reply to the sender of the message being handled, packed; only
+   --  meaningful from inside a subscription handler.
+
+   function Send_Request_Any
+     (Topic        : String;
+      Type_Name    : String;
+      Value        : String;
+      Timeout_Ms   : Positive := 5_000;
+      Max_Response : Positive := 65_536) return String;
+   --  Send a packed request and block for the reply. The reply is returned as
+   --  it arrived - raw, since a responder picks its own encoding - so use
+   --  Any_Type_Name/Any_Value on it if you expect a packed answer. Raises
+   --  Wisp_Error on the same conditions as Send_Request.
+
+   function Any_Type_Name (Data : String) return String;
+   --  The protobuf type name a payload claims, e.g. "broker.SystemStats", or
+   --  "" when Data is not a packed payload at all (raw bytes, JSON, a bare
+   --  serialized message). Since a broker forwards both kinds untouched, this
+   --  is how a handler tells them apart.
+
+   function Any_Value (Data : String) return String;
+   --  The packed message inside Data, as a slice of Data itself - no copy.
+   --  Empty both for a payload that is not packed and for one wrapping a
+   --  message that serializes to nothing, so test Any_Type_Name to tell those
+   --  apart.
+
    type Handler is access procedure (Topic : String; Data : String);
    --  Must designate a library-level procedure. Handlers run on the
    --  library's worker thread, not on any Ada task: keep them short and
@@ -104,6 +156,26 @@ package Wisp is
 
    procedure Unregister_Callback (Topic : String; Callback : not null Handler);
    --  Remove a registration made with Register_Callback. A handler already
+   --  running when this returns may still complete its current message.
+
+   type Any_Handler is access procedure (Topic, Type_Name, Value : String);
+   --  Same rules as Handler: must designate a library-level procedure, runs on
+   --  the library's worker thread, exceptions raised inside are discarded.
+   --  Type_Name and Value are slices of the delivered payload and must not be
+   --  saved past the call - copy what you need.
+
+   procedure Register_Any_Callback
+     (Topic    : String;
+      Callback : not null Any_Handler;
+      Scope    : Origin := Any);
+   --  Register Callback for Topic, receiving the payload already split into its
+   --  protobuf type name and the packed message. Payloads on Topic that are not
+   --  packed never reach it; register a plain Handler as well if the topic
+   --  carries both. Scope filters by origin exactly as Register_Callback does.
+
+   procedure Unregister_Any_Callback
+     (Topic : String; Callback : not null Any_Handler);
+   --  Remove a registration made with Register_Any_Callback. A handler already
    --  running when this returns may still complete its current message.
 
    type Log_Level is (Debug, Info, Warning, Error);

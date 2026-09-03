@@ -126,6 +126,60 @@ package Wisp.C_API is
       Timeout_Ms     : int) return int
      with Import, Convention => C, External_Name => "sendRequest";
 
+   --  google.protobuf.Any payloads ---------------------------------------
+   --
+   --  Type_Name is the full protobuf name without the url prefix, e.g.
+   --  "broker.SystemStats". Value is the serialized message, produced by
+   --  whatever protobuf implementation the caller has; the envelope is written
+   --  by the C side, using the same encoder the C++ client uses.
+
+   function Send_Any
+     (Topic     : chars_ptr;
+      Type_Name : chars_ptr;
+      Value     : System.Address;
+      Len       : int) return int
+     with Import, Convention => C, External_Name => "sendAny";
+
+   function Send_Any_With_Reply
+     (Topic       : chars_ptr;
+      Type_Name   : chars_ptr;
+      Value       : System.Address;
+      Len         : int;
+      Reply_Topic : chars_ptr) return int
+     with Import, Convention => C, External_Name => "sendAnyWithReply";
+
+   function Reply_To_Sender_Any
+     (Type_Name : chars_ptr; Value : System.Address; Len : int) return int
+     with Import, Convention => C, External_Name => "replyToSenderAny";
+
+   --  Blocks for the reply, which comes back raw (a responder picks its own
+   --  encoding); run it through Read_Any to unpack a packed answer. Same
+   --  errors as Send_Request.
+   function Send_Request_Any
+     (Topic          : chars_ptr;
+      Type_Name      : chars_ptr;
+      Value          : System.Address;
+      Len            : int;
+      Out_Buffer     : System.Address;
+      Out_Buffer_Cap : int;
+      Out_Len        : access int;
+      Timeout_Ms     : int) return int
+     with Import, Convention => C, External_Name => "sendRequestAny";
+
+   --  On SUCCESS the two out addresses point into Payload itself (not
+   --  NUL-terminated; lengths returned separately) and stay valid as long as
+   --  it does. Both are inside the buffer even when a length is zero, so an
+   --  offset may always be computed from them. ERROR_INVALID_ARGS when the
+   --  bytes are not an Any - which is how a raw payload is recognized.
+   function Read_Any
+     (Payload       : System.Address;
+      Len           : int;
+      Out_Type_Name : access System.Address;
+      Out_Type_Len  : access int;
+      Out_Value     : access System.Address;
+      Out_Value_Len : access int) return int
+     with Import, Convention => C, External_Name => "readAny";
+
    --  User_Data is passed back to the callback and also identifies the
    --  registration for Unregister_Callback.
    procedure Register_Callback
