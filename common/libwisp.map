@@ -14,6 +14,11 @@
     replyToSender;
     sendRequest;
     sendDataWithReply;
+    sendAny;
+    sendRequestAny;
+    sendAnyWithReply;
+    replyToSenderAny;
+    readAny;
     makeReplyTopic;
     registerCallback;
     registerCallbackScoped;

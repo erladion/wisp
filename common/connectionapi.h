@@ -110,6 +110,58 @@ CONN_API int makeReplyTopic(const char* requestTopic, char* outBuffer, int outBu
 // not fit in outBufferCap (the reply is discarded; *outLen is set to the required capacity).
 CONN_API int sendRequest(const char* topic, const char* payload, int payloadLen, char* outBuffer, int outBufferCap, int* outLen, int timeoutMs);
 
+/* --- google.protobuf.Any payloads -------------------------------------------
+
+   The C++ client packs protobuf messages into a `google.protobuf.Any` before
+   publishing (see PROTOCOL.md, "Payload frame"), so a receiver can verify the
+   type before parsing and a viewer can name a payload it has never seen. These
+   entry points do the same for FFI callers: bring your own encoder (protobuf-c,
+   a generated Ada codec, anything), pass the serialized message and its type
+   name, and the envelope is written here - by the same code the C++ send path
+   uses, so the bytes are identical either way.
+
+   `typeName` is the full protobuf name without the url prefix, e.g.
+   "broker.SystemStats". Nothing on this side of the ABI knows about protobuf
+   beyond those two framing fields, so libwisp still links no protobuf a caller
+   could collide with.
+
+   The alternative is sendData with a raw payload, which stays supported: a
+   receiver's tryUnpack falls back to parsing unframed bytes. What it cannot do
+   then is tell a type mismatch from a valid message, and proto3 parsing is
+   permissive enough that the difference matters. */
+CONN_API int sendAny(const char* topic, const char* typeName, const char* value, int len);
+
+// The same, naming a reply topic; the reply-topic rules of sendDataWithReply
+// apply unchanged.
+CONN_API int sendAnyWithReply(const char* topic, const char* typeName, const char* value, int len,
+                              const char* replyTopic);
+
+// Reply to the sender of the message being handled with a packed payload; only
+// meaningful from inside a message callback.
+CONN_API int replyToSenderAny(const char* typeName, const char* value, int len);
+
+/* The blocking half: packs `value` the same way and then waits for the reply,
+   which is written to `outBuffer` exactly as sendRequest writes it - raw, since
+   a responder may answer with anything. Run it through readAny below to unpack
+   a packed answer. Every error of sendRequest applies unchanged. */
+CONN_API int sendRequestAny(const char* topic, const char* typeName, const char* value, int len, char* outBuffer,
+                            int outBufferCap, int* outLen, int timeoutMs);
+
+/* Reads the Any a payload frame carries: on SUCCESS `*outTypeName` and
+   `*outValue` point into `payload` itself (not NUL-terminated, lengths in
+   `*outTypeNameLen` / `*outValueLen`) and stay valid exactly as long as it
+   does. Nothing is allocated and there is nothing to free. Both pointers are
+   inside the buffer even when a length is zero - an Any whose message
+   serializes to nothing carries no value field at all - so a caller may always
+   compute an offset from them.
+
+   ERROR_INVALID_ARGS when the bytes are not an Any with a
+   "type.googleapis.com/" type url - which is also how a callback tells a packed
+   payload from a raw one, since a broker forwards both. Takes no connection and
+   may be called before initConnection. */
+CONN_API int readAny(const char* payload, int len, const char** outTypeName, int* outTypeNameLen,
+                     const char** outValue, int* outValueLen);
+
 // userData is passed back to the callback and also identifies the registration
 // for unregisterCallback.
 CONN_API void registerCallback(const char* topic, Message_Callback callback, void* userData);

@@ -65,6 +65,55 @@ TEST(AnyFrameTest, HandBuiltFrameIsWireIdenticalToARealAny) {
   EXPECT_EQ(decoded.SerializeAsString(), stats.SerializeAsString());
 }
 
+/* The same guarantee for the caller that has no protobuf at all: AnyFrame::pack
+   takes a type name and a blob, which is what the C ABI's sendAny hands it, and
+   must produce exactly the bytes protobuf would - and exactly the bytes a C++
+   publisher of that message produces. A C or Ada client cannot check this for
+   itself, so it is checked here. */
+TEST(AnyFrameTest, PackFramesForeignBytesTheWayProtobufWould) {
+  const broker::SystemStats stats = makeStats();
+
+  const std::string packed = AnyFrame::pack("broker.SystemStats", stats.SerializeAsString());
+
+  google::protobuf::Any reference;
+  reference.PackFrom(stats);
+  EXPECT_EQ(packed, reference.SerializeAsString());
+  EXPECT_EQ(packed, Detail::encodePayload(stats)) << "a payload packed from bytes differs from one packed from a message";
+
+  broker::SystemStats decoded;
+  ASSERT_TRUE(Detail::tryUnpack(packed, decoded));
+  EXPECT_EQ(decoded.SerializeAsString(), stats.SerializeAsString());
+}
+
+/* Both length prefixes are varints, so a field over 127 bytes is the first
+   thing that would expose a single-byte length assumption - and both fields go
+   through the same helper, so this gets them both wrong at once or neither. */
+TEST(AnyFrameTest, PackEncodesMultiByteLengths) {
+  const std::string longTypeName(200, 'n');
+  const std::string longValue(5000, 'v');
+
+  const std::string packed = AnyFrame::pack(longTypeName, longValue);
+
+  std::string_view value;
+  EXPECT_EQ(AnyFrame::typeNameOf(packed, value), longTypeName);
+  EXPECT_EQ(value, longValue);
+}
+
+// An empty message serializes to zero bytes, which is a payload like any other:
+// the frame still has to name its type.
+TEST(AnyFrameTest, PackHandlesAnEmptyValue) {
+  const std::string packed = AnyFrame::pack("broker.ClientInfo", "");
+
+  std::string_view value;
+  EXPECT_EQ(AnyFrame::typeNameOf(packed, value), "broker.ClientInfo");
+  EXPECT_TRUE(value.empty());
+
+  broker::ClientInfo decoded;
+  decoded.set_id("must be cleared");
+  ASSERT_TRUE(Detail::tryUnpack(packed, decoded));
+  EXPECT_EQ(decoded.id(), "");
+}
+
 // Every wire type the reader knows how to skip, exercised through one message.
 TEST(AnyFrameTest, ReaderAgreesWithProtobufAcrossWireTypes) {
   const broker::SystemStats stats = makeStats();

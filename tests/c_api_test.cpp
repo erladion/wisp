@@ -9,6 +9,10 @@
 
 #include "connectionapi.h"  // the C ABI under test
 
+#include <google/protobuf/any.pb.h>
+
+#include "broker.pb.h"
+#include "connectionmanager.h"  // Detail::encodePayload - what a C++ publisher sends
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "uuidhelper.h"
@@ -36,6 +40,12 @@ std::mutex g_payloadMutex;
 std::string g_lastPayload;
 std::atomic<int> g_logHits{0};
 
+// What readAny() made of the last delivered payload; guarded by g_payloadMutex.
+int g_anyReadRc = ERROR_GENERIC;
+std::string g_anyTypeName;
+std::string g_anyValue;
+bool g_anyViewsAliasTheCallbackBuffer = false;
+
 void recordMessage(const char* /*topic*/, const char* data, int len, void* /*userData*/) {
   {
     std::lock_guard<std::mutex> lock(g_payloadMutex);
@@ -50,6 +60,32 @@ void echoReply(const char* /*topic*/, const char* data, int len, void* /*userDat
   replyToSender(data, len);
 }
 
+/* Reads the Any envelope off a delivered payload the way an FFI caller would.
+   readAny hands back views into the very buffer the callback was given, so this
+   also records whether they really do point inside it - a binding that turns
+   them into slices (as the Ada one does) is only safe if they do. */
+void recordAny(const char* /*topic*/, const char* data, int len, void* /*userData*/) {
+  const char* typeName = nullptr;
+  const char* value = nullptr;
+  int typeNameLen = 0;
+  int valueLen = 0;
+  const int rc = readAny(data, len, &typeName, &typeNameLen, &value, &valueLen);
+  {
+    std::lock_guard<std::mutex> lock(g_payloadMutex);
+    g_anyReadRc = rc;
+    g_anyTypeName.clear();
+    g_anyValue.clear();
+    g_anyViewsAliasTheCallbackBuffer = false;
+    if (rc == SUCCESS) {
+      g_anyViewsAliasTheCallbackBuffer =
+          typeName >= data && typeName + typeNameLen <= data + len && value >= data && value + valueLen <= data + len;
+      g_anyTypeName.assign(typeName, static_cast<std::size_t>(typeNameLen));
+      g_anyValue.assign(value, static_cast<std::size_t>(valueLen));
+    }
+  }
+  g_messageHits.fetch_add(1);
+}
+
 void recordLog(int /*level*/, const char* /*message*/, void* /*userData*/) {
   g_logHits.fetch_add(1);
 }
@@ -62,6 +98,10 @@ protected:
     g_logHits = 0;
     std::lock_guard<std::mutex> lock(g_payloadMutex);
     g_lastPayload.clear();
+    g_anyReadRc = ERROR_GENERIC;
+    g_anyTypeName.clear();
+    g_anyValue.clear();
+    g_anyViewsAliasTheCallbackBuffer = false;
   }
 
   void TearDown() override {
@@ -267,10 +307,16 @@ TEST_F(CApiTest, SendRequestRoundTripAndErrors) {
   subscribe(responder, responderCfg.clientId, requestTopic);
 
   std::atomic<bool> keepResponding{true};
+  std::mutex seenMutex;
+  std::string lastRequestPayload;
   std::thread responderThread([&] {
     Envelope request;
     while (keepResponding.load()) {
       if (popWithTimeout(inbound, request, 100ms) && request.header.handler_key() == requestTopic) {
+        {
+          std::lock_guard<std::mutex> lock(seenMutex);
+          lastRequestPayload = request.payload;
+        }
         Envelope reply;
         reply.header.set_handler_key(request.header.reply_topic());
         reply.header.set_sender_id(responderCfg.clientId);
@@ -298,6 +344,22 @@ TEST_F(CApiTest, SendRequestRoundTripAndErrors) {
   ASSERT_EQ(rc, SUCCESS) << "sendRequest never completed a round trip";
   EXPECT_EQ(std::string(buf, static_cast<std::size_t>(outLen)), "pong");
 
+  /* sendRequestAny is sendRequest with the request payload framed: same reply
+     handling (raw bytes, because the responder picks its own encoding), same
+     errors. What is worth pinning is that the responder sees a real Any. */
+  broker::ClientInfo asked;
+  asked.set_id("blocking-request");
+  const std::string askedBody = asked.SerializeAsString();
+  int anyLen = 0;
+  ASSERT_EQ(sendRequestAny(requestTopic.c_str(), "broker.ClientInfo", askedBody.data(), static_cast<int>(askedBody.size()),
+                           buf, sizeof(buf), &anyLen, 2000),
+            SUCCESS);
+  EXPECT_EQ(std::string(buf, static_cast<std::size_t>(anyLen)), "pong");
+  {
+    std::lock_guard<std::mutex> lock(seenMutex);
+    EXPECT_EQ(lastRequestPayload, Detail::encodePayload(asked)) << "sendRequestAny did not frame the request payload";
+  }
+
   // Buffer too small: the reply is 4 bytes, the buffer holds 2; the call reports
   // the required capacity in outLen.
   char tiny[2];
@@ -316,6 +378,171 @@ TEST_F(CApiTest, SendRequestRoundTripAndErrors) {
 
   keepResponding = false;
   responderThread.join();
+  responder.stop();
+}
+
+/* The Any entry points reject bad arguments and fail cleanly with no connection,
+   like every other one. readAny is the exception that proves the rule: it needs
+   no connection at all, so it is fully exercised here. */
+TEST_F(CApiTest, AnyPayloadArgumentValidationAndNoConnection) {
+  EXPECT_EQ(sendAny(nullptr, "pkg.T", "v", 1), ERROR_INVALID_ARGS);
+  EXPECT_EQ(sendAny("t", nullptr, "v", 1), ERROR_INVALID_ARGS);
+  EXPECT_EQ(sendAny("t", "", "v", 1), ERROR_INVALID_ARGS) << "an empty type name would frame an unidentifiable payload";
+  EXPECT_EQ(sendAny("t", "pkg.T", nullptr, 1), ERROR_INVALID_ARGS);
+  EXPECT_EQ(sendAny("t", "pkg.T", "v", -1), ERROR_INVALID_ARGS);
+  EXPECT_EQ(sendAnyWithReply("t", "pkg.T", "v", 1, nullptr), ERROR_INVALID_ARGS);
+  EXPECT_EQ(replyToSenderAny(nullptr, "v", 1), ERROR_INVALID_ARGS);
+
+  char buf[8];
+  int outLen = 0;
+  EXPECT_EQ(sendRequestAny(nullptr, "pkg.T", "v", 1, buf, sizeof(buf), &outLen, 100), ERROR_INVALID_ARGS);
+  EXPECT_EQ(sendRequestAny("t", "", "v", 1, buf, sizeof(buf), &outLen, 100), ERROR_INVALID_ARGS);
+  EXPECT_EQ(sendRequestAny("t", "pkg.T", "v", 1, nullptr, sizeof(buf), &outLen, 100), ERROR_INVALID_ARGS);
+
+  EXPECT_EQ(sendAny("topic", "pkg.T", "v", 1), ERROR_NO_CONNECTION);
+  EXPECT_EQ(sendAnyWithReply("topic", "pkg.T", "v", 1, "reply"), ERROR_NO_CONNECTION);
+  EXPECT_EQ(replyToSenderAny("pkg.T", "v", 1), ERROR_NO_CONNECTION);
+  EXPECT_EQ(sendRequestAny("topic", "pkg.T", "v", 1, buf, sizeof(buf), &outLen, 100), ERROR_NO_CONNECTION);
+
+  const char* typeName = nullptr;
+  const char* value = nullptr;
+  int typeNameLen = 0;
+  int valueLen = 0;
+  EXPECT_EQ(readAny(nullptr, 1, &typeName, &typeNameLen, &value, &valueLen), ERROR_INVALID_ARGS);
+  EXPECT_EQ(readAny("x", -1, &typeName, &typeNameLen, &value, &valueLen), ERROR_INVALID_ARGS);
+  EXPECT_EQ(readAny("x", 1, nullptr, &typeNameLen, &value, &valueLen), ERROR_INVALID_ARGS);
+
+  // A raw payload is a legitimate thing to receive; readAny is how a caller
+  // tells one from a packed payload, so it must refuse rather than invent a
+  // type name. A bare protobuf message is the dangerous case: it parses.
+  broker::ClientInfo bare;
+  bare.set_id("not-packed");
+  const std::string bareBytes = bare.SerializeAsString();
+  EXPECT_EQ(readAny(bareBytes.data(), static_cast<int>(bareBytes.size()), &typeName, &typeNameLen, &value, &valueLen), ERROR_INVALID_ARGS);
+  EXPECT_EQ(typeName, nullptr) << "a refused read must not leave a stale pointer behind";
+  EXPECT_EQ(typeNameLen, 0);
+
+  /* An Any wrapping a message that serializes to nothing: protobuf omits the
+     value field entirely, so this is what a real empty payload looks like. It
+     is a packed payload like any other, and the pointers must still be inside
+     the buffer - a binding computes a slice offset from them. */
+  google::protobuf::Any emptyAny;
+  emptyAny.PackFrom(broker::ClientInfo());
+  const std::string emptyPacked = emptyAny.SerializeAsString();
+  ASSERT_EQ(readAny(emptyPacked.data(), static_cast<int>(emptyPacked.size()), &typeName, &typeNameLen, &value, &valueLen), SUCCESS);
+  EXPECT_EQ(std::string(typeName, static_cast<std::size_t>(typeNameLen)), "broker.ClientInfo");
+  EXPECT_EQ(valueLen, 0);
+  EXPECT_GE(value, emptyPacked.data()) << "an empty value came back as a pointer outside the payload";
+  EXPECT_LE(value, emptyPacked.data() + emptyPacked.size());
+
+  EXPECT_EQ(readAny("hello", 5, &typeName, &typeNameLen, &value, &valueLen), ERROR_INVALID_ARGS);
+  EXPECT_EQ(readAny("", 0, &typeName, &typeNameLen, &value, &valueLen), ERROR_INVALID_ARGS);
+
+  // And the packed case, which needs no broker either.
+  const std::string packed = Detail::encodePayload(bare);
+  ASSERT_EQ(readAny(packed.data(), static_cast<int>(packed.size()), &typeName, &typeNameLen, &value, &valueLen), SUCCESS);
+  EXPECT_EQ(std::string(typeName, static_cast<std::size_t>(typeNameLen)), "broker.ClientInfo");
+  broker::ClientInfo decoded;
+  ASSERT_TRUE(decoded.ParseFromArray(value, valueLen));
+  EXPECT_EQ(decoded.id(), "not-packed");
+}
+
+/* The point of the Any entry points: a client with no C++ and no protobuf of
+   its own can exchange typed messages with one that has both. Here the C ABI
+   plays that client in both directions - it publishes a packed payload a C++
+   reader unpacks, and reads one a C++ publisher packed - with the bytes on the
+   wire required to be identical to what a C++ sender would have produced.
+
+   The message is built with C++ protobuf because the test needs a reference to
+   compare against; a real caller would produce those same bytes with
+   protobuf-c or a generated Ada codec and hand them over the same way. */
+TEST_F(CApiTest, PackedPayloadsCrossTheAbiInBothDirections) {
+  startBroker();
+
+  const std::string requestTopic = "c-api-any-request";
+  const std::string replyTopic = requestTopic + "-reply";
+
+  broker::ClientInfo outbound;
+  outbound.set_id("from-the-c-abi");
+  outbound.add_subscriptions("telemetry");
+  outbound.set_dropped_messages(4);
+  const std::string outboundBody = outbound.SerializeAsString();
+
+  broker::ClientInfo answer;
+  answer.set_id("from-cpp");
+  answer.set_subscription_count(9);
+
+  // A raw responder standing in for a C++ client: it keeps what it is sent and
+  // answers with a payload packed the ordinary C++ way.
+  SafeQueue<Envelope> inbound;
+  ConnectionConfig responderCfg;
+  responderCfg.address = kBrokerAddress;
+  responderCfg.clientId = "c-api-any-responder";
+  ZmqWorker responder(responderCfg, &inbound, nullptr);
+  responder.start();
+  completeHandshake(responder, responderCfg.clientId);
+  subscribe(responder, responderCfg.clientId, requestTopic);
+
+  Connection_Config cfg = CONNECTION_CONFIG_DEFAULT;
+  cfg.address = kBrokerAddress.c_str();
+  cfg.client_id = "c-api-any-client";
+  ASSERT_EQ(initConnection(&cfg), SUCCESS);
+  ASSERT_EQ(waitForConnection(3000), SUCCESS);
+  registerCallback(replyTopic.c_str(), recordAny, nullptr);
+
+  // C -> C++. Retried past the subscription race, as the other round trips here are.
+  Envelope request;
+  bool arrived = false;
+  for (int attempt = 0; attempt < 30 && !arrived; ++attempt) {
+    ASSERT_EQ(sendAnyWithReply(requestTopic.c_str(), "broker.ClientInfo", outboundBody.data(),
+                               static_cast<int>(outboundBody.size()), replyTopic.c_str()),
+              SUCCESS);
+    while (popWithTimeout(inbound, request, 100ms)) {
+      if (request.header.handler_key() == requestTopic) {
+        arrived = true;
+        break;
+      }
+    }
+  }
+  ASSERT_TRUE(arrived) << "a payload published through sendAnyWithReply never reached the subscriber";
+
+  EXPECT_EQ(request.payload, Detail::encodePayload(outbound))
+      << "sendAny framed the payload differently than a C++ publisher of the same message would";
+  broker::ClientInfo received;
+  ASSERT_TRUE(Detail::tryUnpack(request.payload, received)) << "a C++ reader could not unpack what the C ABI published";
+  EXPECT_EQ(received.id(), "from-the-c-abi");
+  EXPECT_EQ(received.dropped_messages(), 4u);
+
+  // A reader that asked for the wrong type must be refused rather than handed a
+  // permissively-parsed message - the whole reason the envelope is there.
+  broker::SystemStats wrongType;
+  EXPECT_FALSE(Detail::tryUnpack(request.payload, wrongType));
+
+  // C++ -> C, answering on the reply topic the request named.
+  ASSERT_FALSE(request.header.reply_topic().empty()) << "sendAnyWithReply did not stamp a reply topic";
+  for (int attempt = 0; attempt < 30 && g_messageHits.load() == 0; ++attempt) {
+    Envelope reply;
+    reply.header.set_handler_key(request.header.reply_topic());
+    reply.header.set_sender_id(responderCfg.clientId);
+    reply.header.set_topic(request.header.reply_topic());
+    reply.payload = Detail::encodePayload(answer);
+    responder.writeMessage(reply);
+    std::this_thread::sleep_for(100ms);
+  }
+  ASSERT_GT(g_messageHits.load(), 0) << "the packed reply never reached the C callback";
+
+  {
+    std::lock_guard<std::mutex> lock(g_payloadMutex);
+    EXPECT_EQ(g_anyReadRc, SUCCESS);
+    EXPECT_TRUE(g_anyViewsAliasTheCallbackBuffer) << "readAny handed back pointers outside the buffer it was given";
+    EXPECT_EQ(g_anyTypeName, "broker.ClientInfo");
+    broker::ClientInfo fromCpp;
+    ASSERT_TRUE(fromCpp.ParseFromString(g_anyValue));
+    EXPECT_EQ(fromCpp.id(), "from-cpp");
+    EXPECT_EQ(fromCpp.subscription_count(), 9u);
+  }
+
+  unregisterCallback(replyTopic.c_str(), nullptr);
   responder.stop();
 }
 

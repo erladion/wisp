@@ -1,10 +1,12 @@
 #include "connectionapi.h"
+#include "anyframe.h"
 #include "beacon.h"
 #include "connectionmanager.h"
 #include "logger.h"
 
 #include <cstring>
 #include <string>
+#include <string_view>
 
 using namespace Wisp;
 
@@ -188,6 +190,117 @@ int replyToSender(const char* data, int len) {
     }
     return ok();
   });
+}
+
+// --- google.protobuf.Any payloads -------------------------------------------
+//
+// The framing is AnyFrame's, the same code the C++ templates encode through, so
+// there is one Any encoder in the tree rather than one per language binding.
+
+namespace {
+
+// Shared by the three send-side entry points: they differ only in what they do
+// with the framed bytes.
+bool validAnyArgs(const char* typeName, const char* value, int len) {
+  return typeName && typeName[0] != '\0' && value && len >= 0;
+}
+
+std::string packAny(const char* typeName, const char* value, int len) {
+  return AnyFrame::pack(typeName, std::string_view(value, static_cast<std::size_t>(len)));
+}
+
+}  // namespace
+
+int sendAny(const char* topic, const char* typeName, const char* value, int len) {
+  if (!topic || !validAnyArgs(typeName, value, len)) {
+    return fail(ERROR_INVALID_ARGS, "topic, typeName and value must be non-null, typeName non-empty and len >= 0");
+  }
+
+  return guard([&] {
+    const std::string frame = packAny(typeName, value, len);
+    if (!ConnectionManager::sendDataRaw(topic, frame.data(), static_cast<int>(frame.size()))) {
+      return fail(ERROR_NO_CONNECTION, "no active connection");
+    }
+    return ok();
+  });
+}
+
+int sendAnyWithReply(const char* topic, const char* typeName, const char* value, int len, const char* replyTopic) {
+  if (!topic || !replyTopic || !validAnyArgs(typeName, value, len)) {
+    return fail(ERROR_INVALID_ARGS,
+                "topic, typeName, value and replyTopic must be non-null, typeName non-empty and len >= 0");
+  }
+
+  return guard([&] {
+    // Same division of labour as sendDataWithReply: the reply-topic rules are
+    // enforced (and logged) by the C++ side rather than restated here.
+    if (!ConnectionManager::sendMessage(topic, packAny(typeName, value, len), replyTopic)) {
+      if (!ConnectionManager::isInitialized()) {
+        return fail(ERROR_NO_CONNECTION, "no active connection");
+      }
+      return fail(ERROR_INVALID_ARGS, "reply topic must be 1-512 bytes and outside the reserved __KEY__ namespace");
+    }
+    return ok();
+  });
+}
+
+int replyToSenderAny(const char* typeName, const char* value, int len) {
+  if (!validAnyArgs(typeName, value, len)) {
+    return fail(ERROR_INVALID_ARGS, "typeName and value must be non-null, typeName non-empty and len >= 0");
+  }
+
+  return guard([&] {
+    if (!ConnectionManager::replyToSender(packAny(typeName, value, len))) {
+      return fail(ERROR_NO_CONNECTION, "no active connection (or not inside a request handler)");
+    }
+    return ok();
+  });
+}
+
+int readAny(const char* payload, int len, const char** outTypeName, int* outTypeNameLen, const char** outValue,
+            int* outValueLen) {
+  if (!payload || len < 0 || !outTypeName || !outTypeNameLen || !outValue || !outValueLen) {
+    return fail(ERROR_INVALID_ARGS, "payload and every out parameter must be non-null and len >= 0");
+  }
+
+  return guard([&] {
+    std::string_view value;
+    const std::string_view typeName =
+        AnyFrame::typeNameOf(std::string_view(payload, static_cast<std::size_t>(len)), value);
+    if (typeName.empty()) {
+      // Not a failure of the caller's: a raw payload is a legitimate thing to
+      // receive, and this is how one is recognized.
+      *outTypeName = nullptr;
+      *outTypeNameLen = 0;
+      *outValue = nullptr;
+      *outValueLen = 0;
+      return fail(ERROR_INVALID_ARGS, "payload is not a google.protobuf.Any");
+    }
+    // Views into `payload`; the caller owns the buffer and outlives the call.
+    // An Any wrapping a message that serializes to nothing carries no value
+    // field at all - protobuf omits it - and the view over it is then empty
+    // *and* null. Point it at the buffer instead: a binding that turns these
+    // into a slice (Ada) or a subslice (Rust) computes an offset from them, and
+    // an offset from null is not something a caller can defend against.
+    *outTypeName = typeName.data();
+    *outTypeNameLen = static_cast<int>(typeName.size());
+    *outValue = value.data() ? value.data() : payload;
+    *outValueLen = static_cast<int>(value.size());
+    return ok();
+  });
+}
+
+int sendRequestAny(const char* topic, const char* typeName, const char* value, int len, char* outBuffer, int outBufferCap,
+                   int* outLen, int timeoutMs) {
+  if (!topic || !outBuffer || !outLen || outBufferCap < 0 || !validAnyArgs(typeName, value, len)) {
+    return fail(ERROR_INVALID_ARGS,
+                "topic, typeName, value, outBuffer and outLen must be non-null, typeName non-empty and lengths >= 0");
+  }
+
+  // Only the request payload is framed here; the reply is handed back as it
+  // arrived, because the responder chooses its own encoding.
+  const std::string frame = packAny(typeName, value, len);
+  return sendRequest(topic, frame.data(), static_cast<int>(frame.size()), outBuffer, outBufferCap, outLen, timeoutMs);
 }
 
 int sendRequest(const char* topic, const char* payload, int payloadLen, char* outBuffer, int outBufferCap, int* outLen, int timeoutMs) {

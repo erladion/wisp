@@ -108,21 +108,12 @@ namespace Detail {
 // Kept as the name the encoding paths below read; AnyFrame owns the value.
 inline constexpr std::string_view ANY_TYPE_URL_PREFIX = AnyFrame::TYPE_URL_PREFIX;
 
-// Appends one length-delimited protobuf field (tag byte + varint length +
-// bytes) - the only encoding a google.protobuf.Any frame needs.
+// Both halves of the Any framing are public API in <anyframe.h>; these are the
+// spellings the templates below (and their tests) were written against.
 inline void appendLengthDelimited(std::string& out, char tag, std::string_view bytes) {
-  out += tag;
-  std::uint64_t n = bytes.size();
-  while (n >= 0x80) {
-    out += static_cast<char>((n & 0x7f) | 0x80);
-    n >>= 7;
-  }
-  out += static_cast<char>(n);
-  out.append(bytes.data(), bytes.size());
+  AnyFrame::appendLengthDelimited(out, tag, bytes);
 }
 
-// The decoding half is public API; this is the spelling the templates below
-// were written against.
 inline bool readAnyFrame(std::string_view raw, std::string_view& typeUrl, std::string_view& valueBytes) {
   return AnyFrame::read(raw, typeUrl, valueBytes);
 }
@@ -161,15 +152,9 @@ std::string encodePayload(const T& value) {
   } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
     // Packed into an Any so the bytes stay self-describing: the broker forwards
     // them opaquely, and the receiver's tryUnpack() can recover the type. The
-    // frame is assembled by hand - PackFrom + SerializeAsString would serialize
-    // the payload and then copy it wholesale into the wrapper. Wire-identical
-    // to a real Any.
-    const std::string body = value.SerializeAsString();
-    std::string out;
-    out.reserve(ANY_TYPE_URL_PREFIX.size() + value.GetTypeName().size() + body.size() + 16);
-    appendLengthDelimited(out, '\x0a', std::string(ANY_TYPE_URL_PREFIX) + std::string(value.GetTypeName()));  // Any.type_url
-    appendLengthDelimited(out, '\x12', body);                                                              // Any.value
-    return out;
+    // same encoder the C ABI's sendAny uses, so a payload published from C or
+    // Ada is byte-identical to one published from here.
+    return AnyFrame::pack(value.GetTypeName(), value.SerializeAsString());
   } else if constexpr (std::is_same<T, std::string>::value) {
     return value;
   } else if constexpr (std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value) {

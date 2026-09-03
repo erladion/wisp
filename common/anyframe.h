@@ -3,12 +3,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace Wisp {
 
-/* Reading the `google.protobuf.Any` a payload frame carries, without knowing
-   the type it holds.
+/* Reading and writing the `google.protobuf.Any` a payload frame carries,
+   without knowing the type it holds.
 
    This is supported API, not an internal helper. The Any framing is already
    part of the wire contract (see PROTOCOL.md, "Payload frame"): a protobuf
@@ -17,11 +18,13 @@ namespace Wisp {
    serves the case where the type is known at compile time; this serves the case
    where it is not - a viewer, a router, a recorder, anything that has to decide
    what a payload is at runtime. Wisp's own inspector and wisp-cli are built on
-   it.
+   the reading half, and every send path in the tree - the C++ templates and the
+   C ABI's sendAny - packs through the writing half, so there is one encoder to
+   keep correct rather than one per caller.
 
-   Deliberately free of any protobuf dependency: it reads the two fields it
-   needs directly off the bytes, so a tool that only wants to identify payloads
-   pays for nothing else. */
+   Deliberately free of any protobuf dependency: it reads and writes the two
+   fields directly off the bytes, so a caller that only wants to identify or
+   frame payloads pays for nothing else. */
 namespace AnyFrame {
 
 // The type url prefix protobuf writes, and everything here expects.
@@ -115,6 +118,39 @@ inline std::string_view typeNameOf(std::string_view payload, std::string_view& o
   }
   outValue = value;
   return typeUrl.substr(TYPE_URL_PREFIX.size());
+}
+
+/* Appends one length-delimited protobuf field (tag byte + varint length +
+   bytes) - the only encoding an Any frame needs. */
+inline void appendLengthDelimited(std::string& out, char tag, std::string_view bytes) {
+  out += tag;
+  std::uint64_t n = bytes.size();
+  while (n >= 0x80) {
+    out += static_cast<char>((n & 0x7f) | 0x80);
+    n >>= 7;
+  }
+  out += static_cast<char>(n);
+  out.append(bytes.data(), bytes.size());
+}
+
+/* The serialized `google.protobuf.Any` carrying `value` under `typeName` - the
+   full protobuf type name without the url prefix, e.g. "broker.SystemStats".
+
+   Assembled by hand rather than through a real Any: PackFrom + SerializeAsString
+   would serialize the payload and then copy it wholesale into the wrapper, and
+   this way the caller need not have a protobuf library at all - the C ABI's
+   sendAny hands over bytes some other implementation produced. Wire-identical
+   either way, which any_frame_test pins against real protobuf. */
+inline std::string pack(std::string_view typeName, std::string_view value) {
+  std::string out;
+  out.reserve(TYPE_URL_PREFIX.size() + typeName.size() + value.size() + 16);
+  std::string typeUrl;
+  typeUrl.reserve(TYPE_URL_PREFIX.size() + typeName.size());
+  typeUrl.append(TYPE_URL_PREFIX.data(), TYPE_URL_PREFIX.size());
+  typeUrl.append(typeName.data(), typeName.size());
+  appendLengthDelimited(out, '\x0a', typeUrl);  // Any.type_url
+  appendLengthDelimited(out, '\x12', value);    // Any.value
+  return out;
 }
 
 }  // namespace AnyFrame
