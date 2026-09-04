@@ -19,6 +19,7 @@ target_link_libraries(wisp-inspector PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
     WispCore
     zmq
+    wisp_cppzmq
     ${WISP_PROTOBUF_LOG_LIBS}
 )
 target_compile_definitions(wisp-inspector PRIVATE ${WISP_PROTOBUF_LOG_DEFS})

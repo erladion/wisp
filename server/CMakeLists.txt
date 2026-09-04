@@ -16,7 +16,7 @@ add_library(WispBrokerObjects OBJECT
 )
 set_target_properties(WispBrokerObjects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(WispBrokerObjects PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(WispBrokerObjects PUBLIC WispCore zmq)
+target_link_libraries(WispBrokerObjects PUBLIC WispCore zmq wisp_cppzmq)
 
 add_library(WispBroker STATIC $<TARGET_OBJECTS:WispBrokerObjects>)
 add_library(WispBrokerShared SHARED $<TARGET_OBJECTS:WispBrokerObjects>)
@@ -27,7 +27,10 @@ foreach (brokerLib WispBroker WispBrokerShared)
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/wisp>
     )
-    target_link_libraries(${brokerLib} PUBLIC zmq)
+    # PUBLIC, unlike the client library: broker.h holds a zmq::context_t and
+    # includes zmqworker.h, so anyone embedding a broker does compile against
+    # zmq.hpp and must be able to find it.
+    target_link_libraries(${brokerLib} PUBLIC zmq wisp_cppzmq)
 endforeach()
 
 # Each linkage stays within its own world: the static broker pairs with the

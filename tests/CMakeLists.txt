@@ -73,6 +73,7 @@ target_link_libraries(broker_tests PRIVATE
   WispCliObjects
   WispCore
   zmq
+  wisp_cppzmq
 )
 
 if (TARGET WispCoreC)
@@ -109,7 +110,7 @@ add_library(WispSimulation STATIC
   sim/simulation.cpp
 )
 target_include_directories(WispSimulation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sim)
-target_link_libraries(WispSimulation PUBLIC WispBroker WispCore zmq)
+target_link_libraries(WispSimulation PUBLIC WispBroker WispCore zmq wisp_cppzmq)
 
 # A few fixed seeds, sized to run on every build. The soak runner below is where
 # a wide search belongs.
@@ -137,4 +138,5 @@ target_link_libraries(throughput_bench PRIVATE
   WispPolling
   WispCore
   zmq
+  wisp_cppzmq
 )

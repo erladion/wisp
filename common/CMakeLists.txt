@@ -53,6 +53,15 @@ set(WISP_PUBLIC_HEADERS
     safequeue.h
     wireframe.h
     workerinterface.h
+)
+
+# The ZMQ-facing headers, installed but deliberately not part of the client
+# library's surface above - nothing reachable from <wisp/connectionmanager.h>
+# includes them, so a consumer of Wisp::Core never compiles against zmq.hpp.
+# They ship because Wisp::Broker needs them: broker.h includes zmqworker.h and
+# exposes a zmq::context_t of its own, and anything driving a raw ZmqWorker
+# wants the same pair.
+set(WISP_TRANSPORT_HEADERS
     zmqframes.h
     zmqworker.h
 )
@@ -103,13 +112,19 @@ foreach (wispLib WispCore WispCoreShared)
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/wisp>
     )
-    # wisp_cppzmq is PUBLIC so the vendored zmq.hpp reaches everything that
-    # includes zmqframes.h or zmqworker.h through this library (broker,
-    # inspector, tests). wireframe.h alone no longer needs it.
-    target_link_libraries(${wispLib} PUBLIC
-        zmq
-        wisp_cppzmq
-        protobuf::libprotobuf
+    # PRIVATE: none of the public headers above mention zmq, so a consumer of
+    # this library must not be made to find zmq.hpp. Linking still works - for
+    # a static library CMake keeps the dependency on the interface as
+    # $<LINK_ONLY:>, so -lzmq still reaches the final link, just without the
+    # include directories. Targets that do include zmqframes.h, zmqworker.h or
+    # broker.h ask for wisp_cppzmq themselves (server/, cli/, inspector/,
+    # tests/). protobuf stays PUBLIC: connectionmanager.h includes it.
+    target_link_libraries(${wispLib}
+        PRIVATE
+            zmq
+            wisp_cppzmq
+        PUBLIC
+            protobuf::libprotobuf
     )
 endforeach()
 
@@ -134,6 +149,7 @@ install(TARGETS WispCore WispCoreShared
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 install(FILES ${WISP_PUBLIC_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
+install(FILES ${WISP_TRANSPORT_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
 # Generated (or committed, when protoc is absent), so it is not in the list above.
 install(FILES ${PROTO_GENERATED_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
 

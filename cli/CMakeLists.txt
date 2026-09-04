@@ -17,7 +17,8 @@ add_library(WispCliObjects OBJECT
   recording.cpp
 )
 target_include_directories(WispCliObjects PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(WispCliObjects PUBLIC WispCore zmq)
+# wisp_cppzmq: brokersession.h drives a ZmqWorker directly.
+target_link_libraries(WispCliObjects PUBLIC WispCore zmq wisp_cppzmq)
 
 add_executable(wisp-cli
   main.cpp
@@ -32,6 +33,7 @@ target_link_libraries(wisp-cli PRIVATE
     WispCliObjects
     WispCore
     zmq
+    wisp_cppzmq
     ${WISP_PROTOBUF_LOG_LIBS}
 )
 target_compile_definitions(wisp-cli PRIVATE ${WISP_PROTOBUF_LOG_DEFS})
