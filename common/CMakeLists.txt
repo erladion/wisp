@@ -53,6 +53,7 @@ set(WISP_PUBLIC_HEADERS
     safequeue.h
     wireframe.h
     workerinterface.h
+    zmqframes.h
     zmqworker.h
 )
 
@@ -75,6 +76,7 @@ add_library(WispObjects OBJECT
     config.h
     uuidhelper.h
     wireframe.h
+    zmqframes.h
 )
 
 # PIC so these objects can be folded into the shared libraries below.
@@ -102,7 +104,8 @@ foreach (wispLib WispCore WispCoreShared)
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/wisp>
     )
     # wisp_cppzmq is PUBLIC so the vendored zmq.hpp reaches everything that
-    # includes wireframe.h through this library (broker, inspector, tests).
+    # includes zmqframes.h or zmqworker.h through this library (broker,
+    # inspector, tests). wireframe.h alone no longer needs it.
     target_link_libraries(${wispLib} PUBLIC
         zmq
         wisp_cppzmq

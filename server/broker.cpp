@@ -5,6 +5,7 @@
 #include "messagekeys.h"
 #include "uuidhelper.h"
 #include "wireframe.h"
+#include "zmqframes.h"
 
 #include <sys/socket.h>
 #include <sys/un.h>

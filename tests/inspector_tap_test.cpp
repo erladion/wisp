@@ -6,6 +6,7 @@
 #include <thread>
 
 #include "wireframe.h"
+#include "zmqframes.h"
 #include "broker.h"
 #include "zmqworker.h"
 

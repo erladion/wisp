@@ -3,6 +3,7 @@
 #include "logger.h"
 #include "messagekeys.h"
 #include "wireframe.h"
+#include "zmqframes.h"
 
 #include <deque>
 

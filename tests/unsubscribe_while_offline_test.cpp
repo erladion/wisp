@@ -12,6 +12,7 @@
 #include "connectionmanager.h"
 #include "messagekeys.h"
 #include "wireframe.h"
+#include "zmqframes.h"
 
 #include "support/test_helpers.h"
 

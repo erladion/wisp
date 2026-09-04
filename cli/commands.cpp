@@ -27,6 +27,7 @@
 #include "recording.h"
 #include "uuidhelper.h"
 #include "wireframe.h"
+#include "zmqframes.h"
 
 using namespace Wisp;
 

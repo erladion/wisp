@@ -115,7 +115,7 @@ if (WISP_USE_SYSTEM_CPPZMQ)
     message(STATUS "cppzmq: using the system headers")
 else()
     # Installed alongside the wisp headers so an out-of-tree consumer compiles
-    # wireframe.h against the same cppzmq this build used, rather than whatever
+    # zmqframes.h against the same cppzmq this build used, rather than whatever
     # the machine happens to ship.
     target_include_directories(wisp_cppzmq INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/cppzmq>

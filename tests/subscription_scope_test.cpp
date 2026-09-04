@@ -17,6 +17,7 @@
 #include "safequeue.h"
 #include "uuidhelper.h"
 #include "wireframe.h"
+#include "zmqframes.h"
 #include "zmqworker.h"
 
 #include "support/test_helpers.h"

@@ -5,6 +5,7 @@
 #include "config.h"
 #include "logger.h"
 #include "wireframe.h"
+#include "zmqframes.h"
 
 using namespace Wisp;
 

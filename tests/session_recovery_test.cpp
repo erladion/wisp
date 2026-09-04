@@ -8,6 +8,7 @@
 #include "messagekeys.h"
 #include "safequeue.h"
 #include "wireframe.h"
+#include "zmqframes.h"
 #include "broker.h"
 #include "zmqworker.h"
 
