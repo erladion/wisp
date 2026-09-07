@@ -6,6 +6,8 @@
 
 #include "beacon.h"
 #include "logger.h"
+#include "wireframe.h"
+#include "workerinterface.h"
 #include "messagekeys.h"
 #include "uuidhelper.h"
 #include "zmqworker.h"
@@ -205,7 +207,7 @@ bool ConnectionManager::sendRequest(const std::string& requestTopic, const std::
 }
 
 ConnectionManager::ConnectionManager(const ConnectionConfig& config)
-    : m_clientId(config.clientId), m_running(true), m_connected(false), m_scopedHandlers(0) {
+    : m_clientId(config.clientId), m_queue(std::make_unique<SafeQueue<Envelope>>()), m_running(true), m_connected(false), m_scopedHandlers(0) {
   // ZeroMQ rejects a routing id outside 1-255 bytes, and the worker thread
   // has no way to recover from that - correct the id here instead.
   if (m_clientId.empty()) {
@@ -241,7 +243,7 @@ ConnectionManager::ConnectionManager(const ConnectionConfig& config)
   if (config.protocol == ProtocolType::Zmq) {
     ConnectionConfig workerConfig = config;
     workerConfig.clientId = m_clientId;
-    m_pWorker = std::make_unique<ZmqWorker>(workerConfig, &m_queue, statusHandler);
+    m_pWorker = std::make_unique<ZmqWorker>(workerConfig, m_queue.get(), statusHandler);
   }
 
   if (m_pWorker) {
@@ -259,7 +261,7 @@ ConnectionManager::~ConnectionManager() {
 // an instance that was never shut down.
 void ConnectionManager::teardown() {
   m_running = false;
-  m_queue.stop();
+  m_queue->stop();
 
   if (m_processingThread.joinable()) {
     m_processingThread.join();
@@ -395,12 +397,16 @@ bool ConnectionManager::sendDataInternal(const std::string& key, const std::stri
 }
 
 bool ConnectionManager::replyToSender(const std::string& data) {
+  return replyToSenderEncoded(Detail::encodePayload(data));
+}
+
+bool ConnectionManager::replyToSenderEncoded(std::string payload) {
   std::shared_ptr<ConnectionManager> self = getInstance();
   if (self == nullptr) {
     return false;
   }
   Envelope reply;
-  reply.payload = Detail::encodePayload(data);
+  reply.payload = std::move(payload);
   return self->sendReplyEnvelope(std::move(reply));
 }
 
@@ -429,7 +435,7 @@ void ConnectionManager::processingLoop() {
 
   Envelope env;
   std::deque<Envelope> batch;
-  while (m_queue.pop(env)) {
+  while (m_queue->pop(env)) {
     if (!m_running) {
       break;
     }
@@ -437,7 +443,7 @@ void ConnectionManager::processingLoop() {
 
     // Everything that queued up while handling drains in one lock
     // acquisition instead of a condition-variable wakeup per message.
-    m_queue.drainTo(batch);
+    m_queue->drainTo(batch);
     for (const Envelope& queued : batch) {
       if (!m_running) {
         break;

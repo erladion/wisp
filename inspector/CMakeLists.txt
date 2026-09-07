@@ -20,6 +20,7 @@ target_link_libraries(wisp-inspector PRIVATE
     WispCore
     zmq
     wisp_cppzmq
+    protobuf::libprotobuf
     ${WISP_PROTOBUF_LOG_LIBS}
 )
 target_compile_definitions(wisp-inspector PRIVATE ${WISP_PROTOBUF_LOG_DEFS})

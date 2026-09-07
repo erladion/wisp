@@ -74,6 +74,7 @@ target_link_libraries(broker_tests PRIVATE
   WispCore
   zmq
   wisp_cppzmq
+  protobuf::libprotobuf
 )
 
 if (TARGET WispCoreC)
@@ -99,6 +100,8 @@ if (TARGET QtConnectionAdapter)
     WispBroker
     WispCore
     zmq
+    wisp_cppzmq
+    protobuf::libprotobuf
   )
   gtest_discover_tests(qt_adapter_test)
 endif()
@@ -110,7 +113,7 @@ add_library(WispSimulation STATIC
   sim/simulation.cpp
 )
 target_include_directories(WispSimulation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sim)
-target_link_libraries(WispSimulation PUBLIC WispBroker WispCore zmq wisp_cppzmq)
+target_link_libraries(WispSimulation PUBLIC WispBroker WispCore zmq wisp_cppzmq protobuf::libprotobuf)
 
 # A few fixed seeds, sized to run on every build. The soak runner below is where
 # a wide search belongs.
@@ -139,4 +142,5 @@ target_link_libraries(throughput_bench PRIVATE
   WispCore
   zmq
   wisp_cppzmq
+  protobuf::libprotobuf
 )

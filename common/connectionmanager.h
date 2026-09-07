@@ -1,9 +1,6 @@
 #ifndef CONNECTIONMANAGER_H
 #define CONNECTIONMANAGER_H
 
-#include <google/protobuf/any.pb.h>
-#include <google/protobuf/message.h>
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -26,10 +23,21 @@
 #include "logger.h"
 #include "messagekeys.h"
 #include "safequeue.h"
-#include "wireframe.h"
-#include "workerinterface.h"
 
 namespace Wisp {
+
+/* Forward declared rather than included: Envelope carries a
+   broker::MessageHeader and WorkerInterface is spelled in terms of it, so
+   including either would put <broker.pb.h> - and through it most of protobuf -
+   in front of every translation unit that touches this header, whether or not
+   it ever sends a protobuf message. Both are complete in connectionmanager.cpp,
+   which is the only place this class touches an envelope; the templated API
+   below deals in encoded bytes.
+
+   Keep it that way. <wireframe.h> and <workerinterface.h> are still there for
+   code that needs the framing itself - the broker, the worker, the CLI. */
+struct Envelope;
+class WorkerInterface;
 
 using MessageCallback = std::function<void(const std::string&)>;
 
@@ -123,6 +131,22 @@ inline void appendLengthDelimited(std::string& out, char tag, std::string_view b
 
 // The decoding half is public API; this is the spelling the templates below
 // were written against.
+/* True for a type that speaks protobuf's message API.
+
+   Detected by the members encodePayload and tryUnpack below actually call,
+   rather than by deriving from google::protobuf::Message - which is the whole
+   of why this header used to include <google/protobuf/message.h>. Slightly more
+   permissive than the base-class test it replaces: a type carrying all four of
+   these members and no relation to protobuf would now be encoded as one, rather
+   than reaching the static_assert. Nothing outside protobuf carries that set. */
+template <typename T, typename = void>
+struct IsProtobufMessage : std::false_type {};
+
+template <typename T>
+struct IsProtobufMessage<T, std::void_t<decltype(std::declval<const T&>().SerializeAsString()), decltype(std::declval<const T&>().GetTypeName()),
+                                        decltype(std::declval<T&>().ParseFromArray(nullptr, 0)), decltype(std::declval<T&>().Clear())>>
+    : std::true_type {};
+
 inline bool readAnyFrame(std::string_view raw, std::string_view& typeUrl, std::string_view& valueBytes) {
   return AnyFrame::read(raw, typeUrl, valueBytes);
 }
@@ -158,7 +182,7 @@ template <typename T>
 std::string encodePayload(const T& value) {
   if constexpr (DataSerializer<T>::is_specialized) {
     return DataSerializer<T>::serialize(value);
-  } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
+  } else if constexpr (IsProtobufMessage<T>::value) {
     // Packed into an Any so the bytes stay self-describing: the broker forwards
     // them opaquely, and the receiver's tryUnpack() can recover the type. The
     // frame is assembled by hand - PackFrom + SerializeAsString would serialize
@@ -195,7 +219,7 @@ bool decodePayload(const std::string& raw, T& out) {
     } catch (const std::exception&) {
       return false;
     }
-  } else if constexpr (std::is_base_of<google::protobuf::Message, T>::value) {
+  } else if constexpr (IsProtobufMessage<T>::value) {
     return tryUnpack(raw, out);
   } else if constexpr (std::is_same<T, std::string>::value) {
     out = raw;
@@ -301,16 +325,10 @@ public:
   // Detail::encodePayload.
   template <typename T, typename std::enable_if<!std::is_pointer<T>::value && !std::is_array<T>::value, int>::type = 0>
   static bool sendMessage(const std::string& key, const T& value) {
-    std::shared_ptr<ConnectionManager> self = getInstance();
-    if (!self) {
-      return false;
-    }
-    Envelope envelope;
-    envelope.header.set_handler_key(key);
-    envelope.header.set_sender_id(self->m_clientId);
-    envelope.header.set_topic(key);
-    envelope.payload = Detail::encodePayload(value);
-    return self->sendRawEnvelope(std::move(envelope));
+    // Encoded here (a template must be), then handed to the byte-level path -
+    // which addresses the envelope exactly as this used to. Keeping the
+    // envelope out of the header is what lets protobuf stay out of it too.
+    return sendData(key, Detail::encodePayload(value));
   }
 
   // The same, naming a reply topic; see the three-argument sendMessage above
@@ -416,13 +434,9 @@ public:
   // on by sendReplyEnvelope, which owns the thread-local request context.
   template <typename T, typename std::enable_if<!std::is_pointer<T>::value && !std::is_array<T>::value, int>::type = 0>
   static bool replyToSender(const T& value) {
-    std::shared_ptr<ConnectionManager> self = getInstance();
-    if (!self) {
-      return false;
-    }
-    Envelope reply;
-    reply.payload = Detail::encodePayload(value);
-    return self->sendReplyEnvelope(std::move(reply));
+    // Same split as the three-argument sendMessage: encode in the header,
+    // address the reply in one place in the implementation.
+    return replyToSenderEncoded(Detail::encodePayload(value));
   }
 
 private:
@@ -448,6 +462,13 @@ private:
      templated one has to encode in the header, but the rules belong in one
      place. Sink: call with std::move to avoid copying the payload. */
   static bool sendEncodedWithReply(const std::string& key, std::string payload, const std::string& replyTopic);
+
+  /* Send an already-encoded payload back to the sender of the message being
+     handled. Shared by the plain and templated replyToSender for the same
+     reason as sendEncodedWithReply above: the templated one has to encode in
+     the header, and the reply addressing belongs in one place. Sink: call with
+     std::move to avoid copying the payload. */
+  static bool replyToSenderEncoded(std::string payload);
   // Sink: call with std::move to send without copying the payload.
   bool sendRawEnvelope(Envelope envelope);
 
@@ -473,7 +494,9 @@ private:
 
   std::unique_ptr<WorkerInterface> m_pWorker;
 
-  SafeQueue<Envelope> m_queue;
+  // Held by pointer because Envelope is incomplete here; created in the
+  // constructor, where it is not.
+  std::unique_ptr<SafeQueue<Envelope>> m_queue;
   std::thread m_processingThread;
   std::atomic<bool> m_running;
   std::atomic<bool> m_connected;

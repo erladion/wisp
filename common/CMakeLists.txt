@@ -39,9 +39,11 @@ else()
     message(STATUS "protoc NOT found - using committed protobuf sources in ${PROTO_GEN_DIR}")
 endif()
 
-# The headers an out-of-tree C++ consumer needs. They include each other with
-# quoted paths, so installing them flat into one directory keeps those working
-# untouched - broker.pb.h lands there too, since wireframe.h includes it.
+# The client library's surface: what an out-of-tree consumer of Wisp::Core
+# needs, and nothing that drags a dependency in behind it. Between them these
+# reach neither zmq.hpp nor protobuf, so `find_package(Wisp)` plus Wisp::Core
+# needs no development headers for either. They include each other with quoted
+# paths, so installing them flat into one directory keeps those working.
 set(WISP_PUBLIC_HEADERS
     anyframe.h
     beacon.h
@@ -51,17 +53,18 @@ set(WISP_PUBLIC_HEADERS
     logger.h
     messagekeys.h
     safequeue.h
-    wireframe.h
-    workerinterface.h
 )
 
-# The ZMQ-facing headers, installed but deliberately not part of the client
-# library's surface above - nothing reachable from <wisp/connectionmanager.h>
-# includes them, so a consumer of Wisp::Core never compiles against zmq.hpp.
-# They ship because Wisp::Broker needs them: broker.h includes zmqworker.h and
-# exposes a zmq::context_t of its own, and anything driving a raw ZmqWorker
-# wants the same pair.
-set(WISP_TRANSPORT_HEADERS
+# The framing and transport headers: installed, but deliberately not part of
+# the surface above. Each one carries a dependency with it - wireframe.h a
+# broker::MessageHeader and so <broker.pb.h>, zmqframes.h and zmqworker.h a
+# <zmq.hpp> - and nothing reachable from <wisp/connectionmanager.h> includes
+# any of them. They ship because Wisp::Broker needs them (broker.h includes
+# both zmqworker.h and wireframe.h, and exposes a zmq::context_t of its own),
+# as does anything driving a raw ZmqWorker or reading an Envelope.
+set(WISP_INTERNAL_HEADERS
+    wireframe.h
+    workerinterface.h
     zmqframes.h
     zmqworker.h
 )
@@ -112,19 +115,17 @@ foreach (wispLib WispCore WispCoreShared)
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/wisp>
     )
-    # PRIVATE: none of the public headers above mention zmq, so a consumer of
-    # this library must not be made to find zmq.hpp. Linking still works - for
-    # a static library CMake keeps the dependency on the interface as
-    # $<LINK_ONLY:>, so -lzmq still reaches the final link, just without the
-    # include directories. Targets that do include zmqframes.h, zmqworker.h or
-    # broker.h ask for wisp_cppzmq themselves (server/, cli/, inspector/,
-    # tests/). protobuf stays PUBLIC: connectionmanager.h includes it.
-    target_link_libraries(${wispLib}
-        PRIVATE
-            zmq
-            wisp_cppzmq
-        PUBLIC
-            protobuf::libprotobuf
+    # All PRIVATE: none of the public headers above mention zmq or protobuf, so
+    # a consumer of this library must not be made to find zmq.hpp or the
+    # protobuf headers. Linking still works - for a static library CMake keeps
+    # the dependency on the interface as $<LINK_ONLY:>, so -lzmq and
+    # -lprotobuf still reach the final link, just without the include
+    # directories. Targets that do include the internal headers above ask for
+    # these themselves (server/, cli/, inspector/, tests/).
+    target_link_libraries(${wispLib} PRIVATE
+        zmq
+        wisp_cppzmq
+        protobuf::libprotobuf
     )
 endforeach()
 
@@ -149,7 +150,7 @@ install(TARGETS WispCore WispCoreShared
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 install(FILES ${WISP_PUBLIC_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
-install(FILES ${WISP_TRANSPORT_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
+install(FILES ${WISP_INTERNAL_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
 # Generated (or committed, when protoc is absent), so it is not in the list above.
 install(FILES ${PROTO_GENERATED_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wisp)
 
